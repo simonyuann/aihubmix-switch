@@ -31,6 +31,9 @@ function createWindow(): void {
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
   })
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) mainWindow.show()
+  }, 3000)
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {

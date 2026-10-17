@@ -49,6 +49,21 @@ function read(file: string): string {
   return fs.readFileSync(file, 'utf8')
 }
 
+describe('key change detection', () => {
+  it('marks all adapters as not connected when the key changes', async () => {
+    claudeAdapter.apply(ctx, { model: 'gpt-5.6-luna', models: MODELS })
+    codexAdapter.apply(ctx, { model: 'gpt-5.6-luna', models: MODELS })
+    piAdapter.apply(ctx, { model: 'gpt-5.6-luna', models: MODELS })
+    opencodeAdapter.apply(ctx, { model: 'gpt-5.6-luna', models: MODELS })
+
+    const other = { ...ctx, apiKey: 'sk-different-key-000000' }
+    expect((await claudeAdapter.status(other)).connected).toBe(false)
+    expect((await codexAdapter.status(other)).connected).toBe(false)
+    expect((await piAdapter.status(other)).connected).toBe(false)
+    expect((await opencodeAdapter.status(other)).connected).toBe(false)
+  })
+})
+
 describe('url helpers', () => {
   it('normalizes base urls', () => {
     expect(normalizeBaseUrl('csmy.fun:23457/')).toBe(BASE)

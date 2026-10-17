@@ -243,6 +243,7 @@ export function registerIpc(): void {
 
   register('key:clear', async () => {
     store.clearApiKey()
+    agentCache = null
     cachedModels = []
     cachedBalance = null
     cachedRateMultiplier = null
@@ -347,6 +348,7 @@ export function registerIpc(): void {
     if (!Number.isFinite(groupId) || groupId <= 0) throw new Error('请选择分组')
     const created = await account.createKey(groupId, input.name)
     store.setApiKey(created.key)
+    agentCache = null
     await refreshRelay()
     return { key: created.key, info: created.info, state: await buildState() }
   })
@@ -358,6 +360,7 @@ export function registerIpc(): void {
     const probe = await probeRelay(store.relayBaseUrl, key)
     if (!probe.ok) throw new Error(probe.error || '这个 Key 不可用')
     store.setApiKey(key)
+    agentCache = null
     cachedModels = probe.models
     cachedBalance = probe.balance
     cachedRateMultiplier = probe.rateMultiplier

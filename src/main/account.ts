@@ -1,6 +1,5 @@
 import type { AccountState, AccountAuthInput, ApiKeyInfo, GroupInfo } from '../shared/types'
-import { apiV1 } from './relay'
-import { httpJson } from './relay'
+import { apiV1, httpJson } from './relay'
 import { keyPreview } from '../shared/url'
 import type { Store } from './store'
 

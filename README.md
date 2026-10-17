@@ -28,9 +28,13 @@
 - OpenAI 兼容：`https://csmy.fun:23457/v1`
 - Anthropic 兼容：`https://csmy.fun:23457`（Claude Code 自己拼 `/v1/messages`）
 
-## 重要说明
+## 重要说明 / 已知限制
 
-- **Claude Code 需要平台分组开启 `allow_messages_dispatch`**。当前 openai/deepseek 分组默认未开启时，客户端会显示「Claude Code 未开启」并禁止写入，避免产生无法工作的配置。
+- **Claude Code 需要平台分组开启 `allow_messages_dispatch`**。当前 openai/deepseek 分组默认未开启时，客户端会显示「Claude Code 未开启」并禁止写入，避免产生无法工作的配置。开启后重新点击「刷新」即可检测到。
+- **分组可见性由平台控制**。新用户默认可见的公开分组以 `/api/v1/groups/available` 返回为准；如果 GLM 等分组是专属分组，需要管理员授权后才显示。
+- **Windows 安装包未签名**，首次运行可能出现 SmartScreen 提示；便携版同样可能被拦截，选择「仍要运行」即可。
+- 暂不构建 macOS 版本，也暂未实现自动更新。
+- 更换 Key 后，已写入的 Agent 配置不会自动更新，客户端会把卡片标记为「未接入」，重新点击接入即可。
 - Codex 使用 `wire_api = "responses"`；如遇服务端不支持，可在设置里切换为 `chat`。
 - Pi 默认使用 `openai-responses`；如遇兼容问题，可在设置里切换为 `openai-completions`。
 - 备份目录：`%APPDATA%/aihubmix-switch/backups/<agent>/<时间戳>/`

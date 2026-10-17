@@ -1,5 +1,4 @@
 import path from 'node:path'
-import fs from 'node:fs'
 import { parse } from 'smol-toml'
 import type { AgentAdapter, AgentContext, ApplyOptions, ApplyResult } from './types'
 import { normalizeBaseUrl, openaiBaseUrl } from '../../shared/url'
@@ -135,7 +134,7 @@ export const codexAdapter: AgentAdapter = {
         }
       }
       const auth = readAuth(authPath(ctx))
-      const hasKey = typeof auth.OPENAI_API_KEY === 'string' && auth.OPENAI_API_KEY.length > 0
+      const hasKey = auth.OPENAI_API_KEY === ctx.apiKey
       const providerId = typeof doc.model_provider === 'string' ? doc.model_provider : ''
       return {
         configPath: file,
@@ -162,11 +161,13 @@ export const codexAdapter: AgentAdapter = {
       try {
         const doc = parse(current) as Record<string, any>
         const provider = doc.model_providers?.csmy
+        const authData = readAuth(auth)
         alreadyConnected =
           doc.model_provider === PROVIDER_ID &&
           Boolean(provider) &&
           typeof provider.base_url === 'string' &&
-          normalizeBaseUrl(provider.base_url) === normalizeBaseUrl(ctx.baseUrl)
+          normalizeBaseUrl(provider.base_url) === normalizeBaseUrl(ctx.baseUrl) &&
+          authData.OPENAI_API_KEY === ctx.apiKey
       } catch {
         alreadyConnected = false
       }
@@ -196,7 +197,7 @@ export const codexAdapter: AgentAdapter = {
     return {
       configPath: file,
       backupId: backup.id,
-      message: 'Codex 配置已更新（已写入 config.toml 与 auth.json）'
+      message: 'Codex 配置已更新（config.toml + auth.json），重启 Codex 后生效'
     }
   },
 

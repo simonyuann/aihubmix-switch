@@ -57,7 +57,7 @@ export const claudeAdapter: AgentAdapter = {
       }
       return {
         configPath: file,
-        connected: Boolean(token) && baseMatches,
+        connected: Boolean(token) && baseMatches && token === ctx.apiKey,
         appliedModel: typeof env.ANTHROPIC_MODEL === 'string' ? env.ANTHROPIC_MODEL : null
       }
     } catch (error) {
@@ -100,7 +100,8 @@ export const claudeAdapter: AgentAdapter = {
       alreadyConnected =
         Boolean(currentBase) &&
         normalizeBaseUrl(currentBase) === normalizeBaseUrl(ctx.baseUrl) &&
-        Boolean(currentEnv.ANTHROPIC_AUTH_TOKEN || currentEnv.ANTHROPIC_API_KEY)
+        (currentEnv.ANTHROPIC_AUTH_TOKEN === ctx.apiKey ||
+          currentEnv.ANTHROPIC_API_KEY === ctx.apiKey)
     } catch {
       alreadyConnected = false
     }
@@ -124,7 +125,7 @@ export const claudeAdapter: AgentAdapter = {
     return {
       configPath: file,
       backupId: backup.id,
-      message: exists(file) ? 'Claude Code 配置已更新' : 'Claude Code 配置已创建'
+      message: exists(file) ? 'Claude Code 配置已更新，重启 Claude Code 后生效' : 'Claude Code 配置已创建，启动后生效'
     }
   },
 

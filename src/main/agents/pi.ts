@@ -4,14 +4,7 @@ import type { AgentAdapter, AgentContext, ApplyOptions, ApplyResult } from './ty
 import { normalizeBaseUrl, openaiBaseUrl, isSelectableModel } from '../../shared/url'
 import { PROVIDER_ID, PROVIDER_NAME } from '../../shared/constants'
 import { createBackup, latestBackup, restoreBackup, saveBackupMeta } from './backup'
-import {
-  exists,
-  parseJson,
-  readText,
-  removeFile,
-  stringifyJson,
-  writeTextAtomic
-} from './fs-utils'
+import { parseJson, readText, stringifyJson, writeTextAtomic } from './fs-utils'
 
 interface PiModels {
   providers?: Record<string, Record<string, unknown>>
@@ -113,7 +106,7 @@ export const piAdapter: AgentAdapter = {
       }
       return {
         configPath: modelsFile,
-        connected: Boolean(provider) && baseMatches,
+        connected: Boolean(provider) && baseMatches && provider?.apiKey === ctx.apiKey,
         appliedModel:
           settings.defaultProvider === PROVIDER_ID && typeof settings.defaultModel === 'string'
             ? settings.defaultModel
@@ -152,7 +145,8 @@ export const piAdapter: AgentAdapter = {
     if (currentProvider && typeof currentProvider.baseUrl === 'string') {
       try {
         alreadyConnected =
-          normalizeBaseUrl(currentProvider.baseUrl) === normalizeBaseUrl(ctx.baseUrl)
+          normalizeBaseUrl(currentProvider.baseUrl) === normalizeBaseUrl(ctx.baseUrl) &&
+          currentProvider.apiKey === ctx.apiKey
       } catch {
         alreadyConnected = false
       }
@@ -194,7 +188,7 @@ export const piAdapter: AgentAdapter = {
     return {
       configPath: modelsFile,
       backupId: backup.id,
-      message: 'Pi 配置已更新（models.json + settings.json）'
+      message: 'Pi 配置已更新（models.json + settings.json），重启 Pi 后生效'
     }
   },
 

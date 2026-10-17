@@ -97,7 +97,7 @@ export const opencodeAdapter: AgentAdapter = {
       const selected = typeof value.model === 'string' ? value.model : ''
       return {
         configPath: file,
-        connected: Boolean(provider) && baseMatches,
+        connected: Boolean(provider) && baseMatches && options.apiKey === ctx.apiKey,
         appliedModel: selected.startsWith(`${PROVIDER_ID}/`)
           ? selected.slice(PROVIDER_ID.length + 1)
           : null
@@ -128,7 +128,8 @@ export const opencodeAdapter: AgentAdapter = {
     if (typeof currentOptions.baseURL === 'string') {
       try {
         alreadyConnected =
-          normalizeBaseUrl(currentOptions.baseURL) === normalizeBaseUrl(ctx.baseUrl)
+          normalizeBaseUrl(currentOptions.baseURL) === normalizeBaseUrl(ctx.baseUrl) &&
+          currentOptions.apiKey === ctx.apiKey
       } catch {
         alreadyConnected = false
       }
@@ -173,7 +174,7 @@ export const opencodeAdapter: AgentAdapter = {
     return {
       configPath: file,
       backupId: backup.id,
-      message: 'OpenCode 配置已更新'
+      message: 'OpenCode 配置已更新，重启 OpenCode 后生效'
     }
   },
 
