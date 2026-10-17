@@ -1,0 +1,32 @@
+appId: fun.csmy.aihubmix-switch
+productName: AIHubMix Switch
+copyright: Copyright © 2026 AIHubMix
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - build/icon.png
+  - package.json
+asar: true
+compression: maximum
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: build/icon.png
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AIHubMix Switch
+  deleteAppDataOnUninstall: false
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
