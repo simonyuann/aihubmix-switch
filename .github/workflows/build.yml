@@ -36,7 +36,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Package Windows app
-        run: npx electron-builder --win
+        run: npx electron-builder --win --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Upload artifacts
