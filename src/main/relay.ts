@@ -107,10 +107,17 @@ export function mergeManifest(models: RelayModel[], payload: unknown): RelayMode
     const levels = Array.isArray(record.supported_reasoning_levels)
       ? record.supported_reasoning_levels
       : []
-    const reasoning = levels.some((level) => {
-      const effort = (level as Record<string, unknown> | null)?.effort
-      return typeof effort === 'string' && effort !== 'none'
-    })
+    const reasoningLevels = levels
+      .map((level) => {
+        const effort = (level as Record<string, unknown> | null)?.effort
+        return typeof effort === 'string' ? effort : ''
+      })
+      .filter(Boolean)
+    const reasoning = reasoningLevels.some((effort) => effort !== 'none')
+    const defaultReasoningLevel =
+      typeof record.default_reasoning_level === 'string' && record.default_reasoning_level
+        ? record.default_reasoning_level
+        : undefined
     const input = Array.isArray(record.input_modalities)
       ? record.input_modalities.filter((value): value is string => typeof value === 'string')
       : undefined
@@ -121,6 +128,8 @@ export function mergeManifest(models: RelayModel[], payload: unknown): RelayMode
       contextWindow,
       maxTokens: contextWindow ? Math.min(128000, Math.floor(contextWindow / 2)) : undefined,
       reasoning,
+      ...(reasoningLevels.length ? { reasoningLevels } : {}),
+      ...(defaultReasoningLevel ? { defaultReasoningLevel } : {}),
       input
     }
   })

@@ -1,6 +1,6 @@
 {
   "name": "aihubmix-switch",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AIHubMix 接入助手：一个 API Key，一键接入 Codex、Pi、OpenCode、Claude Code",
   "main": "./out/main/index.js",
   "author": "AIHubMix",

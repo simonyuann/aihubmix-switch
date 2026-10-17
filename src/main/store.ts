@@ -2,7 +2,7 @@ import { app, safeStorage } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { AgentId, AgentOptions, SiteInfo } from '../shared/types'
-import { DEFAULT_BASE_URL, DEFAULT_DOC_URL } from '../shared/constants'
+import { DEFAULT_BASE_URL, DEFAULT_CODEX_EFFORT, DEFAULT_DOC_URL } from '../shared/constants'
 import { normalizeBaseUrl } from '../shared/url'
 
 export interface AccountSession {
@@ -32,7 +32,8 @@ export interface PersistedState {
 
 const DEFAULT_OPTIONS: AgentOptions = {
   piApi: 'openai-responses',
-  codexWireApi: 'responses'
+  codexWireApi: 'responses',
+  codexReasoningEffort: DEFAULT_CODEX_EFFORT
 }
 
 function defaultState(): PersistedState {

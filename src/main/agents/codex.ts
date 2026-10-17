@@ -2,7 +2,7 @@ import path from 'node:path'
 import { parse } from 'smol-toml'
 import type { AgentAdapter, AgentContext, ApplyOptions, ApplyResult } from './types'
 import { normalizeBaseUrl, openaiBaseUrl } from '../../shared/url'
-import { PROVIDER_ID, PROVIDER_NAME } from '../../shared/constants'
+import { CODEX_EFFORT_LABELS, PROVIDER_ID, PROVIDER_NAME } from '../../shared/constants'
 import { createBackup, latestBackup, restoreBackup } from './backup'
 import {
   ensureDir,
@@ -73,6 +73,17 @@ function ensureTopLevel(text: string, key: string, value: string): string {
   return upsertTopLevel(text, [[key, value]])
 }
 
+function removeTopLevel(text: string, key: string): string {
+  const eol = text.includes('\r\n') ? '\r\n' : '\n'
+  const lines = text.split(/\r?\n/)
+  const { pre, headerIndex } = splitTopLevel(lines)
+  const pattern = new RegExp(`^\\s*${key}\\s*=`)
+  const nextPre = pre.filter((line) => !pattern.test(line))
+  const rest = headerIndex === -1 ? [] : lines.slice(headerIndex)
+  const output = [...nextPre, ...(rest.length ? ['', ...rest] : [])].join(eol)
+  return output.endsWith(eol) ? output : `${output}${eol}`
+}
+
 function removeProviderSection(text: string): string {
   const eol = text.includes('\r\n') ? '\r\n' : '\n'
   const lines = text.split(/\r?\n/)
@@ -139,7 +150,9 @@ export const codexAdapter: AgentAdapter = {
       return {
         configPath: file,
         connected: providerId === PROVIDER_ID && Boolean(provider) && baseMatches && hasKey,
-        appliedModel: typeof doc.model === 'string' ? doc.model : null
+        appliedModel: typeof doc.model === 'string' ? doc.model : null,
+        appliedEffort:
+          typeof doc.model_reasoning_effort === 'string' ? doc.model_reasoning_effort : null
       }
     } catch (error) {
       return {
@@ -174,6 +187,7 @@ export const codexAdapter: AgentAdapter = {
     }
     const latest = latestBackup(ctx, 'codex')
     const backup = alreadyConnected && latest ? latest : createBackup(ctx, 'codex', [file, auth])
+    let effortNote = ''
 
     try {
       let next = removeProviderSection(current)
@@ -181,7 +195,32 @@ export const codexAdapter: AgentAdapter = {
         ['model_provider', tomlString(PROVIDER_ID)],
         ['model', tomlString(input.model)]
       ])
-      next = ensureTopLevel(next, 'model_reasoning_effort', tomlString('medium'))
+      const selected = input.models.find((model) => model.id === input.model)
+      const levels = selected?.reasoningLevels || []
+      let effort = ctx.options.codexReasoningEffort || 'auto'
+      if (
+        effort !== 'auto' &&
+        ((selected && selected.reasoning === false) ||
+          (levels.length > 0 && !levels.includes(effort)))
+      ) {
+        const fallback =
+          selected?.reasoning === false
+            ? 'auto'
+            : levels.includes('medium')
+              ? 'medium'
+              : selected?.defaultReasoningLevel && levels.includes(selected.defaultReasoningLevel)
+                ? selected.defaultReasoningLevel
+                : 'auto'
+        effort = fallback
+        effortNote = `；当前模型不支持所选思考强度，已改为${
+          CODEX_EFFORT_LABELS[fallback] || fallback
+        }`
+      }
+      if (effort === 'auto') {
+        next = removeTopLevel(next, 'model_reasoning_effort')
+      } else {
+        next = upsertTopLevel(next, [['model_reasoning_effort', tomlString(effort)]])
+      }
       next = appendProviderSection(next, ctx)
       parse(next)
 
@@ -197,7 +236,7 @@ export const codexAdapter: AgentAdapter = {
     return {
       configPath: file,
       backupId: backup.id,
-      message: 'Codex 配置已更新（config.toml + auth.json），重启 Codex 后生效'
+      message: `Codex 配置已更新（config.toml + auth.json），重启 Codex 后生效${effortNote}`
     }
   },
 

@@ -8,6 +8,31 @@ export const PROVIDER_NAME = 'AIHubMix'
 
 export const AGENT_ORDER: AgentId[] = ['claude', 'codex', 'pi', 'opencode']
 
+export const DEFAULT_CODEX_EFFORT = 'medium'
+
+export const CODEX_EFFORTS = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra'
+] as const
+
+export const CODEX_EFFORT_LABELS: Record<string, string> = {
+  auto: '自动（不写入配置）',
+  none: '关闭',
+  minimal: '极低',
+  low: '低',
+  medium: '中',
+  high: '高',
+  xhigh: '极高',
+  max: '最大',
+  ultra: '极限'
+}
+
 export const AGENTS: Record<AgentId, AgentMeta> = {
   claude: {
     id: 'claude',

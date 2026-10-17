@@ -16,6 +16,8 @@ export interface RelayModel {
   contextWindow?: number
   maxTokens?: number
   reasoning?: boolean
+  reasoningLevels?: string[]
+  defaultReasoningLevel?: string
   input?: string[]
 }
 
@@ -76,6 +78,7 @@ export interface AgentState {
   configPath: string
   connected: boolean
   appliedModel: string | null
+  appliedEffort?: string | null
   backupAvailable: boolean
   error?: string
 }
@@ -83,6 +86,8 @@ export interface AgentState {
 export interface AgentOptions {
   piApi: 'openai-responses' | 'openai-completions'
   codexWireApi: 'responses' | 'chat'
+  /** auto = 不写 model_reasoning_effort，交给 Codex 自己决定 */
+  codexReasoningEffort: string
 }
 
 export interface AppState {

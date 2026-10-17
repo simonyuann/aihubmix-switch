@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentId, AppState, RelayProbe } from '../../shared/types'
-import { AGENTS, AGENT_ORDER } from '../../shared/constants'
+import { AGENTS, AGENT_ORDER, CODEX_EFFORT_LABELS } from '../../shared/constants'
 import { KeyCard } from './components/KeyCard'
 import { AgentCard } from './components/AgentCard'
 import { AccountModal } from './components/AccountModal'
@@ -220,6 +220,32 @@ export default function App() {
     }
   }
 
+  async function handleCodexEffortChange(effort: string) {
+    if (!state) return
+    try {
+      const next = await window.api.updateOptions({ codexReasoningEffort: effort })
+      setState(next)
+      const label = CODEX_EFFORT_LABELS[effort] || effort
+      const codex = next.agents.find((agent) => agent.id === 'codex')
+      if (codex?.connected && next.agentModels.codex) {
+        setBusy('apply:codex')
+        try {
+          await window.api.applyAgent({ agent: 'codex', model: next.agentModels.codex })
+          await reload()
+          notify(`Codex 思考强度已更新：${label}`)
+        } catch (error) {
+          notify(error instanceof Error ? error.message : String(error), 'error')
+        } finally {
+          setBusy(null)
+        }
+      } else {
+        notify(`已保存思考强度：${label}，点击「接入」后生效`)
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), 'error')
+    }
+  }
+
   async function handleModelChange(agent: AgentId, model: string) {
     if (!state) return
     setState({
@@ -271,6 +297,10 @@ export default function App() {
 
   const installed = state.agents.filter((agent) => agent.installed).length
   const connected = state.agents.filter((agent) => agent.connected).length
+  const codexModel = state.models.find((model) => model.id === state.agentModels.codex)
+  const codexEfforts = codexModel?.reasoningLevels?.length
+    ? codexModel.reasoningLevels
+    : ['low', 'medium', 'high', 'xhigh']
 
   return (
     <div className="app">
@@ -353,6 +383,10 @@ export default function App() {
                   model={state.agentModels[agent] || ''}
                   messages={state.messages}
                   busy={busy}
+                  effort={state.options.codexReasoningEffort}
+                  appliedEffort={state.agents.find((item) => item.id === 'codex')?.appliedEffort}
+                  efforts={codexEfforts}
+                  onEffortChange={handleCodexEffortChange}
                   onApply={() => handleApply(agent)}
                   onRestore={() => handleRestore(agent)}
                   onModelChange={(model) => handleModelChange(agent, model)}

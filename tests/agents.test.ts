@@ -32,7 +32,11 @@ beforeEach(() => {
     platform: 'linux',
     baseUrl: BASE,
     apiKey: KEY,
-    options: { piApi: 'openai-responses', codexWireApi: 'responses' }
+    options: {
+      piApi: 'openai-responses',
+      codexWireApi: 'responses',
+      codexReasoningEffort: 'auto'
+    }
   }
 })
 
@@ -168,6 +172,7 @@ trust_level = "trusted"
     write(file, original)
     write(auth, JSON.stringify({ OPENAI_API_KEY: 'old-key', other: 1 }))
 
+    ctx.options.codexReasoningEffort = 'high'
     codexAdapter.apply(ctx, { model: 'gpt-5.6-luna', models: MODELS })
 
     const text = read(file)
@@ -175,7 +180,7 @@ trust_level = "trusted"
     expect(text).toContain('[projects."/home/simon"]')
     expect(text).toContain('model_provider = "csmy"')
     expect(text).toContain('model = "gpt-5.6-luna"')
-    expect(text).toContain('model_reasoning_effort = "medium"')
+    expect(text).toContain('model_reasoning_effort = "high"')
     expect(text).toContain('[model_providers.csmy]')
     expect(text).toContain(`base_url = "${BASE}/v1"`)
 
@@ -194,6 +199,15 @@ trust_level = "trusted"
     codexAdapter.restore(ctx)
     expect(read(file)).toBe(original)
     expect(JSON.parse(read(auth))).toEqual({ OPENAI_API_KEY: 'old-key', other: 1 })
+  })
+
+  it('leaves reasoning effort to Codex in auto mode', () => {
+    const file = path.join(home, '.codex', 'config.toml')
+    write(file, 'model_reasoning_effort = "xhigh"\nmodel = "old"\n')
+    codexAdapter.apply(ctx, { model: 'gpt-5.6-luna', models: MODELS })
+    expect(read(file)).not.toContain('model_reasoning_effort')
+    codexAdapter.restore(ctx)
+    expect(read(file)).toContain('model_reasoning_effort = "xhigh"')
   })
 
   it('keeps the original restore point after applying twice', () => {

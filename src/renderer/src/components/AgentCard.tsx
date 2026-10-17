@@ -1,5 +1,6 @@
 import type { AgentMeta, AgentState, MessageCapability, RelayModel } from '../../../shared/types'
 import { isSelectableModel } from '../../../shared/url'
+import { CODEX_EFFORT_LABELS } from '../../../shared/constants'
 import { CheckIcon, CopyIcon, FolderIcon, LoaderIcon, TerminalIcon } from './Icons'
 
 interface Props {
@@ -9,6 +10,10 @@ interface Props {
   model: string
   messages: MessageCapability
   busy: string | null
+  effort?: string
+  appliedEffort?: string | null
+  efforts?: string[]
+  onEffortChange?: (effort: string) => void
   onApply: () => void
   onRestore: () => void
   onModelChange: (model: string) => void
@@ -23,6 +28,10 @@ export function AgentCard({
   model,
   messages,
   busy,
+  effort = 'auto',
+  appliedEffort = null,
+  efforts = [],
+  onEffortChange,
   onApply,
   onRestore,
   onModelChange,
@@ -88,6 +97,40 @@ export function AgentCard({
             ))}
           </select>
         </div>
+
+        {meta.id === 'codex' ? (
+          <>
+            <label className="field-label effort-label">思考强度</label>
+            <div className="select-wrap">
+              <select
+                aria-label="Codex 思考强度"
+                value={effort}
+                onChange={(event) => onEffortChange?.(event.target.value)}
+                disabled={disabled}
+                title="自动表示不固定思考强度，交给 Codex 自己决定"
+              >
+                <option value="auto">{CODEX_EFFORT_LABELS.auto}</option>
+                {effort !== 'auto' && !efforts.includes(effort) ? (
+                  <option value={effort}>{CODEX_EFFORT_LABELS[effort] || effort}（{effort}）</option>
+                ) : null}
+                {efforts.map((item) => (
+                  <option key={item} value={item}>
+                    {CODEX_EFFORT_LABELS[item] || item}（{item}）
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="field-hint">
+              {state.connected
+                ? `当前配置：${
+                    appliedEffort
+                      ? CODEX_EFFORT_LABELS[appliedEffort] || appliedEffort
+                      : '自动'
+                  }`
+                : '接入后写入 Codex 配置'}
+            </p>
+          </>
+        ) : null}
 
         <button className="path-row" onClick={onOpenConfig} title="打开配置目录">
           <FolderIcon size={13} />

@@ -18,7 +18,7 @@ import type {
   SaveKeyInput,
   TestRelayInput
 } from '../shared/types'
-import { AGENT_ORDER } from '../shared/constants'
+import { AGENT_ORDER, CODEX_EFFORTS } from '../shared/constants'
 import { isSelectableModel, keyPreview, normalizeBaseUrl } from '../shared/url'
 import { Store } from './store'
 import { AccountService } from './account'
@@ -209,6 +209,13 @@ function validateOptions(patch: Partial<AgentOptions>): Partial<AgentOptions> {
       throw new Error('Codex 接口格式不正确')
     }
     result.codexWireApi = patch.codexWireApi
+  }
+  if (patch.codexReasoningEffort !== undefined) {
+    const effort = String(patch.codexReasoningEffort)
+    if (effort !== 'auto' && !(CODEX_EFFORTS as readonly string[]).includes(effort)) {
+      throw new Error('Codex 思考强度不正确')
+    }
+    result.codexReasoningEffort = effort
   }
   return result
 }

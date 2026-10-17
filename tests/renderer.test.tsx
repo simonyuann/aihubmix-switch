@@ -46,6 +46,7 @@ const state: AppState = {
       configPath: '/home/user/.codex/config.toml',
       connected: true,
       appliedModel: 'gpt-5.6-luna',
+      appliedEffort: 'high',
       backupAvailable: true
     },
     {
@@ -73,7 +74,11 @@ const state: AppState = {
     pi: 'gpt-5.6-luna',
     opencode: 'gpt-5.6-luna'
   },
-  options: { piApi: 'openai-responses', codexWireApi: 'responses' }
+  options: {
+    piApi: 'openai-responses',
+    codexWireApi: 'responses',
+    codexReasoningEffort: 'high'
+  }
 }
 
 const groups: GroupInfo[] = [
@@ -130,6 +135,9 @@ describe('renderer smoke tests', () => {
     expect(screen.getByText('Codex CLI')).toBeTruthy()
     expect(screen.getByText('OpenCode')).toBeTruthy()
     expect(screen.getByText('已接入 1')).toBeTruthy()
+    const effort = screen.getByLabelText('Codex 思考强度') as HTMLSelectElement
+    expect(effort.value).toBe('high')
+    expect(screen.getByText('自动（不写入配置）')).toBeTruthy()
     expect(screen.getByText('当前 Key 所属分组未开启 /v1/messages 调度。请在平台后台开启 allow_messages_dispatch，或改用 Anthropic 分组后再接入 Claude Code。')).toBeTruthy()
   })
 

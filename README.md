@@ -36,6 +36,7 @@
 - 暂不构建 macOS 版本，也暂未实现自动更新。
 - 更换 Key 后，已写入的 Agent 配置不会自动更新，客户端会把卡片标记为「未接入」，重新点击接入即可。
 - Codex 使用 `wire_api = "responses"`；如遇服务端不支持，可在设置里切换为 `chat`。
+- **Codex 思考强度**可在 Codex 卡片里选择：`自动（不写入配置）`、关闭、极低、低、中、高、极高、最大、极限。默认 `中`；选择「自动」时不会写入 `model_reasoning_effort`，由 Codex 自己决定。旧版本曾保留你配置文件里原有的 `xhigh`，新版本会按选择器写入。
 - Pi 默认使用 `openai-responses`；如遇兼容问题，可在设置里切换为 `openai-completions`。
 - 备份目录：`%APPDATA%/aihubmix-switch/backups/<agent>/<时间戳>/`
 - API Key 使用 Electron `safeStorage`（Windows DPAPI）加密保存在本机；写入 Agent 配置时才会出现在对应配置文件中。
