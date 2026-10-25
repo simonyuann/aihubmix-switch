@@ -266,7 +266,7 @@ pub async fn verify(
     effort: Option<&str>,
 ) -> Result<()> {
     let outcome = async {
-        let mut body = json!({"model":route.model,"max_tokens":512,"stream":true,"messages":[{"role":"user","content":"Call connection_check with ok=true. This is a connection test."}],"tools":[{"name":"connection_check","description":"Confirm the connection. Does not execute any real action.","input_schema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}}],"tool_choice":{"type":"tool","name":"connection_check"}});
+        let mut body = json!({"model":route.model,"max_tokens":if route.model.to_ascii_lowercase().contains("deepseek") {2048} else {512},"stream":true,"messages":[{"role":"user","content":"Call connection_check with ok=true. This is a connection test."}],"tools":[{"name":"connection_check","description":"Confirm the connection. Does not execute any real action.","input_schema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}}],"tool_choice":{"type":"auto"}});
         let (blocks, actual_wire) = turn(client,key,route,&body,wire,effort).await?;
         let tool = blocks.iter().find(|b|b["type"]=="tool_use" && b["name"]=="connection_check" && b["id"].as_str().is_some_and(|id|!id.is_empty()) && b["input"]["ok"]==true).ok_or("所选模型未完成工具调用验证，请更换模型或接口格式")?;
         let id = tool["id"].clone();
@@ -299,7 +299,10 @@ mod tests {
     };
     use axum::{
         http::{HeaderMap, StatusCode},
-        response::sse::{Event, Sse},
+        response::{
+            sse::{Event, Sse},
+            IntoResponse,
+        },
         routing::{get, post},
         Json, Router,
     };
@@ -345,6 +348,62 @@ mod tests {
                 json!({"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"OK"}),
                 json!({"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":1}}}),
             ]
+        }
+    }
+    #[tokio::test]
+    async fn deepseek_thinking_accepts_auto_and_requires_reasoning_on_tool_result() {
+        for chat in [false, true] {
+            let count = Arc::new(AtomicUsize::new(0));
+            let called = count.clone();
+            let (base, task) = mock(Router::new().route(
+                if chat { "/v1/chat/completions" } else { "/v1/responses" },
+                post(move |Json(body): Json<Value>| {
+                    let called = called.clone();
+                    async move {
+                        if body["tool_choice"] != "auto" {
+                            return (StatusCode::BAD_REQUEST, Json(json!({"message":"Thinking mode does not support this tool_choice"}))).into_response();
+                        }
+                        let first = called.fetch_add(1, Ordering::SeqCst) == 0;
+                        let reasoning = "Use the connection test tool.";
+                        if !first {
+                            let preserved = if chat {
+                                body["messages"].as_array().unwrap().iter().any(|v| v["role"] == "assistant" && v["reasoning_content"] == reasoning && !v["content"].is_null() && v["tool_calls"][0]["id"] == "call_check")
+                            } else {
+                                body["input"].as_array().unwrap().iter().any(|v| v["type"] == "reasoning" && v["content"][0]["text"] == reasoning)
+                            };
+                            if !preserved {
+                                return (StatusCode::BAD_REQUEST, Json(json!({"message":"Missing reasoning_content in assistant tool call"}))).into_response();
+                            }
+                        }
+                        let values = if chat {
+                            if first {
+                                vec![json!({"choices":[{"delta":{"reasoning_content":"Use the "}}]}),json!({"choices":[{"delta":{"reasoning_content":"connection test tool.","tool_calls":[{"index":0,"id":"call_check","function":{"name":"connection_check","arguments":"{\"ok\":true}"}}]},"finish_reason":"tool_calls"}]})]
+                            } else {
+                                vec![json!({"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]})]
+                            }
+                        } else if first {
+                            vec![json!({"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_check","content":[]}}),json!({"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_check","content":[{"type":"reasoning_text","text":reasoning}]}}),json!({"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","call_id":"call_check","name":"connection_check","arguments":"{\"ok\":true}"}}),json!({"type":"response.completed","response":{"usage":{"output_tokens":20}}})]
+                        } else {
+                            complete(false)
+                        };
+                        events(values).into_response()
+                    }
+                }),
+            )).await;
+            let mut selected = route(base);
+            selected.model = "deepseek-flash".into();
+            selected.reasoning = true;
+            verify(
+                &Client::new(),
+                "mock-key",
+                &selected,
+                if chat { Wire::Chat } else { Wire::Responses },
+                None,
+            )
+            .await
+            .unwrap();
+            assert_eq!(count.load(Ordering::SeqCst), 2);
+            task.abort();
         }
     }
     #[tokio::test]

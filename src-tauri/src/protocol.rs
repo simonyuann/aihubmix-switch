@@ -15,7 +15,26 @@ fn saved_reasoning(block: &Value) -> Option<Value> {
         .as_str()?
         .strip_prefix("aihubmix-reasoning-v1:")?;
     let value: Value = serde_json::from_slice(&STANDARD.decode(signature).ok()?).ok()?;
-    (value["type"] == "reasoning" && value["encrypted_content"].is_string()).then_some(value)
+    replayable_reasoning(&value).then_some(value)
+}
+fn reasoning_text(value: &Value) -> String {
+    if let Some(text) = value["content"].as_str() {
+        return text.to_owned();
+    }
+    value["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|v| v["type"] == "reasoning_text")
+        .filter_map(|v| v["text"].as_str())
+        .collect()
+}
+fn replayable_reasoning(value: &Value) -> bool {
+    value["type"] == "reasoning"
+        && (value["encrypted_content"].is_string() || !reasoning_text(value).is_empty())
+}
+fn text_reasoning(text: &str) -> Value {
+    json!({"type":"reasoning","content":[{"type":"reasoning_text","text":text}]})
 }
 fn parts(value: &Value) -> Result<Vec<Value>> {
     if let Some(text) = value.as_str() {
@@ -190,12 +209,27 @@ pub fn responses_request(body: &Value, route: &ClaudeRoute, stream: bool) -> Res
 pub fn chat_request(body: &Value, route: &ClaudeRoute, stream: bool) -> Result<Value> {
     let response = responses_request(body, route, stream)?;
     let mut messages = Vec::<Value>::new();
+    let mut reasoning_pending = false;
     if let Some(system) = response["instructions"].as_str() {
         messages.push(json!({"role":"system","content":system}));
     }
     for item in response["input"].as_array().ok_or("缺少转换后的消息")? {
         match item["type"].as_str().unwrap_or_default() {
-            "reasoning" => continue,
+            "reasoning" => {
+                let text = reasoning_text(item);
+                if !text.is_empty() {
+                    if reasoning_pending {
+                        let last = messages.last_mut().ok_or("缺少思考消息")?;
+                        last["reasoning_content"] =
+                            json!(string(last, "reasoning_content") + &text);
+                    } else {
+                        messages.push(
+                            json!({"role":"assistant","content":"","reasoning_content":text}),
+                        );
+                        reasoning_pending = true;
+                    }
+                }
+            }
             "function_call" => {
                 let tool = json!({"id":item["call_id"],"type":"function","function":{"name":item["name"],"arguments":item["arguments"]}});
                 if messages.last().is_some_and(|v| v["role"] == "assistant") {
@@ -208,8 +242,9 @@ pub fn chat_request(body: &Value, route: &ClaudeRoute, stream: bool) -> Result<V
                         .ok_or("无效工具调用")?
                         .push(tool);
                 } else {
-                    messages.push(json!({"role":"assistant","content":null,"tool_calls":[tool]}));
+                    messages.push(json!({"role":"assistant","content":"","tool_calls":[tool]}));
                 }
+                reasoning_pending = false;
             }
             "function_call_output" => {
                 if let Some(text) = item["output"].as_str() {
@@ -250,7 +285,12 @@ pub fn chat_request(body: &Value, route: &ClaudeRoute, stream: bool) -> Result<V
                         content.push(json!({"type":"text","text":part["text"]}));
                     }
                 }
-                messages.push(json!({"role":item["role"],"content":content}));
+                if reasoning_pending && item["role"] == "assistant" {
+                    messages.last_mut().ok_or("缺少思考消息")?["content"] = json!(content);
+                } else {
+                    messages.push(json!({"role":item["role"],"content":content}));
+                }
+                reasoning_pending = false;
             }
         }
     }
@@ -323,6 +363,12 @@ pub fn response_message(value: &Value, model: &str, chat: bool) -> Result<Value>
     let mut content = Vec::new();
     let reason = if chat {
         let choice = &value["choices"][0];
+        if let Some(text) = choice["message"]["reasoning_content"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+        {
+            content.push(json!({"type":"thinking","thinking":"","signature":reasoning_signature(&text_reasoning(text))}));
+        }
         if let Some(text) = choice["message"]["content"]
             .as_str()
             .filter(|v| !v.is_empty())
@@ -346,7 +392,7 @@ pub fn response_message(value: &Value, model: &str, chat: bool) -> Result<Value>
         }
         for item in value["output"].as_array().into_iter().flatten() {
             match item["type"].as_str().unwrap_or_default() {
-                "reasoning" if item["encrypted_content"].is_string() => content.push(
+                "reasoning" if replayable_reasoning(item) => content.push(
                     json!({"type":"thinking","thinking":"","signature":reasoning_signature(item)}),
                 ),
                 "function_call" => {
@@ -394,6 +440,8 @@ pub struct MessageStream {
     next: usize,
     has_tool: bool,
     chat_tools: BTreeMap<u64, ChatTool>,
+    chat_reasoning: String,
+    response_reasoning: BTreeMap<u64, String>,
     token_usage: Value,
     reason: String,
     pub finished: bool,
@@ -406,6 +454,8 @@ impl MessageStream {
             next: 0,
             has_tool: false,
             chat_tools: BTreeMap::new(),
+            chat_reasoning: String::new(),
+            response_reasoning: BTreeMap::new(),
             token_usage: usage(&Value::Null),
             reason: String::new(),
             finished: false,
@@ -457,11 +507,31 @@ impl MessageStream {
             }
         }
     }
+    fn reasoning(&mut self, key: String, item: &Value, events: &mut Vec<Value>) {
+        if !replayable_reasoning(item) || self.blocks.get(&key).is_some_and(|b| b.stopped) {
+            return;
+        }
+        let index = self.block(
+            key.clone(),
+            json!({"type":"thinking","thinking":""}),
+            events,
+        );
+        events.push(json!({"type":"content_block_delta","index":index,"delta":{"type":"signature_delta","signature":reasoning_signature(item)}}));
+        self.stop(&key, events);
+    }
     pub fn complete(&mut self) -> Vec<Value> {
         if self.finished {
             return Vec::new();
         }
         let mut events = Vec::new();
+        let reasoning = std::mem::take(&mut self.chat_reasoning);
+        if !reasoning.is_empty() {
+            self.reasoning(
+                "chat-reasoning".into(),
+                &text_reasoning(&reasoning),
+                &mut events,
+            );
+        }
         let calls = std::mem::take(&mut self.chat_tools);
         for (id, tool) in calls {
             let key = format!("chat-tool-{id}");
@@ -495,6 +565,17 @@ impl MessageStream {
                 self.token_usage = usage(&value["usage"]);
             }
             let choice = &value["choices"][0];
+            if let Some(text) = choice["delta"]["reasoning_content"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+            {
+                self.block(
+                    "chat-reasoning".into(),
+                    json!({"type":"thinking","thinking":""}),
+                    &mut events,
+                );
+                self.chat_reasoning.push_str(text);
+            }
             if let Some(text) = choice["delta"]["content"].as_str() {
                 self.text("chat-text".into(), text, &mut events);
             }
@@ -528,22 +609,35 @@ impl MessageStream {
             );
             let tool_key = format!("tool-{output}");
             match value["type"].as_str().unwrap_or_default() {
-                "response.output_text.delta" => {
-                    self.text(key, &string(value, "delta"), &mut events)
-                }
-                "response.output_item.done"
-                    if value["item"]["type"] == "reasoning"
-                        && value["item"]["encrypted_content"].is_string() =>
-                {
-                    let key = format!("reasoning-{output}");
-                    let index = self.block(
-                        key.clone(),
+                "response.output_item.added" if value["item"]["type"] == "reasoning" => {
+                    self.block(
+                        format!("reasoning-{output}"),
                         json!({"type":"thinking","thinking":""}),
                         &mut events,
                     );
-                    events.push(json!({"type":"content_block_delta","index":index,"delta":{"type":"thinking_delta","thinking":""}}));
-                    events.push(json!({"type":"content_block_delta","index":index,"delta":{"type":"signature_delta","signature":reasoning_signature(&value["item"])}}));
-                    self.stop(&key, &mut events);
+                }
+                "response.reasoning_text.delta" => {
+                    self.response_reasoning
+                        .entry(output)
+                        .or_default()
+                        .push_str(&string(value, "delta"));
+                    self.block(
+                        format!("reasoning-{output}"),
+                        json!({"type":"thinking","thinking":""}),
+                        &mut events,
+                    );
+                }
+                "response.output_text.delta" => {
+                    self.text(key, &string(value, "delta"), &mut events)
+                }
+                "response.output_item.done" if value["item"]["type"] == "reasoning" => {
+                    let mut item = value["item"].clone();
+                    if !replayable_reasoning(&item) {
+                        if let Some(text) = self.response_reasoning.get(&output) {
+                            item["content"] = text_reasoning(text)["content"].clone();
+                        }
+                    }
+                    self.reasoning(format!("reasoning-{output}"), &item, &mut events);
                 }
                 "response.output_item.added" if value["item"]["type"] == "function_call" => {
                     self.has_tool = true;
@@ -567,31 +661,48 @@ impl MessageStream {
                 "response.completed" | "response.incomplete" => {
                     self.token_usage = usage(&value["response"]["usage"]);
                     self.reason = string(&value["response"]["incomplete_details"], "reason");
-                    // Some compatible gateways only emit a final response.
-                    if self.blocks.is_empty() {
-                        let message = response_message(&value["response"], &self.model, false)?;
-                        for (i, part) in message["content"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .enumerate()
-                        {
-                            if part["type"] == "text" {
-                                self.text(format!("final-{i}"), &string(part, "text"), &mut events);
-                            } else if part["type"] == "thinking" {
-                                let key = format!("final-reasoning-{i}");
-                                let index = self.block(
-                                    key,
-                                    json!({"type":"thinking","thinking":""}),
-                                    &mut events,
-                                );
-                                events.push(json!({"type":"content_block_delta","index":index,"delta":{"type":"signature_delta","signature":part["signature"]}}));
-                            } else {
-                                let key = format!("final-tool-{i}");
-                                self.has_tool = true;
-                                self.block(key.clone(),json!({"type":"tool_use","id":part["id"],"name":part["name"],"input":{}}),&mut events);
-                                self.arguments(&key, &part["input"].to_string(), &mut events);
+                    // Fill items absent from deltas without duplicating streamed blocks.
+                    for (i, item) in value["response"]["output"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .enumerate()
+                    {
+                        match item["type"].as_str().unwrap_or_default() {
+                            "reasoning" => {
+                                self.reasoning(format!("reasoning-{i}"), item, &mut events)
                             }
+                            "function_call" => {
+                                let key = format!("tool-{i}");
+                                if !self.blocks.get(&key).is_some_and(|b| b.emitted) {
+                                    // Validate complete arguments before forwarding a final-only call.
+                                    let args: Value = serde_json::from_str(
+                                        item["arguments"].as_str().unwrap_or("{}"),
+                                    )
+                                    .map_err(|_| {
+                                        "上游返回了不完整的工具参数，请重试或增加输出限制"
+                                    })?;
+                                    self.has_tool = true;
+                                    self.block(key.clone(), json!({"type":"tool_use","id":item["call_id"],"name":item["name"],"input":{}}), &mut events);
+                                    self.arguments(&key, &args.to_string(), &mut events);
+                                }
+                            }
+                            "message" => {
+                                for (j, part) in
+                                    item["content"].as_array().into_iter().flatten().enumerate()
+                                {
+                                    let key = format!("text-{i}-{j}");
+                                    if !self.blocks.get(&key).is_some_and(|b| b.emitted) {
+                                        let text = if part["type"] == "refusal" {
+                                            string(part, "refusal")
+                                        } else {
+                                            string(part, "text")
+                                        };
+                                        self.text(key, &text, &mut events);
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     events.extend(self.complete());
@@ -716,6 +827,80 @@ mod tests {
         assert!(events
             .iter()
             .any(|v| v["delta"]["type"] == "signature_delta"));
+    }
+    #[test]
+    fn plaintext_reasoning_round_trips_streamed_and_nonstreamed_history() {
+        let reasoning = text_reasoning("Check the tool result.");
+        for chat in [false, true] {
+            let response = if chat {
+                json!({"choices":[{"message":{"reasoning_content":"Check the tool result.","content":"Calling tool","tool_calls":[{"id":"c1","function":{"name":"Read","arguments":"{}"}}]},"finish_reason":"tool_calls"}]})
+            } else {
+                json!({"output":[reasoning.clone(),{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Calling tool"}]},{"type":"function_call","call_id":"c1","name":"Read","arguments":"{}"}]})
+            };
+            let message = response_message(&response, "deepseek-flash", chat).unwrap();
+            let next = json!({"max_tokens":2048,"messages":[{"role":"user","content":"read"},{"role":"assistant","content":message["content"]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"c1","content":"done"}]}]});
+            let replay = chat_request(&next, &route(), false).unwrap();
+            assert_eq!(
+                replay["messages"][1]["reasoning_content"],
+                "Check the tool result."
+            );
+            assert_eq!(replay["messages"][1]["content"][0]["text"], "Calling tool");
+            assert_eq!(replay["messages"][1]["tool_calls"][0]["id"], "c1");
+            assert_eq!(replay["messages"][2]["role"], "tool");
+            assert_eq!(
+                responses_request(&next, &route(), false).unwrap()["input"][1],
+                reasoning
+            );
+        }
+        // Gateways sometimes send reasoning deltas but omit content in item.done.
+        let mut stream = MessageStream::new("deepseek-flash".into());
+        let mut events = stream.feed(&json!({"type":"response.reasoning_text.delta","output_index":0,"delta":"Check the tool result."}), false).unwrap();
+        events.extend(stream.feed(&json!({"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"rs_1"}}), false).unwrap());
+        events.extend(
+            stream
+                .feed(
+                    &json!({"type":"response.completed","response":{"output":[reasoning]}}),
+                    false,
+                )
+                .unwrap(),
+        );
+        let signatures: Vec<_> = events
+            .iter()
+            .filter(|v| v["delta"]["type"] == "signature_delta")
+            .collect();
+        assert_eq!(signatures.len(), 1);
+        let block = json!({"signature":signatures[0]["delta"]["signature"]});
+        assert_eq!(
+            reasoning_text(&saved_reasoning(&block).unwrap()),
+            "Check the tool result."
+        );
+    }
+    #[test]
+    fn reasoning_start_with_final_only_tool_does_not_drop_or_duplicate_the_call() {
+        let mut stream = MessageStream::new("deepseek-flash".into());
+        stream.feed(&json!({"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning"}}), false).unwrap();
+        let events = stream.feed(&json!({"type":"response.completed","response":{"output":[text_reasoning("Check connection"),{"type":"function_call","call_id":"c1","name":"connection_check","arguments":"{\"ok\":true}"}]}}), false).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e["content_block"]["type"] == "tool_use")
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e["delta"]["type"] == "signature_delta")
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .find(|e| e["type"] == "message_delta")
+                .unwrap()["delta"]["stop_reason"],
+            "tool_use"
+        );
     }
     #[test]
     fn image_blocks_tool_errors_and_bad_tool_arguments_are_handled() {
