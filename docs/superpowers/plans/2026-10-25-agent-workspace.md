@@ -6,7 +6,10 @@
 - [x] Grok Build、Kimi Code、OpenClaw 原生配置及检测、协议验证、备份还原。
 - [x] 只读统一会话服务、来源状态、搜索阅读与恢复命令。
 - [ ] 后续批次单独实现 CC Switch 同类的「Codex CLI 统一续聊历史」开关：provider 分组兼容、可选旧历史迁移、JSONL/SQLite 一致性、备份与条件还原。会话浏览页完成不代表该项完成。
-- [ ] 前端和 Rust 回归、UI 检查、四平台构建。
-- [ ] push GitHub 并发布可通过 v0.2.2 更新的新版本。
+- [x] 前端和 Rust 回归、UI 检查、四平台构建。
+- [x] 首批开发代码 push GitHub，建立草稿 PR #1，保留稳定版更新渠道。
+- [ ] 后续完善后发布可通过 v0.2.2 更新的新版本。
 
 按用户最新顺序，先发布不含工作台扩展的 v0.2.2（已完成），再在 `feat/agent-workspace` 继续开发。首批本地回归：51 项 Rust 测试与 19 项界面测试通过，类型检查 / Clippy / Web 构建通过；会话预览布局已检查。自动适配使用临时配置和模拟模型服务验证，未使用用户真实凭据逐一调用新增工具。
+
+首批构建提交 `b679565`：工作流 `40201707049` 完成 macOS arm64 / Intel、Windows x64、Linux x64 的签名打包、原生更新格式检查与配置 / 会话回归。PR：https://github.com/simonyuann/aihubmix-switch/pull/1 。0.3.0 仍为开发草稿，未打发布 tag，公开 latest 保持 0.2.2。
