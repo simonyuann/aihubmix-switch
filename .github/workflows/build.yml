@@ -102,7 +102,12 @@ jobs:
       - name: Verify native updater installation formats
         run: node scripts/check-update-format.mjs ${{ matrix.target }}
       - name: Test native configuration, detection and model verification
+        if: runner.os != 'Windows'
         run: cargo test --release --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
+      - name: Test Windows with Common Controls v6
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows.ps1 -Target ${{ matrix.target }}
       - run: node scripts/collect-artifacts.mjs ${{ matrix.target }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
