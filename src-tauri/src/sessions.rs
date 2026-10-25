@@ -96,7 +96,10 @@ fn roots(ctx: &Context) -> Vec<(&'static str, Vec<PathBuf>)> {
                 ctx.home.join(".grok/archived_sessions"),
             ],
         ),
-        ("gemini", vec![ctx.home.join(".gemini/tmp")]),
+        (
+            "gemini",
+            vec![ctx.directory("GEMINI_CLI_HOME", "").join(".gemini/tmp")],
+        ),
         (
             "openclaw",
             vec![ctx

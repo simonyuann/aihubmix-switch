@@ -13,7 +13,13 @@ export const AGENT_ORDER: AgentId[] = [
   'opencode',
   'grokbuild',
   'kimi',
-  'openclaw'
+  'openclaw',
+  'gemini',
+  'claude-desktop',
+  'hermes',
+  'mcode',
+  'omp',
+  'agy'
 ]
 
 export const DEFAULT_CODEX_EFFORT = 'medium'
@@ -42,6 +48,67 @@ export const CODEX_EFFORT_LABELS: Record<string, string> = {
 }
 
 export const AGENTS: Record<AgentId, AgentMeta> = {
+  gemini: {
+    id: 'gemini',
+    name: 'Gemini CLI',
+    subtitle: 'Google 原生 Gemini 协议',
+    color: '#4285f4',
+    configHint: '~/.gemini/settings.json + .env',
+    installCommand: 'npm install -g @google/gemini-cli',
+    setupNote:
+      '需要当前 Key 支持 Gemini 原生接口（/v1beta）。导入前验证 Gemini 流式工具调用；普通 OpenAI 兼容接口不能直接替代。项目内 .env 或 shell 环境可能覆盖全局配置。'
+  },
+  'claude-desktop': {
+    id: 'claude-desktop',
+    name: 'Claude Desktop',
+    subtitle: '桌面版第三方网关',
+    color: '#c87e61',
+    desktop: true,
+    configHint: 'Claude-3p/configLibrary/',
+    installCommand: 'https://claude.com/download',
+    setupNote:
+      '写入桌面版第三方网关配置，需要支持该功能的新版本。选择 claude-sonnet-*、claude-opus-* 或 claude-haiku-* 模型并验证 Messages 接口。完全退出后重新打开桌面应用。Linux 依赖所用桌面移植版本的支持。'
+  },
+  hermes: {
+    id: 'hermes',
+    name: 'Hermes Agent',
+    subtitle: '自定义 OpenAI 兼容供应商',
+    color: '#936f3c',
+    configHint: '~/.hermes/config.yaml',
+    installCommand: 'https://hermes-agent.nousresearch.com/docs/getting-started/installation/',
+    setupNote:
+      '添加独立供应商并设为默认模型；保留原供应商和其他设置。Windows 按 HERMES_HOME 或本机 LocalAppData 目录配置。'
+  },
+  mcode: {
+    id: 'mcode',
+    name: 'MiniMax Code',
+    subtitle: 'MCode 终端与桌面共享供应商',
+    color: '#cf5473',
+    configHint: '~/.minimax/config.yaml',
+    installCommand: 'https://github.com/MiniMax-AI',
+    setupNote:
+      '添加 AIHubMix 自定义供应商，使用 OpenAI Completions 接口。导入后在 MCode 的模型选择器中选择 csmy 下的模型；默认模型由原工具管理。'
+  },
+  omp: {
+    id: 'omp',
+    name: 'Oh My Pi',
+    subtitle: '独立供应商目录与命名 Profile',
+    color: '#7351a3',
+    configHint: '~/.omp/agent/models.yml',
+    installCommand: 'npm install -g @oh-my-pi/pi-coding-agent',
+    setupNote:
+      '添加自定义供应商，保留 Oh My Pi 的登录和默认模型。导入后在原工具的 /model 中选择 csmy 下的模型。支持当前 OMP_PROFILE / PI_PROFILE。'
+  },
+  agy: {
+    id: 'agy',
+    name: 'Antigravity CLI',
+    subtitle: '专用启动环境 · Gemini 协议',
+    color: '#397abe',
+    configHint: '本应用数据目录 / agent-profiles/agy',
+    installCommand: 'https://www.agy.dev/docs/cli/',
+    setupNote:
+      '适用于 agy CLI。需要 Gemini 原生接口，并填写当前版本的原生模型名称。导入完成后复制专用启动命令运行；普通 agy 启动方式仍使用原账号。不会修改 Antigravity IDE 账号。'
+  },
   grokbuild: {
     id: 'grokbuild',
     name: 'Grok Build',

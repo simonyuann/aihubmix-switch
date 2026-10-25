@@ -33,6 +33,7 @@ export function ImportModal({
   const [manual, setManual] = useState(false)
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState(state.options.codexReasoningEffort)
+  const [agyName, setAgyName] = useState(state.options.agyModelName || '')
   const [probe, setProbe] = useState<RelayProbe | null>(null)
   const [testing, setTesting] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -138,7 +139,8 @@ export function ImportModal({
         keyLabel: `${item.name} · ${item.keyMasked}`,
         agent,
         model,
-        effort: agent === 'codex' ? actualEffort : undefined
+        effort: agent === 'codex' ? actualEffort : undefined,
+        agyModelName: agent === 'agy' ? agyName.trim() : undefined
       })
       setDetectedAgents(next.agents)
       onImported(next)
@@ -177,10 +179,22 @@ export function ImportModal({
             </div>
           )}
           <p className="fine-print centered">
-            {agentState?.installed
-              ? `请重新打开 ${meta?.name}，让新配置生效。`
-              : `配置已写入；请确认 ${meta?.name} 的实际运行环境及配置路径。`}
+            {agent === 'agy'
+              ? '请通过下方专用启动命令运行，直接输入 agy 不会使用本次接入。'
+              : agentState?.installed
+                ? `请重新打开 ${meta?.name}，让新配置生效。`
+                : `配置已写入；请确认 ${meta?.name} 的实际运行环境及配置路径。`}
           </p>
+          {meta?.setupNote && <p className="fine-print">{meta.setupNote}</p>}
+          {agentState?.launchCommand && (
+            <button
+              className="btn block"
+              onClick={() => void onCopyCommand(agentState.launchCommand!)}
+            >
+              <TerminalIcon size={15} />
+              复制专用启动命令
+            </button>
+          )}
           <button className="btn primary block" onClick={onClose}>
             完成
           </button>
@@ -245,8 +259,12 @@ export function ImportModal({
                     <option key={id} value={id}>
                       {AGENTS[id].name} · 自动配置
                       {detectedAgents.find((a) => a.id === id)?.installed
-                        ? ' · 已定位 CLI'
-                        : ' · 未定位 CLI'}
+                        ? AGENTS[id].desktop
+                          ? ' · 已定位 App'
+                          : ' · 已定位 CLI'
+                        : AGENTS[id].desktop
+                          ? ' · 未定位 App'
+                          : ' · 未定位 CLI'}
                     </option>
                   ))}
               </select>
@@ -271,6 +289,11 @@ export function ImportModal({
             )}
             {agent && !testing && probe?.ok && (
               <>
+                {meta?.setupNote && (
+                  <div className="notice compact">
+                    <span>{meta.setupNote}</span>
+                  </div>
+                )}
                 <label className="field">
                   <span>使用模型</span>
                   <select
@@ -289,6 +312,21 @@ export function ImportModal({
                     ))}
                   </select>
                 </label>
+                {agent === 'agy' && (
+                  <label className="field">
+                    <span>Antigravity 模型名称</span>
+                    <input
+                      value={agyName}
+                      onChange={(e) => setAgyName(e.target.value)}
+                      disabled={busy}
+                      placeholder="例如 Gemini 3.1 Pro (High)"
+                      maxLength={160}
+                    />
+                    <small>
+                      运行 agy models，填写与上方模型对应的原生名称，包含 High / Low 等后缀。
+                    </small>
+                  </label>
+                )}
                 {compatibility && (
                   <div className="notice notice-ok">
                     <ShieldIcon size={16} />
@@ -311,14 +349,27 @@ export function ImportModal({
                     <TerminalIcon size={17} />
                     <div>
                       <strong>尚未定位到 {meta?.name}</strong>
-                      <p>这不代表未安装。可重新扫描，或在高级设置中填写 CLI 路径。</p>
+                      <p>
+                        这不代表未安装。可重新扫描，或在高级设置中填写
+                        {meta?.desktop ? '应用可执行文件' : ' CLI '}路径。
+                      </p>
                     </div>
                     <button
                       className="icon-btn"
-                      title="复制安装命令"
-                      aria-label="复制安装命令"
+                      title={
+                        meta?.installCommand.startsWith('https:') ? '打开安装说明' : '复制安装命令'
+                      }
+                      aria-label={
+                        meta?.installCommand.startsWith('https:') ? '打开安装说明' : '复制安装命令'
+                      }
                       onClick={() => {
-                        if (meta) void onCopyCommand(meta.installCommand)
+                        if (meta) {
+                          if (meta.installCommand.startsWith('https:'))
+                            void window.api
+                              .openExternal(meta.installCommand)
+                              .catch(() => setDetectionError('无法打开安装说明'))
+                          else void onCopyCommand(meta.installCommand)
+                        }
                       }}
                     >
                       <CopyIcon size={15} />
@@ -329,7 +380,7 @@ export function ImportModal({
                   <span className="fine-print">
                     {agentState?.installed
                       ? `已定位：${agentState.cliPath || meta?.name}`
-                      : '尚未定位到 CLI，可先验证并写入配置。'}
+                      : `尚未定位到${meta?.desktop ? '桌面应用' : ' CLI'}，可先验证并写入配置。`}
                   </span>
                   <button
                     type="button"
@@ -366,7 +417,9 @@ export function ImportModal({
                     </label>
                   )}
                   <label className="field">
-                    <span>CLI 文件路径（可选）</span>
+                    <span>
+                      {meta?.desktop ? '应用可执行文件路径（可选）' : 'CLI 文件路径（可选）'}
+                    </span>
                     <input
                       value={cliPath}
                       disabled={busy || scanning}
@@ -422,7 +475,13 @@ export function ImportModal({
                   className="btn primary block"
                   onClick={() => void apply()}
                   disabled={
-                    busy || testing || !probe?.ok || !agent || !model || compatibilityBlocked
+                    busy ||
+                    testing ||
+                    !probe?.ok ||
+                    !agent ||
+                    !model ||
+                    compatibilityBlocked ||
+                    (agent === 'agy' && !agyName.trim())
                   }
                 >
                   {busy ? <LoaderIcon size={16} /> : <CheckIcon size={16} />}

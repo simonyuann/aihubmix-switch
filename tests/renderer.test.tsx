@@ -107,6 +107,36 @@ async function ready() {
 }
 
 describe('API-first workspace', () => {
+  it('offers all thirteen native agent families and imports MiniMax without fetching a key into the UI', async () => {
+    await ready()
+    fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    const selector = within(dialog).getByLabelText('选择智能体')
+    expect(within(selector).getAllByRole('option')).toHaveLength(14)
+    for (const name of [
+      'Gemini CLI',
+      'Claude Desktop',
+      'Hermes Agent',
+      'MiniMax Code',
+      'Oh My Pi',
+      'Antigravity CLI'
+    ]) {
+      expect(within(selector).getByRole('option', { name: new RegExp(name) })).toBeTruthy()
+    }
+    fireEvent.change(selector, { target: { value: 'mcode' } })
+    await within(dialog).findByText(/默认模型由原工具管理/)
+    fireEvent.change(within(dialog).getByLabelText('使用模型'), { target: { value: 'gpt-5.4' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '导入到 MiniMax Code' }))
+    await waitFor(() =>
+      expect(api.importAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ agent: 'mcode', model: 'gpt-5.4', keyId: 11 })
+      )
+    )
+    expect(api.getKey).not.toHaveBeenCalled()
+    expect(api.copyKey).not.toHaveBeenCalled()
+    await within(dialog).findByText('已成功导入')
+    expect(within(dialog).getByText(/导入后在 MCode/)).toBeTruthy()
+  })
   it('loads sessions only when opened and reads only the selected conversation', async () => {
     await ready()
     expect(api.sessions.list).not.toHaveBeenCalled()

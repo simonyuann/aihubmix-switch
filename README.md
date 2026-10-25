@@ -2,7 +2,7 @@
 
 白色、简洁的 API 与智能体接入助手。基于 **Tauri 2 + Rust + React**，支持 Windows、macOS 与 Linux，运行时使用系统 WebView，无需安装 Node.js。
 
-[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.2.2.md)
+[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.3.0.md)
 
 ## 使用
 
@@ -11,7 +11,11 @@
 3. 点击某个 Key 的「导入」，选择智能体和模型。通过真实流式与工具调用验证后，自动备份并写入配置。
 4. 「已接入」只显示配置过的工具，可更换配置、还原。
 
-支持 Codex、Claude Code、OpenCode、Pi。导入前会发送两次简短测试请求，可能产生少量模型费用；验证失败时保留原配置。未定位到 CLI 不等于未安装，可重新扫描或在高级设置填写完整 CLI 路径。Windows 原生和 WSL 的安装与配置相互独立。思考强度与配置路径放在导入面板的「高级设置」，接口兼容格式放在设置中。新建 Key 后可直接导入多个智能体，无需手动复制粘贴。
+0.3.0 覆盖 CC Switch 当前的 13 种智能体配置入口，导入时可搜索，首页只展示 API 与已接入项。导入前会发送两次简短测试请求，可能产生少量模型费用；验证失败时保留原配置。未定位到 CLI 不等于未安装，可重新扫描或在高级设置填写完整路径。Windows 原生和 WSL 的安装与配置相互独立。
+
+Gemini CLI / Antigravity CLI 需要 Gemini 原生接口；Claude Desktop 需要支持第三方网关的新版本和 Claude 模型。MiniMax Code / Oh My Pi 导入后在原工具选择 csmy 下的模型。Antigravity CLI 需填写原生显示名并使用生成的专用启动命令；普通 agy 和 IDE 登录不变。常用 IDE 插件另外提供手动接入指南。
+
+「会话」支持本机 Claude Code、Codex、Pi、Grok Build、Gemini CLI、OpenClaw 的记录浏览、标题/项目/预览搜索与复制继续命令，默认只读，不上传内容。**Codex CLI 统一续聊历史开关安排在 0.3.1**，与此会话浏览页不同。
 
 充值入口已保留，当前为「即将开放」占位，不发起任何付款。Key 配额与账户钱包余额是不同概念，未获取到的数据不会显示为零。
 
@@ -47,6 +51,7 @@ Windows 安装版、macOS App、Linux AppImage / deb 支持对应格式的原生
 - 导入前自动备份；再次更换 Key 或模型仍保留首次导入前的基线。还原时只恢复仍与本工具写入值一致的字段，保留后续手动修改。
 - API Key 与登录凭据通过 ChaCha20-Poly1305 加密存入本机 vault，主密钥由 macOS Keychain / Windows Credential Manager / Linux Secret Service 保管。安全存储无法访问时不会回退为明文。
 - 完整 Key 默认隐藏，主动查看 60 秒后自动隐藏。导入后目标工具的配置文件及其备份可能包含原始凭据，备份目录属于本机敏感数据。
+- Antigravity CLI 的专用启动脚本也包含凭据；Unix 下使用私有目录与 0600 文件。不要分享配置、脚本或备份。还原仅移除本工具仍未被用户改动的配置。
 - Claude Code：原生 Anthropic 模型可直接连接；OpenAI 兼容 Key 通过本机 Rust 兼容层使用 Responses / Chat Completions，支持流式输出、图片、工具调用和多轮工具结果。使用的仍是你选择的模型。
 - 本地兼容层只监听 `127.0.0.1`，使用独立随机令牌鉴权，上游 Key 不写入 Claude 配置。启用兼容连接后关闭窗口会保留托盘运行，通过托盘菜单退出才停止服务。使用时请保持应用运行。
 - 兼容连接通过 Claude Code 官方自定义模型选项注册所选模型，并将 MCP 工具提前加载（`ENABLE_TOOL_SEARCH=false`），不转发 Anthropic 服务端专用工具；`count_tokens` 是本地估算。Responses 推理上下文以不透明签名保留，支持后续工具调用。
@@ -60,6 +65,15 @@ Windows 安装版、macOS App、Linux AppImage / deb 支持对应格式的原生
 | Claude Code | `~/.claude/settings.json` | `CLAUDE_CONFIG_DIR` |
 | OpenCode | `~/.config/opencode/opencode.json(c)` | `OPENCODE_CONFIG`、`OPENCODE_CONFIG_DIR`、`XDG_CONFIG_HOME` |
 | Pi | `~/.pi/agent/models.json`、`settings.json` | `PI_CODING_AGENT_DIR` |
+| Grok Build | `~/.grok/config.toml` | — |
+| Kimi Code | `~/.kimi-code/config.toml` | `KIMI_CODE_HOME` |
+| OpenClaw | `~/.openclaw/openclaw.json` | `OPENCLAW_CONFIG_PATH`、`OPENCLAW_STATE_DIR` |
+| Gemini CLI | `~/.gemini/settings.json`、`.env` | `GEMINI_CLI_HOME`（用户根目录，配置在其 `.gemini` 下） |
+| Claude Desktop | 系统应用配置中的 `Claude`、`Claude-3p/configLibrary` | Windows `LOCALAPPDATA`、Linux `XDG_CONFIG_HOME` |
+| Hermes Agent | `~/.hermes/config.yaml`；Windows LocalAppData 下 `hermes` | `HERMES_HOME` |
+| MiniMax Code | `~/.minimax/config.yaml` | `MINIMAX_DATA_DIR`、`MAVIS_DATA_DIR` |
+| Oh My Pi | `~/.omp/agent/models.yml` | `PI_CONFIG_DIR`、`OMP_PROFILE` / `PI_PROFILE`、`PI_CODING_AGENT_DIR` |
+| Antigravity CLI | 本应用数据目录 `agent-profiles/agy` | 专用脚本经环境变量传递 Key，不改 shell 启动配置 |
 
 应用数据：macOS 为 `~/Library/Application Support/aihubmix-switch/`，Windows 为 `%APPDATA%/aihubmix-switch/`，Linux 为 `~/.local/share/aihubmix-switch/`。新版设置 `state-v2.json`、加密凭据 `vault-v2.bin`、备份 `backups-v2/`。
 

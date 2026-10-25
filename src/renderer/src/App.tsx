@@ -133,6 +133,14 @@ export default function App() {
       notify(err instanceof Error ? err.message : String(err), 'error')
     }
   }
+  async function copyCommand(command: string) {
+    try {
+      await writeText(command)
+      notify('启动命令已复制')
+    } catch {
+      notify('复制失败，请重试', 'error')
+    }
+  }
   async function openPath(target: 'backups' | AgentState['id']) {
     try {
       await window.api.openPath(target)
@@ -462,9 +470,20 @@ export default function App() {
                         ? '当前配置与上次导入记录不同'
                         : agent.keyLabel || '从已有配置识别'}
                     </small>
+                    {['mcode', 'omp'].includes(agent.id) && (
+                      <p className="fine-print">供应商已添加，请在原工具中选择 csmy 下的模型。</p>
+                    )}
                     {agent.error && <p className="danger-text">{agent.error}</p>}
                   </div>
                   <div className="connection-actions">
+                    {agent.launchCommand && !agent.keyDeleted && (
+                      <button
+                        className="btn sm"
+                        onClick={() => void copyCommand(agent.launchCommand!)}
+                      >
+                        复制启动命令
+                      </button>
+                    )}
                     <button
                       className="btn sm"
                       onClick={() => {
@@ -607,7 +626,7 @@ export default function App() {
           onCopyCommand={async (command) => {
             try {
               await writeText(command)
-              notify('安装命令已复制')
+              notify('已复制')
             } catch {
               notify('复制失败，请稍后重试', 'error')
             }

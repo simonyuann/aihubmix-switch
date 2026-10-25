@@ -379,3 +379,266 @@ fn openclaw_custom_json5_path_preserves_manual_model_changes_on_restore() {
     );
     assert!(!restored.contains("test-key"));
 }
+
+#[test]
+fn cc_agent_yaml_formats_add_providers_preserve_comments_and_restore_originals() {
+    for (agent, original) in [
+        ("hermes", "# user comment\nmodel:\n  default: old\n  provider: personal\n  extra: true # keep\ncustom_providers:\n  - name: personal\n    api_key: 'personal-key' # keep\n"),
+        ("mcode", "# user comment\ndefaultModel: builtin/old\ncustom_provider:\n  personal:\n    options: {apiKey: 'personal-key'} # keep\n"),
+        ("omp", "# user comment\nproviders:\n  personal:\n    apiKey: 'personal-key' # keep\n"),
+    ] {
+        let (_dir,ctx) = setup();
+        let file=ctx.paths(agent).unwrap()[0].clone();
+        atomic_write(&file,original.as_bytes()).unwrap();
+        let first=apply(&ctx,agent,"first-key",None);
+        let second=apply(&ctx,agent,"second-key",Some(&first));
+        let raw=fs::read_to_string(&file).unwrap();
+        assert!(raw.contains("# user comment") && raw.contains("'personal-key'") && raw.contains("# keep"),"{agent}: {raw}");
+        assert!(!raw.contains("first-key"));
+        assert_eq!(first.backup_id,second.backup_id);
+        let status=agents::status(&ctx,agent,Some(&second),DEFAULT_BASE);
+        assert_eq!(status["connected"],true,"{agent}: {status}");
+        assert_eq!(status["appliedModel"],"model-a");
+        if agent=="mcode" {assert_eq!(crate::config_formats::yaml_parse(&raw).unwrap()["defaultModel"],"builtin/old");}
+        agents::restore(&ctx,agent,&second).unwrap();
+        assert_eq!(fs::read_to_string(file).unwrap(),original,"{agent}");
+    }
+}
+
+#[test]
+fn yaml_restore_keeps_new_user_fields_and_other_providers() {
+    for agent in ["hermes", "mcode", "omp"] {
+        let (_dir, ctx) = setup();
+        let record = apply(&ctx, agent, "test-key", None);
+        let file = ctx.paths(agent).unwrap()[0].clone();
+        let mut text = fs::read_to_string(&file).unwrap();
+        text.push_str("user_added: 'keep me' # keep\n");
+        atomic_write(&file, text.as_bytes()).unwrap();
+        agents::restore(&ctx, agent, &record).unwrap();
+        let restored = fs::read_to_string(&file).unwrap();
+        assert!(restored.contains("user_added: 'keep me' # keep"), "{agent}");
+        assert!(!restored.contains("test-key"), "{agent}: {restored}");
+    }
+}
+
+#[test]
+fn gemini_two_file_import_preserves_env_and_restores_login() {
+    let (_dir, ctx) = setup();
+    let files = ctx.paths("gemini").unwrap();
+    let settings="{\n// preserve login\n\"security\": {\"auth\": {\"selectedType\":\"oauth-personal\",\"useExternal\":true}},\"mcpServers\":{\"user\":{\"command\":\"test\"}}\n}\n";
+    let env = "# user comment\nOTHER=keep # untouched\nGEMINI_API_KEY=original-key\n";
+    atomic_write(&files[0], settings.as_bytes()).unwrap();
+    atomic_write(&files[1], env.as_bytes()).unwrap();
+    let record = apply(&ctx, "gemini", "test-key", None);
+    let value = read(&files[0]);
+    assert_eq!(value["security"]["auth"]["selectedType"], "gemini-api-key");
+    assert_eq!(value["security"]["auth"]["useExternal"], true);
+    assert!(fs::read_to_string(&files[1])
+        .unwrap()
+        .contains("OTHER=keep # untouched"));
+    assert_eq!(
+        agents::status(&ctx, "gemini", Some(&record), DEFAULT_BASE)["connected"],
+        true
+    );
+    agents::restore(&ctx, "gemini", &record).unwrap();
+    assert_eq!(fs::read_to_string(&files[0]).unwrap(), settings);
+    assert_eq!(fs::read_to_string(&files[1]).unwrap(), env);
+}
+
+#[test]
+fn desktop_gateway_updates_four_files_without_touching_user_profiles() {
+    let (_dir, ctx) = setup();
+    let files = ctx.paths("claude-desktop").unwrap();
+    let originals = [
+        "{}\n",
+        "{\"deploymentMode\":\"1p\",\"mcpServers\":{\"user\":{\"command\":\"test\"}}}\n",
+        "{\"deploymentMode\":\"1p\"}\n",
+        "{\"entries\":[{\"id\":\"personal\",\"name\":\"Keep\"}],\"appliedId\":\"personal\"}\n",
+    ];
+    for (file, raw) in files.iter().zip(originals) {
+        atomic_write(file, raw.as_bytes()).unwrap();
+    }
+    let catalog = vec![Model {
+        id: "claude-sonnet-4-6".into(),
+        name: "Claude".into(),
+        ..Model::default()
+    }];
+    let record = agents::apply(
+        &ctx,
+        "claude-desktop",
+        agents::Connection {
+            base: DEFAULT_BASE,
+            key: "test-key",
+            model: &catalog[0].id,
+            models: &catalog,
+            options: &Options::default(),
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(read(&files[3])["entries"][0]["id"], "personal");
+    assert_eq!(read(&files[0])["inferenceGatewayBaseUrl"], DEFAULT_BASE);
+    assert_eq!(read(&files[1])["mcpServers"]["user"]["command"], "test");
+    assert_eq!(
+        agents::status(&ctx, "claude-desktop", Some(&record), DEFAULT_BASE)["connected"],
+        true
+    );
+    agents::restore(&ctx, "claude-desktop", &record).unwrap();
+    for (file, raw) in files.iter().zip(originals) {
+        assert_eq!(fs::read_to_string(file).unwrap(), raw);
+    }
+    assert!(agents::preflight("claude-desktop", "gpt-test").is_err());
+}
+
+#[test]
+fn agy_uses_private_launcher_and_never_changes_official_login_settings() {
+    let (_dir, ctx) = setup();
+    let official = ctx.home.join(".gemini/antigravity-cli/settings.json");
+    atomic_write(&official, b"{\"model\":\"personal\"}").unwrap();
+    let catalog = vec![Model {
+        id: "gemini-3-flash-preview".into(),
+        name: "Gemini".into(),
+        ..Model::default()
+    }];
+    let key = "fixture-key-with-'quote";
+    let options = Options {
+        agy_model_name: "Gemini 3 Flash".into(),
+        ..Options::default()
+    };
+    let record = agents::apply(
+        &ctx,
+        "agy",
+        agents::Connection {
+            base: DEFAULT_BASE,
+            key,
+            model: &catalog[0].id,
+            models: &catalog,
+            options: &options,
+        },
+        None,
+    )
+    .unwrap();
+    let status = agents::status(&ctx, "agy", Some(&record), DEFAULT_BASE);
+    assert_eq!(status["connected"], true);
+    assert!(!status.to_string().contains(key));
+    assert!(status["launchCommand"]
+        .as_str()
+        .unwrap()
+        .contains("launch."));
+    assert_eq!(
+        fs::read_to_string(&official).unwrap(),
+        "{\"model\":\"personal\"}"
+    );
+    agents::restore(&ctx, "agy", &record).unwrap();
+    for file in ctx.paths("agy").unwrap() {
+        assert!(!file.exists(), "{}", file.display());
+    }
+}
+
+#[test]
+fn omp_profiles_and_config_overrides_are_scoped_to_the_target_agent() {
+    let (_dir, mut ctx) = setup();
+    ctx.overrides.insert("OMP_PROFILE".into(), "work".into());
+    assert!(ctx.paths("omp").unwrap()[0].ends_with(".omp/profiles/work/agent/models.yml"));
+    ctx.overrides
+        .insert("OMP_PROFILE".into(), "../../bad".into());
+    assert!(ctx.paths("omp").is_err());
+    ctx.overrides.insert(
+        "HERMES_HOME".into(),
+        ctx.home.join("hermes-custom").to_string_lossy().into(),
+    );
+    assert!(ctx.paths("hermes").unwrap()[0].ends_with("hermes-custom/config.yaml"));
+    ctx.overrides.insert(
+        "MINIMAX_DATA_DIR".into(),
+        ctx.home.join("mcode-custom").to_string_lossy().into(),
+    );
+    assert!(ctx.paths("mcode").unwrap()[0].ends_with("mcode-custom/config.yaml"));
+    let root = ctx.home.join("gemini-home");
+    ctx.overrides
+        .insert("GEMINI_CLI_HOME".into(), root.to_string_lossy().into());
+    assert_eq!(
+        ctx.paths("gemini").unwrap()[0],
+        root.join(".gemini/settings.json")
+    );
+}
+
+#[test]
+fn busy_mcode_native_lock_prevents_changes_and_is_never_removed_by_us() {
+    let (_dir, ctx) = setup();
+    let file = ctx.paths("mcode").unwrap()[0].clone();
+    atomic_write(&file, b"defaultModel: original\n").unwrap();
+    let lock = std::path::PathBuf::from(format!("{}.lock", file.display()));
+    fs::create_dir(&lock).unwrap();
+    let result = agents::apply(
+        &ctx,
+        "mcode",
+        agents::Connection {
+            base: DEFAULT_BASE,
+            key: "test-key",
+            model: "model-a",
+            models: &models(),
+            options: &Options::default(),
+        },
+        None,
+    );
+    assert!(result.is_err());
+    assert!(lock.is_dir());
+    assert_eq!(
+        fs::read_to_string(file).unwrap(),
+        "defaultModel: original\n"
+    );
+    assert!(!ctx.data.join("backups-v2").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn agy_launcher_passes_quoted_env_and_unicode_paths_only_to_the_selected_cli() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_dir, mut ctx) = setup();
+    let cli = ctx.home.join("工具 ' space/agy");
+    atomic_write(
+        &cli,
+        b"#!/bin/sh\nprintf '%s\\n' \"$GEMINI_API_KEY\" \"$GOOGLE_GEMINI_BASE_URL\" \"$1\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
+    ctx.overrides
+        .insert("AIHUBMIX_AGY_CLI".into(), cli.to_string_lossy().into());
+    let key = "fixture-'$(should-not-execute)-key";
+    let options = Options {
+        agy_model_name: "Gemini 3.1 Pro (High)".into(),
+        ..Options::default()
+    };
+    let _record = agents::apply(
+        &ctx,
+        "agy",
+        agents::Connection {
+            base: DEFAULT_BASE,
+            key,
+            model: "model-a",
+            models: &models(),
+            options: &options,
+        },
+        None,
+    )
+    .unwrap();
+    let files = ctx.paths("agy").unwrap();
+    let result = std::process::Command::new("sh")
+        .arg(&files[2])
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    let stdout = String::from_utf8(result.stdout).unwrap();
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines[0], key);
+    assert_eq!(lines[1], DEFAULT_BASE);
+    assert_eq!(
+        lines[2],
+        format!("--gemini_dir={}", files[0].parent().unwrap().display())
+    );
+    assert_eq!(
+        fs::metadata(&files[2]).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(read(&files[1])["model"], "Gemini 3.1 Pro (High)");
+}

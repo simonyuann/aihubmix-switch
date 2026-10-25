@@ -11,6 +11,8 @@ use std::{
     path::{Path, PathBuf},
 };
 use toml_edit::{DocumentMut, Item, Table};
+#[path = "agent_adapters.rs"]
+mod extra;
 
 #[derive(Clone)]
 pub struct Context {
@@ -51,6 +53,15 @@ impl Context {
             "KIMI_CODE_HOME",
             "OPENCLAW_STATE_DIR",
             "OPENCLAW_CONFIG_PATH",
+            "GEMINI_CLI_HOME",
+            "HERMES_HOME",
+            "MINIMAX_DATA_DIR",
+            "MAVIS_DATA_DIR",
+            "OMP_PROFILE",
+            "PI_PROFILE",
+            "PI_CONFIG_DIR",
+            "LOCALAPPDATA",
+            "APPDATA",
         ]
         .iter()
         .filter_map(|name| {
@@ -116,7 +127,7 @@ impl Context {
                 };
                 Ok(vec![dir.join(file)])
             }
-            _ => Err("未知智能体".into()),
+            _ => extra::paths(self, agent),
         }
     }
     fn backup_file(&self, agent: &str, id: &str) -> PathBuf {
@@ -154,6 +165,15 @@ fn json_options(agent: &str) -> ParseOptions {
     }
 }
 fn parse(agent: &str, path: &Path, raw: &str) -> Result<Value> {
+    if extra::yaml(path) {
+        return crate::config_formats::yaml_parse(raw);
+    }
+    if path.file_name().is_some_and(|s| s == ".env") {
+        return crate::config_formats::env_parse(raw);
+    }
+    if extra::script(path) {
+        return Ok(json!({"script":raw}));
+    }
     if raw.trim().is_empty() {
         return Ok(json!({}));
     }
@@ -170,11 +190,7 @@ fn parse(agent: &str, path: &Path, raw: &str) -> Result<Value> {
     Ok(value)
 }
 fn lookup<'a>(value: &'a Value, path: &[String]) -> Option<&'a Value> {
-    let mut current = value;
-    for part in path {
-        current = current.get(part)?;
-    }
-    Some(current)
+    crate::config_formats::lookup(value, path)
 }
 fn cst_value(value: &Value) -> CstInputValue {
     match value {
@@ -243,6 +259,20 @@ fn edit_text(
     edits: &[(Vec<String>, Option<Value>)],
 ) -> Result<String> {
     parse(agent, path, raw)?;
+    if extra::yaml(path) {
+        return crate::config_formats::yaml_edit(raw, edits);
+    }
+    if path.file_name().is_some_and(|s| s == ".env") {
+        return crate::config_formats::env_edit(raw, edits);
+    }
+    if extra::script(path) {
+        return Ok(edits
+            .first()
+            .and_then(|(_, v)| v.as_ref())
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .into());
+    }
     if is_toml(path) {
         let mut doc = raw.parse::<DocumentMut>().map_err(|_| "TOML 格式错误")?;
         for (path, value) in edits {
@@ -512,7 +542,7 @@ fn changes(
                 ],
             )]
         }
-        _ => return Err("未知智能体".into()),
+        _ => return extra::changes(ctx, agent, &base, key, model, selected, options),
     };
     Ok(result)
 }
@@ -524,6 +554,12 @@ pub struct Connection<'a> {
     pub models: &'a [Model],
     pub options: &'a Options,
 }
+pub fn preflight(agent: &str, model: &str) -> Result<()> {
+    extra::preflight(agent, model)
+}
+pub fn validate_agy_name(name: &str) -> Result<()> {
+    extra::validate_agy_name(name)
+}
 
 pub fn apply(
     ctx: &Context,
@@ -531,6 +567,7 @@ pub fn apply(
     input: Connection<'_>,
     existing: Option<&Applied>,
 ) -> Result<Applied> {
+    let _native_lock = extra::lock(ctx, agent)?;
     let Connection {
         base,
         key,
@@ -608,6 +645,11 @@ pub fn apply(
         agent: agent.into(),
         files,
     };
+    for file in &transaction {
+        if text(&file.path)? != file.original {
+            return Err("配置在导入过程中被其他程序修改，请关闭智能体后重试；原配置未覆盖".into());
+        }
+    }
     let backup_path = ctx.backup_file(agent, &id);
     let old_meta = text(&backup_path)?;
     atomic_write(
@@ -650,6 +692,7 @@ pub fn apply(
 }
 
 pub fn restore(ctx: &Context, agent: &str, applied: &Applied) -> Result<()> {
+    let _native_lock = extra::lock(ctx, agent)?;
     let file = ctx.backup_file(agent, &applied.backup_id);
     let backup: Backup =
         serde_json::from_slice(&fs::read(&file).map_err(|_| "找不到此智能体的备份")?)
@@ -705,7 +748,7 @@ pub fn restore(ctx: &Context, agent: &str, applied: &Applied) -> Result<()> {
         };
         // A newly created file may be deleted only if no unrelated values were added.
         let parsed = parse(agent, &entry.path, &output)?;
-        let empty = recursively_empty(&parsed);
+        let empty = recursively_empty(&parsed) || (extra::script(&entry.path) && output.is_empty());
         outputs.push((
             entry.path.clone(),
             current_text,
@@ -816,13 +859,14 @@ pub fn status(ctx: &Context, agent: &str, applied: Option<&Applied>, base: &str)
                 String::new(),
                 two["defaultProvider"] == "csmy",
             ),
-            _ => (
+            "opencode" => (
                 string(&one["provider"]["csmy"]["options"], "baseURL"),
                 string(&one["provider"]["csmy"]["options"], "apiKey"),
                 string(&one, "model").trim_start_matches("csmy/").into(),
                 String::new(),
                 string(&one, "model").starts_with("csmy/"),
             ),
+            _ => extra::read_status(agent, &paths, &one, &two)?,
         })
     };
     match read() {
@@ -847,6 +891,9 @@ pub fn status(ctx: &Context, agent: &str, applied: Option<&Applied>, base: &str)
             }
         }
         Err(e) => output["error"] = json!(e),
+    }
+    if agent == "agy" {
+        output["launchCommand"] = json!(extra::launch_command(ctx).ok());
     }
     output
 }

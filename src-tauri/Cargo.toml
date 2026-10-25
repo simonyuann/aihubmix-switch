@@ -38,6 +38,7 @@ tempfile = "3"
 open = "5"
 url = "2"
 tauri-plugin-updater = "2"
+serde_yaml_ng = "0.10"
 
 [profile.release]
 panic = "abort"

@@ -6,6 +6,7 @@ import type {
   RelayProbe,
   SessionIndex
 } from '../../shared/types'
+import { AGENT_ORDER, AGENTS } from '../../shared/constants'
 
 export const demoSessions: SessionIndex = {
   sessions: [
@@ -112,6 +113,19 @@ export const previewState: AppState = {
   agentModels: { codex: 'gpt-5.4', claude: '', opencode: '', pi: '' },
   options: { piApi: 'openai-responses', codexWireApi: 'responses', codexReasoningEffort: 'medium' },
   lastAgent: 'codex'
+}
+
+for (const id of AGENT_ORDER) {
+  if (!previewState.agents.some((a) => a.id === id))
+    previewState.agents.push({
+      id,
+      installed: false,
+      version: null,
+      configPath: AGENTS[id].configHint,
+      connected: false,
+      appliedModel: null,
+      backupAvailable: false
+    })
 }
 
 export const demoKeys: ApiKeyInfo[] = [

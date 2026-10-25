@@ -1,5 +1,6 @@
 mod agents;
 mod bridge;
+mod config_formats;
 mod detection;
 mod protocol;
 mod service;

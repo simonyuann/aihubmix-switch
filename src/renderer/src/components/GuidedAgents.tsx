@@ -52,54 +52,6 @@ const guides = [
     ]
   },
   {
-    name: 'Gemini CLI',
-    url: 'https://geminicli.com/docs/get-started/authentication/',
-    steps: [
-      '原生认证以 Google / Gemini / Vertex 为主，普通 OpenAI Key 不能直接替代 Gemini Key。',
-      '使用其支持的认证方式；本应用当前提供会话读取，尚未提供平台 Key 自动接入。'
-    ]
-  },
-  {
-    name: 'Claude Desktop',
-    url: 'https://support.claude.com/',
-    steps: [
-      '桌面聊天、Cowork 与 Claude Code 的认证方式不同。',
-      '本应用的 Claude Code 配置不等于桌面聊天接入；请核对官方版本支持的认证和自定义供应商能力。'
-    ]
-  },
-  {
-    name: 'Hermes',
-    url: 'https://hermes-agent.nousresearch.com/docs/',
-    steps: [
-      '在 Hermes 的模型设置中选择自定义 OpenAI 兼容端点。',
-      '按其文档填写模型、地址和 Key；当前需在原工具中完成验证。'
-    ]
-  },
-  {
-    name: 'MiniMax Code',
-    url: 'https://github.com/MiniMax-AI',
-    steps: [
-      '在工具支持的供应商配置中核对自定义地址、模型和协议选项。',
-      '当前没有自动写入适配器；请按官方说明配置，不要将平台 Key 当作厂商官方订阅凭据。'
-    ]
-  },
-  {
-    name: 'Oh My Pi',
-    url: 'https://github.com/can1357/oh-my-pi',
-    steps: [
-      '按其自定义模型供应商文档设置 baseUrl、apiKey 和模型 ID。',
-      '此工具与 Pi 的配置目录不同；本应用不会将 Pi 配置直接写入 Oh My Pi。'
-    ]
-  },
-  {
-    name: 'Antigravity',
-    url: 'https://antigravity.google/',
-    steps: [
-      '先核对当前版本支持的账号与模型服务。',
-      '本应用尚未提供自定义平台 Key 适配，不会修改其账号或绕过官方认证。'
-    ]
-  },
-  {
     name: '其他 OpenAI 兼容工具',
     url: '',
     steps: [
@@ -135,11 +87,7 @@ export function GuidedAgents({
   const visible = guides.filter((g) => g.name.toLowerCase().includes(query.toLowerCase()))
   const guide = guides.find((g) => g.name === selected)
   const address = openaiBaseUrl(baseUrl)
-  const configurable =
-    guide &&
-    !['Gemini CLI', 'Claude Desktop', 'Antigravity', 'Windsurf', 'MiniMax Code'].includes(
-      guide.name
-    )
+  const configurable = guide && guide.name !== 'Windsurf'
   return (
     <details className="guided-tools" open={query ? true : undefined}>
       <summary>更多工具 · 手动接入说明</summary>

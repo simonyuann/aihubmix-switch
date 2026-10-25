@@ -1,4 +1,17 @@
-export type AgentId = 'claude' | 'codex' | 'pi' | 'opencode' | 'grokbuild' | 'kimi' | 'openclaw'
+export type AgentId =
+  | 'claude'
+  | 'codex'
+  | 'pi'
+  | 'opencode'
+  | 'grokbuild'
+  | 'kimi'
+  | 'openclaw'
+  | 'gemini'
+  | 'claude-desktop'
+  | 'hermes'
+  | 'mcode'
+  | 'omp'
+  | 'agy'
 
 export interface AgentMeta {
   id: AgentId
@@ -7,6 +20,8 @@ export interface AgentMeta {
   color: string
   configHint: string
   installCommand: string
+  setupNote?: string
+  desktop?: boolean
 }
 
 export interface RelayModel {
@@ -73,6 +88,7 @@ export interface ApiKeyInfo {
 }
 
 export interface AgentState {
+  launchCommand?: string | null
   id: AgentId
   cliPath?: string | null
   detectionNote?: string
@@ -97,6 +113,7 @@ export interface AgentOptions {
   codexWireApi: 'responses' | 'chat'
   /** auto = 不写 model_reasoning_effort，交给 Codex 自己决定 */
   codexReasoningEffort: string
+  agyModelName?: string
 }
 
 export interface AppState {
@@ -183,6 +200,7 @@ export interface ImportInput {
   agent: AgentId
   model: string
   effort?: string
+  agyModelName?: string
 }
 
 export interface RendererApi {
