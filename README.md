@@ -1,90 +1,80 @@
-# AIHubMix 接入助手
+# AIHubMix Switch
 
-一个面向 [AIHubMix](https://csmy.fun:23457) 用户的 Windows 桌面客户端。输入在平台申请的 API Key，即可一键接入 Codex、Pi、OpenCode、Claude Code，并支持在客户端内注册账号、申请新的 API Key。
+白色、简洁的 API 与智能体接入助手。基于 **Tauri 2 + Rust + React**，支持 Windows 与 macOS，运行时使用系统 WebView，无需安装 Node.js。
 
-参考了 [cc-switch](https://github.com/farion1231/cc-switch) 的配置管理思路，但只保留「连接 + 一键接入 + 还原」这条最短路径。
+[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.2.0.md)
 
-## 功能
+## 使用
 
-- **一个 Key 接入多个 Agent**：Codex、Pi、OpenCode、Claude Code。
-- **客户端内申请 API Key**：登录/注册后读取可用分组（DeepSeek / OpenAI / GLM 等），创建 Key 并自动测试、保存。
-- **连接检测**：读取模型列表、余额、分组倍率和 `/v1/messages` 支持情况。
-- **安全写入**：读取-合并-原子写入，只修改本工具负责的字段，写入前自动备份。
-- **一键还原**：恢复到接入前的配置（Codex 为整文件恢复，其余为字段级恢复）。
-- **模型选择**：从 `/v1/models` 拉取模型，自动合并 Codex 模型清单里的上下文长度、推理能力、图片能力。
-- **简洁界面**：单窗口，一步连接、一步接入，不需要手改 JSON/TOML。
+1. 注册或登录 AIHubMix；已有 API Key 可直接添加，不必登录。
+2. 在「我的 API」创建、查看或复制 Key。
+3. 点击某个 Key 的「导入」，选择智能体和模型，完成配置。
+4. 「已接入」只显示配置过的工具，可更换配置、还原。
 
-## 当前接入方式
+支持 Codex、Claude Code、OpenCode、Pi。思考强度与配置路径放在导入面板的「高级设置」，接口兼容格式放在设置中。新建 Key 后可直接导入多个智能体，无需手动复制粘贴。
 
-| Agent | 配置路径 | 写入内容 |
-|---|---|---|
-| Claude Code | `~/.claude/settings.json` | `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`、默认模型（需要分组开启 `/v1/messages` 调度） |
-| Codex | `~/.codex/config.toml` + `auth.json` | `model_providers.csmy`、`model_provider`、`model`、`model_reasoning_effort`、API Key |
-| Pi | `~/.pi/agent/models.json` + `settings.json` | `providers.csmy`、`defaultProvider`、`defaultModel` |
-| OpenCode | `~/.config/opencode/opencode.json(c)` | `provider.csmy`、顶层 `model` |
+充值入口已保留，当前为「即将开放」占位，不发起任何付款。Key 配额与账户钱包余额是不同概念，未获取到的数据不会显示为零。
 
-默认中转地址：`https://csmy.fun:23457`
+## 安装
 
-- OpenAI 兼容：`https://csmy.fun:23457/v1`
-- Anthropic 兼容：`https://csmy.fun:23457`（Claude Code 自己拼 `/v1/messages`）
+| 系统 | 下载文件 |
+| --- | --- |
+| macOS 11+，Apple Silicon | `AIHubMix-Switch_<版本>_macos-arm64.dmg` |
+| macOS 11+，Intel | `AIHubMix-Switch_<版本>_macos-x64.dmg` |
+| Windows 10/11 x64 | `AIHubMix-Switch_<版本>_windows-x64-setup.exe` |
+| Windows 免安装 | `AIHubMix-Switch_<版本>_windows-x64-portable.exe` |
 
-## 重要说明 / 已知限制
+macOS：将应用拖入 Applications。当前使用 ad-hoc 签名，未通过 Apple Developer ID 公证，首次运行可能需要在「系统设置 → 隐私与安全性」允许打开。Windows 安装包暂未签名；免安装版需要系统已有 Edge WebView2 Runtime。Release 附 SHA256 校验文件。
 
-- **Claude Code 需要平台分组开启 `allow_messages_dispatch`**。当前 openai/deepseek 分组默认未开启时，客户端会显示「Claude Code 未开启」并禁止写入，避免产生无法工作的配置。开启后重新点击「刷新」即可检测到。
-- **分组可见性由平台控制**。新用户默认可见的公开分组以 `/api/v1/groups/available` 返回为准；如果 GLM 等分组是专属分组，需要管理员授权后才显示。
-- **Windows 安装包未签名**，首次运行可能出现 SmartScreen 提示；便携版同样可能被拦截，选择「仍要运行」即可。
-- 暂不构建 macOS 版本，也暂未实现自动更新。
-- 更换 Key 后，已写入的 Agent 配置不会自动更新，客户端会把卡片标记为「未接入」，重新点击接入即可。
-- Codex 使用 `wire_api = "responses"`；如遇服务端不支持，可在设置里切换为 `chat`。
-- **Codex 思考强度**可在 Codex 卡片里选择：`自动（不写入配置）`、关闭、极低、低、中、高、极高、最大、极限。默认 `中`；选择「自动」时不会写入 `model_reasoning_effort`，由 Codex 自己决定。旧版本曾保留你配置文件里原有的 `xhigh`，新版本会按选择器写入。
-- Pi 默认使用 `openai-responses`；如遇兼容问题，可在设置里切换为 `openai-completions`。
-- 备份目录：`%APPDATA%/aihubmix-switch/backups/<agent>/<时间戳>/`
-- API Key 使用 Electron `safeStorage`（Windows DPAPI）加密保存在本机；写入 Agent 配置时才会出现在对应配置文件中。
+## 配置与安全
+
+- 每个智能体独立记录所用 Key 指纹，不把「当前选择的 Key」当作所有智能体的配置。
+- 查看、复制和选择 Key 不修改智能体配置；明确点击导入后才写入。
+- 只修改接入所需字段，保留无关配置及 TOML / JSONC 注释。写入采用临时文件 + 原子替换，多文件操作失败时回滚已修改文件。
+- 导入前自动备份；再次更换 Key 或模型仍保留首次导入前的基线。还原时只恢复仍与本工具写入值一致的字段，保留后续手动修改。
+- API Key 与登录凭据通过 ChaCha20-Poly1305 加密存入本机 vault，主密钥由 macOS Keychain / Windows Credential Manager 保管。安全存储无法访问时不会回退为明文。
+- 完整 Key 默认隐藏，主动查看 60 秒后自动隐藏。导入后目标工具的配置文件及其备份可能包含原始凭据，备份目录属于本机敏感数据。
+- Claude Code 需要 Key 所属服务支持 Anthropic `/v1/messages`；不支持时阻止导入并提示更换 Key。
+
+默认服务地址：`https://csmy.fun:23457`。
+
+| 智能体 | 默认配置位置 | 可选环境变量 |
+| --- | --- | --- |
+| Codex | `~/.codex/config.toml`、`auth.json` | `CODEX_HOME` |
+| Claude Code | `~/.claude/settings.json` | `CLAUDE_CONFIG_DIR` |
+| OpenCode | `~/.config/opencode/opencode.json(c)` | `OPENCODE_CONFIG`、`OPENCODE_CONFIG_DIR`、`XDG_CONFIG_HOME` |
+| Pi | `~/.pi/agent/models.json`、`settings.json` | `PI_CODING_AGENT_DIR` |
+
+应用数据：macOS 为 `~/Library/Application Support/aihubmix-switch/`，Windows 为 `%APPDATA%/aihubmix-switch/`。新版设置 `state-v2.json`、加密凭据 `vault-v2.bin`、备份 `backups-v2/`。
+
+从 Electron 升级时需要重新登录或粘贴 Key；旧 `state.json` 和 `backups/` 完整保留，已写入的智能体配置不会自动更改。旧备份需通过数据目录访问，不会自动导入新版还原记录。
 
 ## 开发
 
+需要 Node.js 22.12+（CI 使用 24）、Rust stable；macOS 安装 Xcode Command Line Tools，Windows 安装 MSVC Build Tools 与 WebView2。参见 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)。
+
 ```bash
-npm install
-npm run icon      # 生成 build/icon.png
-npm run dev       # 开发模式（需要图形环境）
+npm ci
+npm run dev             # Tauri 桌面开发
 npm run typecheck
-npm test
-npm run build
+npm test                # React 关键交互测试
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+npm run build:desktop   # 本机原生安装包
 ```
 
-## 打包 Windows
+只预览界面：`npm run dev:web`，打开 `http://127.0.0.1:1420/?preview=1`。此模式使用明确标注的演示数据，不读写真实账户和智能体配置。可用 `&scenario=guest` 或 `&scenario=empty` 检查空状态。演示模块不会打包进生产客户端。
 
-在 Windows 上：
+## 构建与发布
+
+GitHub Actions 运行类型检查、前端交互测试、Rust 格式/Clippy/配置适配器测试，随后构建 macOS arm64、macOS Intel、Windows x64 安装包及压缩包。推送与三个版本文件一致的 `v<版本>` tag 后，只有全部平台构建成功才发布 Release，避免残缺发布。
 
 ```bash
-npm run build
-npx electron-builder --win
+npm run tauri -- build --target aarch64-apple-darwin --bundles app,dmg -- --locked
+npm run tauri -- build --target x86_64-apple-darwin --bundles app,dmg -- --locked
+npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis -- --locked
 ```
 
-产物在 `release/`：
+跨架构 macOS 编译需先 `rustup target add x86_64-apple-darwin`。Windows 安装包在 Windows runner 构建。
 
-- `AIHubMix Switch-<version>-x64.exe`（NSIS 安装包）
-- `AIHubMix Switch-<version>-portable.exe`（免安装版）
-
-在 Linux 上交叉打包 NSIS 需要安装 wine；没有 wine 时可以用：
-
-```bash
-npx electron-builder --win --dir
-```
-
-生成 `release/win-unpacked/`，压缩后即可在 Windows 上直接运行。
-
-推荐使用 GitHub Actions：推送 tag（如 `v0.1.0`）后自动在 `windows-latest` 上构建并上传 Release。
-
-## 测试
-
-```bash
-npm test
-```
-
-包含：
-
-- 4 个 Agent 配置适配器的读写/还原测试
-- URL 规范化、模型排序、模型清单解析
-- React 界面冒烟测试（jsdom）
-- 可选的真实中转站探测（设置 `TEST_API_KEY` 后运行 `tests/live.test.ts`）
+MIT License。

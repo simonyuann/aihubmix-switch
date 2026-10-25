@@ -1,0 +1,40 @@
+[package]
+name = "aihubmix-switch"
+version = "0.2.0"
+description = "AIHubMix lightweight API and agent manager"
+authors = ["AIHubMix"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "aihubmix_switch_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+dirs = "6"
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+chacha20poly1305 = "0.10"
+hex = "0.4"
+toml_edit = { version = "0.22", features = ["serde"] }
+jsonc-parser = { version = "0.34", features = ["serde", "cst"] }
+sha2 = "0.10"
+tempfile = "3"
+open = "5"
+url = "2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

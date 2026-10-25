@@ -55,7 +55,7 @@ export function SettingsModal({ open, onClose, state, onStateChange, notify }: P
             <span className="chip ok">已固定</span>
           </div>
           <p className="fine-print">
-            客户端默认连接 AIHubMix 中转站。如需更换，请重新粘贴新站点的 API Key 并保存。
+            客户端连接 AIHubMix 平台。创建或添加 Key 后，可选择智能体导入。
           </p>
         </section>
 
@@ -150,7 +150,9 @@ export function SettingsModal({ open, onClose, state, onStateChange, notify }: P
           </h3>
           <p className="fine-print">
             API Key 使用系统安全存储加密保存在本机；写入 Agent 配置时才会出现在对应配置文件中。
-            {state.secureStorage ? '当前系统安全存储可用。' : '当前系统安全存储不可用，Key 仅做本地编码。'}
+            {state.secureStorage
+              ? '当前系统安全存储可用。'
+              : '当前安全存储无法解锁，请解锁后重启应用；不会使用明文存储。'}
           </p>
         </section>
 

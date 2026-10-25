@@ -66,9 +66,10 @@ export interface ApiKeyInfo {
   groupId: number | null
   groupName: string
   status: string
-  quotaUsed: number
-  quota: number
+  quotaUsed: number | null
+  quota: number | null
   createdAt: string
+  local?: boolean
 }
 
 export interface AgentState {
@@ -79,6 +80,9 @@ export interface AgentState {
   connected: boolean
   appliedModel: string | null
   appliedEffort?: string | null
+  keyLabel?: string | null
+  keyId?: number | null
+  configChanged?: boolean
   backupAvailable: boolean
   error?: string
 }
@@ -92,6 +96,10 @@ export interface AgentOptions {
 
 export interface AppState {
   version: string
+  selectedKeyId?: number | null
+  lastAgent?: string
+  legacyData?: boolean
+  storageError?: string | null
   secureStorage: boolean
   site: SiteInfo
   relayBaseUrl: string
@@ -108,9 +116,7 @@ export interface AppState {
   options: AgentOptions
 }
 
-export type IpcResponse<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: string }
+export type IpcResponse<T> = { ok: true; data: T } | { ok: false; error: string }
 
 export interface ApplyAgentInput {
   agent: AgentId
@@ -153,9 +159,9 @@ export interface CreateKeyInput {
 }
 
 export interface CreatedKey {
-  key: string
   info: ApiKeyInfo
   state: AppState
+  warning?: string | null
 }
 
 export interface IpcErrorShape {
@@ -163,26 +169,36 @@ export interface IpcErrorShape {
   code?: string
 }
 
+export interface ImportInput {
+  keyId: number
+  keyLabel: string
+  agent: AgentId
+  model: string
+  effort?: string
+}
+
 export interface RendererApi {
   getState(): Promise<AppState>
-  refresh(forceAgents?: boolean): Promise<AppState>
-  testRelay(input: TestRelayInput): Promise<RelayProbe>
-  saveKey(input: SaveKeyInput): Promise<{ probe: RelayProbe; state: AppState }>
-  clearKey(): Promise<AppState>
-  setAgentModel(agent: AgentId, model: string): Promise<AppState>
+  refresh(): Promise<AppState>
+  keys(): Promise<ApiKeyInfo[]>
+  getKey(id: number): Promise<string>
+  copyKey(id: number): Promise<void>
+  prepareKey(id: number): Promise<RelayProbe>
+  saveKey(input: {
+    apiKey: string
+    name?: string
+  }): Promise<{ probe: RelayProbe; state: AppState; info: ApiKeyInfo }>
+  removeLocalKey(id: number): Promise<AppState>
+  importAgent(input: ImportInput): Promise<AppState>
+  restoreAgent(agent: AgentId): Promise<AppState>
   updateOptions(patch: Partial<AgentOptions>): Promise<AppState>
-  applyAgent(input: ApplyAgentInput): Promise<ApplyAgentResult>
-  applyAll(): Promise<ApplyAllResult>
-  restoreAgent(agent: AgentId): Promise<RestoreResult>
   openExternal(url: string): Promise<void>
   openPath(target: 'userData' | 'backups' | AgentId): Promise<void>
   account: {
-    register(input: AccountAuthInput): Promise<AccountState>
-    login(input: AccountAuthInput): Promise<AccountState>
-    logout(): Promise<AccountState>
+    register(input: AccountAuthInput): Promise<AppState>
+    login(input: AccountAuthInput): Promise<AppState>
+    logout(): Promise<AppState>
     groups(): Promise<GroupInfo[]>
-    keys(): Promise<ApiKeyInfo[]>
     createKey(input: CreateKeyInput): Promise<CreatedKey>
-    useKey(id: number): Promise<AppState>
   }
 }

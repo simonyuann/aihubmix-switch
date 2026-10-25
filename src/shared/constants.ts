@@ -46,7 +46,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     id: 'codex',
     name: 'Codex CLI',
     subtitle: 'OpenAI Codex 编码代理',
-    color: '#e8ecf8',
+    color: '#283f43',
     configHint: '~/.codex/config.toml',
     installCommand: 'npm install -g @openai/codex'
   },
@@ -54,7 +54,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     id: 'pi',
     name: 'Pi',
     subtitle: '轻量终端编码 Agent',
-    color: '#5eead4',
+    color: '#0d9488',
     configHint: '~/.pi/agent/models.json',
     installCommand: 'npm install -g @earendil-works/pi-coding-agent'
   },

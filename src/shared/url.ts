@@ -36,7 +36,8 @@ export function keyPreview(key: string): string {
   return `${key.slice(0, 3)}••••${key.slice(-4)}`
 }
 
-const NON_CHAT = /(image|audio|realtime|tts|whisper|embedding|moderation|transcribe|speech|auto-review)/i
+const NON_CHAT =
+  /(image|audio|realtime|tts|whisper|embedding|moderation|transcribe|speech|auto-review)/i
 
 export function isSelectableModel(id: string): boolean {
   return !NON_CHAT.test(id)

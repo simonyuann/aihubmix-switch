@@ -1,172 +1,160 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import App from '../src/renderer/src/App'
-import { AccountModal } from '../src/renderer/src/components/AccountModal'
-import { SettingsModal } from '../src/renderer/src/components/SettingsModal'
-import type { AppState, GroupInfo, RendererApi } from '../src/shared/types'
+import { previewState, demoKeys } from '../src/renderer/src/preview'
+import type { AppState, RendererApi } from '../src/shared/types'
 
-const state: AppState = {
-  version: '0.1.0',
-  secureStorage: true,
-  site: {
-    name: 'AIHubMix',
-    subtitle: '订阅转 API 的 AI 聚合平台',
-    apiBaseUrl: 'https://csmy.fun:23457',
-    docUrl: 'https://docs.csmy.fun:23457',
-    registerUrl: 'https://csmy.fun:23457/register',
-    loginUrl: 'https://csmy.fun:23457/login'
-  },
-  relayBaseUrl: 'https://csmy.fun:23457',
-  hasApiKey: true,
-  keyPreview: 'sk-••••1234',
-  account: { loggedIn: true, email: 'user@example.com', userId: 1 },
-  models: [
-    { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', reasoning: true, contextWindow: 272000 },
-    { id: 'gpt-image-1', name: 'GPT Image 1' }
-  ],
-  balance: 6.44,
-  rateMultiplier: 0.3,
-  messages: 'unsupported',
-  relayError: null,
-  agents: [
-    {
-      id: 'claude',
-      installed: false,
-      version: null,
-      configPath: '/home/user/.claude/settings.json',
-      connected: false,
-      appliedModel: null,
-      backupAvailable: false
-    },
-    {
-      id: 'codex',
-      installed: true,
-      version: '0.162.1',
-      configPath: '/home/user/.codex/config.toml',
-      connected: true,
-      appliedModel: 'gpt-5.6-luna',
-      appliedEffort: 'high',
-      backupAvailable: true
-    },
-    {
-      id: 'pi',
-      installed: true,
-      version: '0.87.1',
-      configPath: '/home/user/.pi/agent/models.json',
-      connected: false,
-      appliedModel: null,
-      backupAvailable: false
-    },
-    {
-      id: 'opencode',
-      installed: true,
-      version: '1.19.3',
-      configPath: '/home/user/.config/opencode/opencode.json',
-      connected: false,
-      appliedModel: null,
-      backupAvailable: false
-    }
-  ],
-  agentModels: {
-    claude: 'gpt-5.6-luna',
-    codex: 'gpt-5.6-luna',
-    pi: 'gpt-5.6-luna',
-    opencode: 'gpt-5.6-luna'
-  },
-  options: {
-    piApi: 'openai-responses',
-    codexWireApi: 'responses',
-    codexReasoningEffort: 'high'
-  }
-}
-
-const groups: GroupInfo[] = [
-  {
-    id: 4,
-    name: 'openai',
-    description: '按量计费分组',
-    platform: 'openai',
-    rateMultiplier: 0.3,
-    allowMessagesDispatch: false,
-    subscriptionType: 'standard'
-  }
-]
-
-function makeApi(): RendererApi {
-  return {
-    getState: vi.fn().mockResolvedValue(state),
-    refresh: vi.fn().mockResolvedValue(state),
-    testRelay: vi.fn(),
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
+  writeText: vi.fn().mockResolvedValue(undefined)
+}))
+let state: AppState
+let api: RendererApi
+beforeEach(() => {
+  state = structuredClone(previewState)
+  api = {
+    getState: vi.fn(async () => state),
+    refresh: vi.fn(async () => state),
+    keys: vi.fn(async () => structuredClone(demoKeys)),
+    getKey: vi.fn(async () => 'test-key-not-a-real-secret'),
+    copyKey: vi.fn(async () => undefined),
+    prepareKey: vi.fn(async () => ({
+      ok: true,
+      baseUrl: state.relayBaseUrl,
+      models: state.models,
+      balance: null,
+      rateMultiplier: 1,
+      messages: state.messages,
+      latencyMs: 50
+    })),
     saveKey: vi.fn(),
-    clearKey: vi.fn(),
-    setAgentModel: vi.fn().mockResolvedValue(state),
-    updateOptions: vi.fn().mockResolvedValue(state),
-    applyAgent: vi.fn(),
-    applyAll: vi.fn(),
-    restoreAgent: vi.fn(),
+    removeLocalKey: vi.fn(),
+    importAgent: vi.fn(async () => state),
+    restoreAgent: vi.fn(async () => state),
+    updateOptions: vi.fn(async () => state),
     openExternal: vi.fn(),
     openPath: vi.fn(),
     account: {
-      register: vi.fn(),
-      login: vi.fn(),
-      logout: vi.fn(),
-      groups: vi.fn().mockResolvedValue(groups),
-      keys: vi.fn().mockResolvedValue([]),
-      createKey: vi.fn(),
-      useKey: vi.fn()
+      register: vi.fn(async () => state),
+      login: vi.fn(async () => state),
+      logout: vi.fn(async () => state),
+      groups: vi.fn(async () => [
+        {
+          id: 1,
+          name: 'OpenAI',
+          description: '编程模型服务',
+          platform: 'openai',
+          rateMultiplier: 1,
+          allowMessagesDispatch: true,
+          subscriptionType: 'standard'
+        }
+      ]),
+      createKey: vi.fn(async () => ({
+        info: demoKeys[0]!,
+        state
+      }))
     }
   }
-}
-
-beforeEach(() => {
-  ;(window as unknown as { api: RendererApi }).api = makeApi()
+  window.api = api
 })
-
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
 })
+async function ready() {
+  render(<App />)
+  await screen.findByText('日常编程')
+}
 
-describe('renderer smoke tests', () => {
-  it('renders the key card and agent cards', async () => {
-    render(<App />)
-    await waitFor(() => expect(screen.getByText('连接 API')).toBeTruthy())
+describe('API-first workspace', () => {
+  it('shows keys without listing all agents and never fetches a secret on startup', async () => {
+    await ready()
+    expect(screen.getByText('轻量任务')).toBeTruthy()
+    expect(screen.queryByText('Claude Code')).toBeNull()
+    expect(screen.queryByText('OpenCode')).toBeNull()
+    expect(api.getKey).not.toHaveBeenCalled()
+    expect(api.importAgent).not.toHaveBeenCalled()
+  })
+  it('opens an import panel and only writes after explicit submission', async () => {
+    await ready()
+    fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByRole('button', { name: '导入到 Codex CLI' })
+    await waitFor(() =>
+      expect((within(dialog).getByLabelText('使用模型') as HTMLSelectElement).value).toBe('gpt-5.4')
+    )
+    expect(api.prepareKey).toHaveBeenCalledWith(11)
+    expect(api.importAgent).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: '导入到 Codex CLI' }))
+    await within(dialog).findByText('已成功导入')
+    expect(api.importAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ keyId: 11, agent: 'codex', model: 'gpt-5.4', effort: 'medium' })
+    )
+  })
+  it('blocks an unsupported Claude key and offers recovery', async () => {
+    state.messages = 'unsupported'
+    await ready()
+    fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('选择智能体'), { target: { value: 'claude' } })
+    await within(dialog).findByText('返回更换 API Key')
+    expect(
+      (within(dialog).getByRole('button', { name: '导入到 Claude Code' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true)
+    expect(api.importAgent).not.toHaveBeenCalled()
+  })
+  it('does not retrieve full keys until the user asks and hides them when closed', async () => {
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '查看 日常编程' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(api.getKey).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: '查看完整 Key' }))
+    await within(dialog).findByText('test-key-not-a-real-secret')
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }))
+    expect(screen.queryByText('test-key-not-a-real-secret')).toBeNull()
+  })
+  it('creates once and continues directly to import even when storage returns a warning', async () => {
+    vi.mocked(api.account.createKey).mockResolvedValue({
+      info: demoKeys[0]!,
+      state,
+      warning: '系统存储暂不可用'
+    })
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '创建 API Key' }))
+    const dialog = await screen.findByRole('dialog')
+    await waitFor(() =>
+      expect((within(dialog).getByLabelText('模型服务') as HTMLSelectElement).value).toBe('1')
+    )
+    fireEvent.click(within(dialog).getByRole('button', { name: '创建 API Key' }))
+    await screen.findByText('API Key 已创建')
+    expect(api.account.createKey).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: '导入到智能体' }))
+    await screen.findByRole('button', { name: '导入到 Codex CLI' })
+  })
+  it('shows only previously configured agents in the connections view', async () => {
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '已接入 1' }))
     expect(screen.getByText('Codex CLI')).toBeTruthy()
-    expect(screen.getByText('OpenCode')).toBeTruthy()
-    expect(screen.getByText('已接入 1')).toBeTruthy()
-    const effort = screen.getByLabelText('Codex 思考强度') as HTMLSelectElement
-    expect(effort.value).toBe('high')
-    expect(screen.getByText('自动（不写入配置）')).toBeTruthy()
-    expect(screen.getByText('当前 Key 所属分组未开启 /v1/messages 调度。请在平台后台开启 allow_messages_dispatch，或改用 Anthropic 分组后再接入 Claude Code。')).toBeTruthy()
+    expect(screen.queryByText('Claude Code')).toBeNull()
+    expect(screen.queryByText('Pi')).toBeNull()
   })
-
-  it('renders the account modal with groups', async () => {
-    render(
-      <AccountModal
-        open
-        onClose={() => undefined}
-        state={state}
-        onStateChange={() => undefined}
-        notify={() => undefined}
-      />
-    )
-    await waitFor(() => expect(screen.getByText('选择分组')).toBeTruthy())
-    expect(screen.getByText('openai')).toBeTruthy()
-    expect(screen.getByText('申请新 Key')).toBeTruthy()
+  it('shows a recharge placeholder without payment inputs', async () => {
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: /充值/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('充值功能正在准备中')).toBeTruthy()
+    expect(within(dialog).queryByRole('textbox')).toBeNull()
+    expect(within(dialog).queryByRole('button', { name: '支付' })).toBeNull()
   })
-
-  it('renders the settings modal', () => {
-    render(
-      <SettingsModal
-        open
-        onClose={() => undefined}
-        state={state}
-        onStateChange={() => undefined}
-        notify={() => undefined}
-      />
-    )
-    expect(screen.getByText('接口格式')).toBeTruthy()
-    expect(screen.getByText('配置与备份')).toBeTruthy()
+  it('lets guests add an existing key without signing up', async () => {
+    state.account = { loggedIn: false }
+    vi.mocked(api.keys).mockResolvedValue([])
+    render(<App />)
+    await screen.findByText('从你的第一个 API Key 开始')
+    fireEvent.click(screen.getByRole('button', { name: '我已有 API Key，直接添加' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText('API Key')).toBeTruthy()
+    expect(api.account.login).not.toHaveBeenCalled()
   })
 })

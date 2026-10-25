@@ -5,3 +5,7 @@ release/
 .DS_Store
 *.log
 *.tsbuildinfo
+dist/
+src-tauri/target/
+src-tauri/gen/
+artifacts/
