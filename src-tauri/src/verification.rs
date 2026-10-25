@@ -12,6 +12,7 @@ pub enum Wire {
     Chat,
     Messages,
     Compatibility,
+    Gemini,
 }
 impl Wire {
     fn path(self) -> &'static str {
@@ -30,7 +31,10 @@ pub fn wire(agent: &str, options: &Options, compatibility: bool) -> Result<Wire>
         } else {
             Wire::Messages
         }),
-        "opencode" => Ok(Wire::Chat),
+        "opencode" | "kimi" | "openclaw" | "hermes" | "mcode" | "omp" => Ok(Wire::Chat),
+        "claude-desktop" => Ok(Wire::Messages),
+        "gemini" | "agy" => Ok(Wire::Gemini),
+        "grokbuild" => Ok(Wire::Responses),
         "codex" => match options.codex_wire_api.as_str() {
             "responses" => Ok(Wire::Responses),
             "chat" => Ok(Wire::Chat),
@@ -266,6 +270,7 @@ pub async fn verify(
     effort: Option<&str>,
 ) -> Result<()> {
     let outcome = async {
+        if wire == Wire::Gemini { return verify_gemini(client,key,route).await; }
         let mut body = json!({"model":route.model,"max_tokens":if route.model.to_ascii_lowercase().contains("deepseek") {2048} else {512},"stream":true,"messages":[{"role":"user","content":"Call connection_check with ok=true. This is a connection test."}],"tools":[{"name":"connection_check","description":"Confirm the connection. Does not execute any real action.","input_schema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}}],"tool_choice":{"type":"auto"}});
         let (blocks, actual_wire) = turn(client,key,route,&body,wire,effort).await?;
         let tool = blocks.iter().find(|b|b["type"]=="tool_use" && b["name"]=="connection_check" && b["id"].as_str().is_some_and(|id|!id.is_empty()) && b["input"]["ok"]==true).ok_or("所选模型未完成工具调用验证，请更换模型或接口格式")?;
@@ -287,6 +292,122 @@ pub async fn verify(
                 .collect::<String>()
         )
     })
+}
+
+async fn gemini_turn(
+    client: &Client,
+    key: &str,
+    route: &ClaudeRoute,
+    contents: &[Value],
+) -> Result<Vec<Value>> {
+    let model = route.model.trim_start_matches("models/");
+    if model.is_empty()
+        || !model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-._:".contains(c))
+    {
+        return Err("Gemini 模型 ID 格式不支持，请选择原生 Gemini 模型".into());
+    }
+    let mut url = url::Url::parse(&format!("{}/v1beta/models/", route.base_url))
+        .map_err(|_| "Gemini 地址不正确")?;
+    url.path_segments_mut()
+        .map_err(|_| "Gemini 地址不正确")?
+        .pop_if_empty()
+        .push(&format!("{model}:streamGenerateContent"));
+    url.set_query(Some("alt=sse"));
+    let body = json!({"contents":contents,"generationConfig":{"maxOutputTokens":2048},"tools":[{"functionDeclarations":[{"name":"connection_check","description":"Confirm the connection. Does not execute any real action.","parameters":{"type":"OBJECT","properties":{"ok":{"type":"BOOLEAN"}},"required":["ok"]}}]}],"toolConfig":{"functionCallingConfig":{"mode":"AUTO"}}});
+    let response = client
+        .post(url)
+        .header("x-goog-api-key", key)
+        .json(&body)
+        .timeout(Duration::from_secs(60))
+        .send()
+        .await
+        .map_err(|_| "Gemini 模型验证连接失败或超时")?;
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let request_id = response
+            .headers()
+            .get("x-request-id")
+            .and_then(|s| s.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        let value: Value = response.json().await.unwrap_or(Value::Null);
+        let message = value["error"]["message"]
+            .as_str()
+            .or(value["message"].as_str())
+            .unwrap_or("上游未返回详情");
+        return Err(format!("Gemini 原生接口验证失败（HTTP {status}，模型 {}，/v1beta/models/…:streamGenerateContent）：{message}；请求 ID：{request_id}",route.model));
+    }
+    if !response
+        .headers()
+        .get("content-type")
+        .and_then(|s| s.to_str().ok())
+        .is_some_and(|s| s.contains("text/event-stream"))
+    {
+        return Err("Gemini 未返回所需的流式响应".into());
+    }
+    let mut stream = response.bytes_stream().eventsource();
+    let mut parts = Vec::new();
+    let mut complete = false;
+    let mut bytes = 0;
+    while let Some(event) = stream.next().await {
+        let event = event.map_err(|_| "Gemini 流式连接中断")?;
+        bytes += event.data.len();
+        if bytes > 2_000_000 {
+            return Err("Gemini 验证响应超过大小限制".into());
+        }
+        if event.data.is_empty() || event.data == "[DONE]" {
+            continue;
+        }
+        let value: Value =
+            serde_json::from_str(&event.data).map_err(|_| "Gemini 流式 JSON 格式错误")?;
+        if !value["error"].is_null() || !value["promptFeedback"]["blockReason"].is_null() {
+            return Err("Gemini 拒绝了验证请求".into());
+        }
+        let candidate = &value["candidates"][0];
+        if let Some(reason) = candidate["finishReason"].as_str() {
+            if reason != "STOP" {
+                return Err(format!("Gemini 验证未正常完成：{reason}"));
+            }
+            complete = true;
+        }
+        if let Some(values) = candidate["content"]["parts"].as_array() {
+            parts.extend(values.iter().cloned());
+        }
+    }
+    if !complete {
+        return Err("Gemini 流式响应提前结束".into());
+    }
+    Ok(parts)
+}
+async fn verify_gemini(client: &Client, key: &str, route: &ClaudeRoute) -> Result<()> {
+    let mut contents = vec![
+        json!({"role":"user","parts":[{"text":"Call connection_check with ok=true. This is a connection test."}]}),
+    ];
+    let parts = gemini_turn(client, key, route, &contents).await?;
+    let call = parts
+        .iter()
+        .find(|p| {
+            p["functionCall"]["name"] == "connection_check"
+                && p["functionCall"]["args"]["ok"] == true
+        })
+        .ok_or("Gemini 模型未完成工具调用验证")?;
+    let mut result = json!({"name":"connection_check","response":{"ok":true,"message":"Connection check succeeded. Reply OK."}});
+    if let Some(id) = call["functionCall"].get("id") {
+        result["id"] = id.clone();
+    }
+    // Keep Gemini thought signatures attached to the original model parts.
+    contents.push(json!({"role":"model","parts":parts}));
+    contents.push(json!({"role":"user","parts":[{"functionResponse":result}]}));
+    let parts = gemini_turn(client, key, route, &contents).await?;
+    if !parts
+        .iter()
+        .any(|p| p["thought"] != true && p["text"].as_str().is_some_and(|s| !s.trim().is_empty()))
+    {
+        return Err("Gemini 未能读取工具结果并返回正文".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -348,6 +469,53 @@ mod tests {
                 json!({"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"OK"}),
                 json!({"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":1}}}),
             ]
+        }
+    }
+    #[tokio::test]
+    async fn gemini_uses_native_stream_and_preserves_thought_signature_for_tool_result() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let (base,task)=mock(Router::new().route("/v1beta/models/model-a:streamGenerateContent",post(move |headers:HeaderMap,Json(body):Json<Value>| {
+            let seen=seen.clone();
+            async move {
+                assert_eq!(headers["x-goog-api-key"],"mock-key");
+                assert!(headers.get("authorization").is_none());
+                let first=seen.fetch_add(1,Ordering::SeqCst)==0;
+                assert_eq!(body["toolConfig"]["functionCallingConfig"]["mode"],"AUTO");
+                if !first {
+                    assert_eq!(body["contents"][1]["parts"][0]["thoughtSignature"],"fixture-signature");
+                    assert_eq!(body["contents"][2]["parts"][0]["functionResponse"]["name"],"connection_check");
+                }
+                events(vec![json!({"candidates":[{"content":{"role":"model","parts":if first {json!([{"functionCall":{"name":"connection_check","args":{"ok":true}},"thoughtSignature":"fixture-signature"}])}else{json!([{"text":"OK"}])}},"finishReason":"STOP"}]})])
+            }
+        }))).await;
+        verify(&Client::new(), "mock-key", &route(base), Wire::Gemini, None)
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        task.abort();
+    }
+    #[tokio::test]
+    async fn gemini_rejects_blocked_missing_tools_and_incomplete_streams() {
+        for value in [
+            json!({"promptFeedback":{"blockReason":"SAFETY"}}),
+            json!({"candidates":[{"content":{"parts":[{"text":"OK"}]},"finishReason":"STOP"}]}),
+            json!({"candidates":[{"content":{"parts":[{"functionCall":{"name":"connection_check","args":{"ok":true}}}]}}]}),
+        ] {
+            let (base, task) = mock(Router::new().route(
+                "/v1beta/models/model-a:streamGenerateContent",
+                post(move || {
+                    let value = value.clone();
+                    async move { events(vec![value]) }
+                }),
+            ))
+            .await;
+            assert!(
+                verify(&Client::new(), "mock-key", &route(base), Wire::Gemini, None)
+                    .await
+                    .is_err()
+            );
+            task.abort();
         }
     }
     #[tokio::test]

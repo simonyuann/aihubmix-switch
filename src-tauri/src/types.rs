@@ -2,7 +2,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-pub const AGENTS: [&str; 4] = ["codex", "claude", "opencode", "pi"];
+pub const AGENTS: [&str; 13] = [
+    "codex",
+    "claude",
+    "opencode",
+    "pi",
+    "grokbuild",
+    "kimi",
+    "openclaw",
+    "gemini",
+    "claude-desktop",
+    "hermes",
+    "mcode",
+    "omp",
+    "agy",
+];
 pub const DEFAULT_BASE: &str = "https://csmy.fun:23457";
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -12,6 +26,7 @@ pub struct Options {
     pub pi_api: String,
     pub codex_wire_api: String,
     pub codex_reasoning_effort: String,
+    pub agy_model_name: String,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -19,6 +34,7 @@ impl Default for Options {
             pi_api: "openai-responses".into(),
             codex_wire_api: "responses".into(),
             codex_reasoning_effort: "medium".into(),
+            agy_model_name: String::new(),
         }
     }
 }

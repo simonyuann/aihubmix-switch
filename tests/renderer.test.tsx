@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import App from '../src/renderer/src/App'
-import { previewState, demoKeys } from '../src/renderer/src/preview'
+import { previewState, demoKeys, demoSessions } from '../src/renderer/src/preview'
 import type { AppState, RendererApi, UpdateStatus } from '../src/shared/types'
 
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
@@ -13,6 +13,17 @@ let api: RendererApi
 beforeEach(() => {
   state = structuredClone(previewState)
   api = {
+    sessions: {
+      list: vi.fn(async () => structuredClone(demoSessions)),
+      read: vi.fn(async (id) => ({
+        session: demoSessions.sessions.find((s) => s.id === id)!,
+        messages: [{ role: 'user', text: '读取正文测试' }],
+        resumeCommand: "codex resume 'demo-project'",
+        shell: '终端',
+        truncated: false,
+        note: '本机只读'
+      }))
+    },
     updates: {
       status: vi.fn(async () => ({
         phase: 'idle' as const,
@@ -96,6 +107,77 @@ async function ready() {
 }
 
 describe('API-first workspace', () => {
+  it('offers all thirteen native agent families and imports MiniMax without fetching a key into the UI', async () => {
+    await ready()
+    fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    const selector = within(dialog).getByLabelText('选择智能体')
+    expect(within(selector).getAllByRole('option')).toHaveLength(14)
+    for (const name of [
+      'Gemini CLI',
+      'Claude Desktop',
+      'Hermes Agent',
+      'MiniMax Code',
+      'Oh My Pi',
+      'Antigravity CLI'
+    ]) {
+      expect(within(selector).getByRole('option', { name: new RegExp(name) })).toBeTruthy()
+    }
+    fireEvent.change(selector, { target: { value: 'mcode' } })
+    await within(dialog).findByText(/默认模型由原工具管理/)
+    fireEvent.change(within(dialog).getByLabelText('使用模型'), { target: { value: 'gpt-5.4' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '导入到 MiniMax Code' }))
+    await waitFor(() =>
+      expect(api.importAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ agent: 'mcode', model: 'gpt-5.4', keyId: 11 })
+      )
+    )
+    expect(api.getKey).not.toHaveBeenCalled()
+    expect(api.copyKey).not.toHaveBeenCalled()
+    await within(dialog).findByText('已成功导入')
+    expect(within(dialog).getByText(/导入后在 MCode/)).toBeTruthy()
+  })
+  it('loads sessions only when opened and reads only the selected conversation', async () => {
+    await ready()
+    expect(api.sessions.list).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '会话' }))
+    await screen.findByText('整理项目的 API 接入流程')
+    expect(api.sessions.read).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('搜索会话'), { target: { value: '错误提示' } })
+    expect(screen.queryByText('整理项目的 API 接入流程')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /检查模型调用与错误提示/ }))
+    await screen.findByText('读取正文测试')
+    expect(api.sessions.read).toHaveBeenCalledWith('demo-claude')
+    expect(api.importAgent).not.toHaveBeenCalled()
+    expect(api.getKey).not.toHaveBeenCalled()
+  })
+  it('shows a session read error without keeping stale conversation content', async () => {
+    vi.mocked(api.sessions.read).mockRejectedValue(new Error('会话已移动或删除'))
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '会话' }))
+    await screen.findByText('整理项目的 API 接入流程')
+    fireEvent.click(screen.getByRole('button', { name: /整理项目的 API 接入流程/ }))
+    await screen.findByRole('alert')
+    expect(screen.getByText('会话已移动或删除')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '复制继续命令' })).toBeNull()
+  })
+  it('searches native adapters and keeps guided setup separate from automatic writes', async () => {
+    await ready()
+    fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('搜索智能体'), { target: { value: 'Kimi' } })
+    expect(within(dialog).getByRole('option', { name: /Kimi Code/ })).toBeTruthy()
+    fireEvent.change(within(dialog).getByLabelText('选择智能体'), { target: { value: 'kimi' } })
+    await within(dialog).findByRole('button', { name: '导入到 Kimi Code' })
+    expect(api.importAgent).not.toHaveBeenCalled()
+    fireEvent.change(within(dialog).getByLabelText('搜索智能体'), { target: { value: 'Cline' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cline' }))
+    await within(dialog).findByText('手动配置')
+    expect(within(dialog).queryByRole('button', { name: '选择智能体后导入' })).toBeNull()
+    expect(api.importAgent).not.toHaveBeenCalled()
+    expect(api.getKey).not.toHaveBeenCalled()
+    expect(api.copyKey).not.toHaveBeenCalled()
+  })
   it('shows keys without listing all agents and never fetches a secret on startup', async () => {
     await ready()
     expect(screen.getByText('轻量任务')).toBeTruthy()

@@ -2,6 +2,10 @@
 
 本次核对开源仓库 [farion1231/cc-switch](https://github.com/farion1231/cc-switch)，参考提交 `de0a235ad6389ce4afa333b472cdee615a3f3987`（MIT）。本项目独立实现协议适配与更新状态管理，未复制其代码。
 
+0.3.0 进一步对照 `app_config.rs` 的 13 个 AppType，以及 `gemini_config.rs` / `live/project/gemini.rs`、`grokbuild_config.rs`、`kimi_config.rs`、`hermes_config.rs`、`mcode_config.rs`、`omp_config.rs`、`claude_desktop_config.rs`、`agy_config.rs` 的原生路径和字段契约。新配置适配集中于本项目 `agent_adapters.rs`，YAML / dotenv 定向编辑器在 `config_formats.rs`，均为独立实现。另核对 Google Gemini CLI 的 `storage.ts` / `utils/paths.ts` 与 Oh My Pi 官方包名。
+
+覆盖智能体种类不等于复刻 CC Switch 全部功能。桌面网关只接 Claude 模型；Gemini 系列入口要求 Gemini 协议；agy 通过私有环境和显示名启动。后续版本明确为 0.3.1 统一 Codex CLI 历史，0.3.2 优先连接诊断与快捷操作。
+
 - `src-tauri/src/commands/settings.rs`：更新由 Rust 后端串联检查、下载、安装与重启；下载进度用事件传给前端。避免替换 macOS App 后依赖旧 WebView 再发重启命令。
 - `src-tauri/tauri.conf.json`：固定更新公钥与 Release 清单，采用官方 Tauri updater。
 - `src-tauri/src/proxy/providers/transform.rs`、`claude.rs`、`codex_chat_common.rs`：DeepSeek 工具调用需要回传 `reasoning_content`，转换时不能丢失；通用 OpenAI 接口不凭空注入该字段。

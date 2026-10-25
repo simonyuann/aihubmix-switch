@@ -12,6 +12,7 @@ import {
   CreatedKeyModal
 } from './components/KeyModals'
 import { ImportModal } from './components/ImportModal'
+import { SessionPage } from './components/SessionPage'
 import { SettingsModal } from './components/SettingsModal'
 import { Modal } from './components/Modal'
 import { Toast, type ToastKind, type ToastState } from './components/Toast'
@@ -50,7 +51,7 @@ export default function App() {
   const updates = useAppUpdates()
   const [state, setState] = useState<AppState | null>(null)
   const [keys, setKeys] = useState<ApiKeyInfo[]>([])
-  const [page, setPage] = useState<'keys' | 'agents'>('keys')
+  const [page, setPage] = useState<'keys' | 'agents' | 'sessions'>('keys')
   const [panel, setPanel] = useState<Panel>(null)
   const [item, setItem] = useState<ApiKeyInfo | null>(null)
   const [created, setCreated] = useState<CreatedKey | null>(null)
@@ -130,6 +131,14 @@ export default function App() {
       notify('API Key 已复制')
     } catch (err) {
       notify(err instanceof Error ? err.message : String(err), 'error')
+    }
+  }
+  async function copyCommand(command: string) {
+    try {
+      await writeText(command)
+      notify('启动命令已复制')
+    } catch {
+      notify('复制失败，请重试', 'error')
     }
   }
   async function openPath(target: 'backups' | AgentState['id']) {
@@ -299,6 +308,14 @@ export default function App() {
             <TerminalIcon size={16} />
             已接入{connected.length > 0 && <span className="tab-count">{connected.length}</span>}
           </button>
+          <button
+            className={page === 'sessions' ? 'active' : ''}
+            aria-current={page === 'sessions' ? 'page' : undefined}
+            onClick={() => setPage('sessions')}
+          >
+            <FolderIcon size={16} />
+            会话
+          </button>
         </div>
         <button className="btn ghost sm settings-trigger" onClick={() => setPanel('settings')}>
           <SettingsIcon size={16} />
@@ -310,20 +327,26 @@ export default function App() {
         <div className="page-heading">
           <div>
             <div className="eyebrow">YOUR WORKSPACE</div>
-            <h2>{page === 'keys' ? '我的 API' : '已接入的智能体'}</h2>
+            <h2>
+              {page === 'keys' ? '我的 API' : page === 'agents' ? '已接入的智能体' : '会话历史'}
+            </h2>
             <p>
               {page === 'keys'
                 ? '管理你的密钥，让连接变得简单。'
-                : '你的编程工具，连接状态一目了然。'}
+                : page === 'agents'
+                  ? '你的编程工具，连接状态一目了然。'
+                  : '在本机找回上下文，回到熟悉的工具继续。'}
             </p>
           </div>
-          <button
-            className="btn primary"
-            onClick={page === 'keys' ? create : () => setPage('keys')}
-          >
-            <PlusIcon size={16} />
-            {page === 'keys' ? '创建 API Key' : '添加连接'}
-          </button>
+          {page !== 'sessions' && (
+            <button
+              className="btn primary"
+              onClick={page === 'keys' ? create : () => setPage('keys')}
+            >
+              <PlusIcon size={16} />
+              {page === 'keys' ? '创建 API Key' : '添加连接'}
+            </button>
+          )}
         </div>
         {state.storageError && (
           <div className="notice notice-error" role="alert">
@@ -394,6 +417,8 @@ export default function App() {
               </span>
             </div>
           </>
+        ) : page === 'sessions' ? (
+          <SessionPage onNotify={notify} />
         ) : (
           <section className="api-panel connected-panel" aria-label="已接入的智能体">
             <div className="panel-toolbar">
@@ -445,9 +470,20 @@ export default function App() {
                         ? '当前配置与上次导入记录不同'
                         : agent.keyLabel || '从已有配置识别'}
                     </small>
+                    {['mcode', 'omp'].includes(agent.id) && (
+                      <p className="fine-print">供应商已添加，请在原工具中选择 csmy 下的模型。</p>
+                    )}
                     {agent.error && <p className="danger-text">{agent.error}</p>}
                   </div>
                   <div className="connection-actions">
+                    {agent.launchCommand && !agent.keyDeleted && (
+                      <button
+                        className="btn sm"
+                        onClick={() => void copyCommand(agent.launchCommand!)}
+                      >
+                        复制启动命令
+                      </button>
+                    )}
                     <button
                       className="btn sm"
                       onClick={() => {
@@ -590,7 +626,7 @@ export default function App() {
           onCopyCommand={async (command) => {
             try {
               await writeText(command)
-              notify('安装命令已复制')
+              notify('已复制')
             } catch {
               notify('复制失败，请稍后重试', 'error')
             }

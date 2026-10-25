@@ -31,6 +31,13 @@ pub fn candidates(
     for relative in [
         ".local/bin",
         ".opencode/bin",
+        ".grok/bin",
+        ".hermes/bin",
+        ".hermes/hermes-agent/.venv/bin",
+        ".local/share/uv/tools/hermes-agent/bin",
+        ".minimax/bin",
+        ".omp/bin",
+        ".local/share/uv/tools/kimi-code/bin",
         ".bun/bin",
         ".volta/bin",
         ".npm-global/bin",
@@ -178,6 +185,44 @@ pub fn locate(dirs: &[PathBuf], platform: Platform, command: &str) -> Option<Pat
 }
 
 pub fn detect(home: &Path, agent: &str, custom: Option<&str>) -> Value {
+    if agent == "claude-desktop" && custom.is_none() {
+        let mut apps = vec![
+            PathBuf::from("/Applications/Claude.app"),
+            home.join("Applications/Claude.app"),
+        ];
+        if cfg!(windows) {
+            let local = std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("AppData/Local"));
+            apps.extend([
+                local.join("Programs/Claude/Claude.exe"),
+                local.join("AnthropicClaude/Claude.exe"),
+                local.join("Claude/Claude.exe"),
+            ]);
+            if let Ok(entries) = fs::read_dir(local.join("Microsoft/WindowsApps")) {
+                apps.extend(
+                    entries
+                        .flatten()
+                        .filter(|e| {
+                            e.file_name()
+                                .to_string_lossy()
+                                .to_lowercase()
+                                .contains("claude")
+                        })
+                        .map(|e| e.path().join("Claude.exe")),
+                );
+            }
+        } else if cfg!(target_os = "linux") {
+            apps.extend([
+                PathBuf::from("/usr/bin/claude-desktop"),
+                PathBuf::from("/opt/Claude/claude-desktop"),
+                home.join(".local/bin/claude-desktop"),
+            ]);
+        }
+        let found = apps.into_iter().find(|p| p.exists());
+        return json!({"installed":found.is_some(),"cliPath":found,"detectionNote":"桌面应用与 Claude Code CLI 分别检测；未定位到应用仍可先写入网关配置"});
+    }
+    let command = if agent == "grokbuild" { "grok" } else { agent };
     let platform = Platform::current();
     let path = if let Some(custom) = custom.filter(|p| !p.trim().is_empty()) {
         let p = PathBuf::from(custom);
@@ -185,7 +230,7 @@ pub fn detect(home: &Path, agent: &str, custom: Option<&str>) -> Value {
     } else {
         let env = std::env::vars().collect();
         let path = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
-        locate(&candidates(home, platform, &env, path), platform, agent)
+        locate(&candidates(home, platform, &env, path), platform, command)
     };
     json!({"installed":path.is_some(), "cliPath":path, "detectionNote":if custom.is_some() && path.is_none() { "指定的 CLI 路径不可用，请重新选择" } else if path.is_some() { "已定位 CLI" } else { "未定位到 CLI，可重新扫描或手动填写路径；不代表软件未安装" }})
 }

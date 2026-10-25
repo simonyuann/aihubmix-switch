@@ -738,6 +738,7 @@ impl Backend {
                     return Err("请选择智能体".into());
                 }
                 let model = string(&input, "model");
+                agents::preflight(&agent, &model)?;
                 let key = self.key(id).await?;
                 let cached = self.probe_identity.as_ref().is_some_and(|(hash, time)| {
                     *hash == fingerprint(&key) && time.elapsed() < Duration::from_secs(60)
@@ -751,6 +752,11 @@ impl Backend {
                     return Err(probe.error.unwrap_or_else(|| "连接检测失败".into()));
                 }
                 let mut options = self.store.settings.options.clone();
+                if agent == "agy" {
+                    let name = string(&input, "agyModelName");
+                    agents::validate_agy_name(name.trim())?;
+                    options.agy_model_name = name.trim().into();
+                }
                 if let Some(value) = input["effort"].as_str() {
                     validate_effort(value)?;
                     options.codex_reasoning_effort = value.into();
@@ -818,8 +824,14 @@ impl Backend {
                 } else {
                     (self.store.settings.relay_base_url.clone(), key.clone())
                 };
+                let mut apply_context = self.context.clone();
+                if let Some(path) = self.store.settings.cli_paths.get("agy") {
+                    apply_context
+                        .overrides
+                        .insert("AIHUBMIX_AGY_CLI".into(), path.clone());
+                }
                 let applied_result = agents::apply(
-                    &self.context,
+                    &apply_context,
                     &agent,
                     agents::Connection {
                         base: &base,

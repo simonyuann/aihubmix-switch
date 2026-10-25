@@ -11,7 +11,10 @@ use std::{
     path::{Path, PathBuf},
 };
 use toml_edit::{DocumentMut, Item, Table};
+#[path = "agent_adapters.rs"]
+mod extra;
 
+#[derive(Clone)]
 pub struct Context {
     pub home: PathBuf,
     pub data: PathBuf,
@@ -47,6 +50,18 @@ impl Context {
             "OPENCODE_CONFIG_DIR",
             "OPENCODE_CONFIG",
             "XDG_CONFIG_HOME",
+            "KIMI_CODE_HOME",
+            "OPENCLAW_STATE_DIR",
+            "OPENCLAW_CONFIG_PATH",
+            "GEMINI_CLI_HOME",
+            "HERMES_HOME",
+            "MINIMAX_DATA_DIR",
+            "MAVIS_DATA_DIR",
+            "OMP_PROFILE",
+            "PI_PROFILE",
+            "PI_CONFIG_DIR",
+            "LOCALAPPDATA",
+            "APPDATA",
         ]
         .iter()
         .filter_map(|name| {
@@ -62,7 +77,7 @@ impl Context {
             overrides,
         })
     }
-    fn directory(&self, variable: &str, fallback: &str) -> PathBuf {
+    pub(crate) fn directory(&self, variable: &str, fallback: &str) -> PathBuf {
         self.overrides
             .get(variable)
             .map(PathBuf::from)
@@ -70,6 +85,18 @@ impl Context {
     }
     pub fn paths(&self, agent: &str) -> Result<Vec<PathBuf>> {
         match agent {
+            "grokbuild" => Ok(vec![self.home.join(".grok/config.toml")]),
+            "kimi" => Ok(vec![self
+                .directory("KIMI_CODE_HOME", ".kimi-code")
+                .join("config.toml")]),
+            "openclaw" => Ok(vec![self
+                .overrides
+                .get("OPENCLAW_CONFIG_PATH")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    self.directory("OPENCLAW_STATE_DIR", ".openclaw")
+                        .join("openclaw.json")
+                })]),
             "codex" => {
                 let dir = self.directory("CODEX_HOME", ".codex");
                 Ok(vec![dir.join("config.toml"), dir.join("auth.json")])
@@ -100,7 +127,7 @@ impl Context {
                 };
                 Ok(vec![dir.join(file)])
             }
-            _ => Err("未知智能体".into()),
+            _ => extra::paths(self, agent),
         }
     }
     fn backup_file(&self, agent: &str, id: &str) -> PathBuf {
@@ -122,21 +149,31 @@ fn text(path: &Path) -> Result<Option<String>> {
 fn is_toml(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "toml")
 }
-fn json_options() -> ParseOptions {
+fn json_options(agent: &str) -> ParseOptions {
+    let json5 = agent == "openclaw";
     ParseOptions {
         allow_comments: true,
         allow_trailing_commas: true,
-        allow_loose_object_property_names: false,
+        allow_loose_object_property_names: json5,
         allow_missing_commas: false,
-        allow_single_quoted_strings: false,
-        allow_hexadecimal_numbers: false,
-        allow_unary_plus_numbers: false,
-        allow_bare_decimal_point_numbers: false,
+        allow_single_quoted_strings: json5,
+        allow_hexadecimal_numbers: json5,
+        allow_unary_plus_numbers: json5,
+        allow_bare_decimal_point_numbers: json5,
         allow_non_finite_numbers: false,
-        allow_extended_string_escapes: false,
+        allow_extended_string_escapes: json5,
     }
 }
-fn parse(path: &Path, raw: &str) -> Result<Value> {
+fn parse(agent: &str, path: &Path, raw: &str) -> Result<Value> {
+    if extra::yaml(path) {
+        return crate::config_formats::yaml_parse(raw);
+    }
+    if path.file_name().is_some_and(|s| s == ".env") {
+        return crate::config_formats::env_parse(raw);
+    }
+    if extra::script(path) {
+        return Ok(json!({"script":raw}));
+    }
     if raw.trim().is_empty() {
         return Ok(json!({}));
     }
@@ -144,7 +181,7 @@ fn parse(path: &Path, raw: &str) -> Result<Value> {
         toml_edit::de::from_str(raw)
             .map_err(|_| format!("{} 不是合法的 TOML，未修改原文件", path.display()))?
     } else {
-        jsonc_parser::parse_to_serde_value::<Value>(raw, &json_options())
+        jsonc_parser::parse_to_serde_value::<Value>(raw, &json_options(agent))
             .map_err(|_| format!("{} 不是合法的 JSON/JSONC，未修改原文件", path.display()))?
     };
     if !value.is_object() {
@@ -153,11 +190,7 @@ fn parse(path: &Path, raw: &str) -> Result<Value> {
     Ok(value)
 }
 fn lookup<'a>(value: &'a Value, path: &[String]) -> Option<&'a Value> {
-    let mut current = value;
-    for part in path {
-        current = current.get(part)?;
-    }
-    Some(current)
+    crate::config_formats::lookup(value, path)
 }
 fn cst_value(value: &Value) -> CstInputValue {
     match value {
@@ -219,8 +252,27 @@ fn toml_set(table: &mut Table, path: &[String], value: Option<&Value>) -> Result
         .ok_or("配置字段类型冲突，未修改原文件")?;
     toml_set(next, &path[1..], value)
 }
-fn edit_text(path: &Path, raw: &str, edits: &[(Vec<String>, Option<Value>)]) -> Result<String> {
-    parse(path, raw)?;
+fn edit_text(
+    agent: &str,
+    path: &Path,
+    raw: &str,
+    edits: &[(Vec<String>, Option<Value>)],
+) -> Result<String> {
+    parse(agent, path, raw)?;
+    if extra::yaml(path) {
+        return crate::config_formats::yaml_edit(raw, edits);
+    }
+    if path.file_name().is_some_and(|s| s == ".env") {
+        return crate::config_formats::env_edit(raw, edits);
+    }
+    if extra::script(path) {
+        return Ok(edits
+            .first()
+            .and_then(|(_, v)| v.as_ref())
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .into());
+    }
     if is_toml(path) {
         let mut doc = raw.parse::<DocumentMut>().map_err(|_| "TOML 格式错误")?;
         for (path, value) in edits {
@@ -230,7 +282,7 @@ fn edit_text(path: &Path, raw: &str, edits: &[(Vec<String>, Option<Value>)]) -> 
     } else {
         let root = CstRootNode::parse(
             if raw.trim().is_empty() { "{\n}\n" } else { raw },
-            &json_options(),
+            &json_options(agent),
         )
         .map_err(|_| "JSONC 格式错误")?;
         for (path, value) in edits {
@@ -289,6 +341,65 @@ fn changes(
         .find(|v| v.id == model)
         .ok_or("所选模型不在当前 Key 的可用列表中")?;
     let result = match agent {
+        "grokbuild" => vec![(
+            files[0].clone(),
+            vec![
+                (path(&["models", "default"]), json!("csmy")),
+                (
+                    path(&["model", "csmy"]),
+                    json!({"name":"AIHubMix", "model":model, "base_url":gateway, "api_key":key, "api_backend":"responses", "context_window":selected.context_window.unwrap_or(128000)}),
+                ),
+            ],
+        )],
+        "kimi" => vec![(
+            files[0].clone(),
+            vec![
+                (
+                    path(&["providers", "csmy"]),
+                    json!({"type":"openai", "base_url":gateway, "api_key":key}),
+                ),
+                (
+                    path(&["models", "csmy"]),
+                    json!({"provider":"csmy", "model":model, "max_context_size":selected.context_window.unwrap_or(128000)}),
+                ),
+                (path(&["default_model"]), json!("csmy")),
+            ],
+        )],
+        "openclaw" => {
+            let catalog: Vec<Value> = models
+                .iter()
+                .filter(|m| selectable(&m.id))
+                .map(|m| {
+                    let mut item = json!({"id":m.id,"name":m.name});
+                    if let Some(v) = m.reasoning {
+                        item["reasoning"] = json!(v);
+                    }
+                    if let Some(v) = m.context_window {
+                        item["contextWindow"] = json!(v);
+                    }
+                    if let Some(v) = m.max_tokens {
+                        item["maxTokens"] = json!(v);
+                    }
+                    if !m.input.is_empty() {
+                        item["input"] = json!(m.input);
+                    }
+                    item
+                })
+                .collect();
+            vec![(
+                files[0].clone(),
+                vec![
+                    (
+                        path(&["models", "providers", "csmy"]),
+                        json!({"baseUrl":gateway,"apiKey":key,"api":"openai-completions","models":catalog}),
+                    ),
+                    (
+                        path(&["agents", "defaults", "model", "primary"]),
+                        json!(format!("csmy/{model}")),
+                    ),
+                ],
+            )]
+        }
         "codex" => {
             let mut config = vec![
                 (path(&["model_provider"]), json!("csmy")),
@@ -329,7 +440,11 @@ fn changes(
                 (path(&["env", "ANTHROPIC_AUTH_TOKEN"]), json!(key)),
                 (path(&["env", "ANTHROPIC_API_KEY"]), Value::Null),
             ];
-            let settings = parse(&files[0], text(&files[0])?.as_deref().unwrap_or_default())?;
+            let settings = parse(
+                agent,
+                &files[0],
+                text(&files[0])?.as_deref().unwrap_or_default(),
+            )?;
             let tool_search = if base.starts_with("http://127.0.0.1:") {
                 json!("false")
             } else {
@@ -427,7 +542,7 @@ fn changes(
                 ],
             )]
         }
-        _ => return Err("未知智能体".into()),
+        _ => return extra::changes(ctx, agent, &base, key, model, selected, options),
     };
     Ok(result)
 }
@@ -439,6 +554,12 @@ pub struct Connection<'a> {
     pub models: &'a [Model],
     pub options: &'a Options,
 }
+pub fn preflight(agent: &str, model: &str) -> Result<()> {
+    extra::preflight(agent, model)
+}
+pub fn validate_agy_name(name: &str) -> Result<()> {
+    extra::validate_agy_name(name)
+}
 
 pub fn apply(
     ctx: &Context,
@@ -446,6 +567,7 @@ pub fn apply(
     input: Connection<'_>,
     existing: Option<&Applied>,
 ) -> Result<Applied> {
+    let _native_lock = extra::lock(ctx, agent)?;
     let Connection {
         base,
         key,
@@ -458,7 +580,7 @@ pub fn apply(
     for (file, changes) in changes(ctx, agent, base, key, model, models, options)? {
         let original = text(&file)?;
         let raw = original.as_deref().unwrap_or_default();
-        let parsed = parse(&file, raw)?;
+        let parsed = parse(agent, &file, raw)?;
         let edits = changes
             .into_iter()
             .map(|(path, after)| Edit {
@@ -468,6 +590,7 @@ pub fn apply(
             })
             .collect::<Vec<_>>();
         let output = edit_text(
+            agent,
             &file,
             raw,
             &edits
@@ -480,7 +603,7 @@ pub fn apply(
                 })
                 .collect::<Vec<_>>(),
         )?;
-        parse(&file, &output)?;
+        parse(agent, &file, &output)?;
         outputs.push(output);
         files.push(FileBackup {
             path: file,
@@ -522,6 +645,11 @@ pub fn apply(
         agent: agent.into(),
         files,
     };
+    for file in &transaction {
+        if text(&file.path)? != file.original {
+            return Err("配置在导入过程中被其他程序修改，请关闭智能体后重试；原配置未覆盖".into());
+        }
+    }
     let backup_path = ctx.backup_file(agent, &id);
     let old_meta = text(&backup_path)?;
     atomic_write(
@@ -564,6 +692,7 @@ pub fn apply(
 }
 
 pub fn restore(ctx: &Context, agent: &str, applied: &Applied) -> Result<()> {
+    let _native_lock = extra::lock(ctx, agent)?;
     let file = ctx.backup_file(agent, &applied.backup_id);
     let backup: Backup =
         serde_json::from_slice(&fs::read(&file).map_err(|_| "找不到此智能体的备份")?)
@@ -575,7 +704,11 @@ pub fn restore(ctx: &Context, agent: &str, applied: &Applied) -> Result<()> {
             return Err("配置路径已改变，请先恢复原来的配置目录设置".into());
         }
         let current_text = text(&entry.path)?;
-        let current = parse(&entry.path, current_text.as_deref().unwrap_or_default())?;
+        let current = parse(
+            agent,
+            &entry.path,
+            current_text.as_deref().unwrap_or_default(),
+        )?;
         let mut edits = Vec::new();
         for edit in &entry.edits {
             let matches = if edit.after.is_null() {
@@ -587,14 +720,35 @@ pub fn restore(ctx: &Context, agent: &str, applied: &Applied) -> Result<()> {
                 edits.push((edit.path.clone(), edit.before.clone()));
             }
         }
-        let output = edit_text(
+        let expected_managed = edit_text(
+            agent,
             &entry.path,
-            current_text.as_deref().unwrap_or_default(),
-            &edits,
+            entry.original.as_deref().unwrap_or_default(),
+            &entry
+                .edits
+                .iter()
+                .map(|e| {
+                    (
+                        e.path.clone(),
+                        (!e.after.is_null()).then(|| e.after.clone()),
+                    )
+                })
+                .collect::<Vec<_>>(),
         )?;
+        let output = if current_text.as_deref() == Some(expected_managed.as_str()) {
+            // Nothing changed outside our edits: restore exact original formatting too.
+            entry.original.clone().unwrap_or_default()
+        } else {
+            edit_text(
+                agent,
+                &entry.path,
+                current_text.as_deref().unwrap_or_default(),
+                &edits,
+            )?
+        };
         // A newly created file may be deleted only if no unrelated values were added.
-        let parsed = parse(&entry.path, &output)?;
-        let empty = recursively_empty(&parsed);
+        let parsed = parse(agent, &entry.path, &output)?;
+        let empty = recursively_empty(&parsed) || (extra::script(&entry.path) && output.is_empty());
         outputs.push((
             entry.path.clone(),
             current_text,
@@ -639,13 +793,44 @@ pub fn status(ctx: &Context, agent: &str, applied: Option<&Applied>, base: &str)
         .unwrap()
         .extend(detection.as_object().unwrap().clone());
     let read = || -> Result<(String, String, String, String, bool)> {
-        let one = parse(&paths[0], text(&paths[0])?.as_deref().unwrap_or_default())?;
+        let one = parse(
+            agent,
+            &paths[0],
+            text(&paths[0])?.as_deref().unwrap_or_default(),
+        )?;
         let two = if paths.len() > 1 {
-            parse(&paths[1], text(&paths[1])?.as_deref().unwrap_or_default())?
+            parse(
+                agent,
+                &paths[1],
+                text(&paths[1])?.as_deref().unwrap_or_default(),
+            )?
         } else {
             json!({})
         };
         Ok(match agent {
+            "grokbuild" => (
+                string(&one["model"]["csmy"], "base_url"),
+                string(&one["model"]["csmy"], "api_key"),
+                string(&one["model"]["csmy"], "model"),
+                String::new(),
+                one["models"]["default"] == "csmy",
+            ),
+            "kimi" => (
+                string(&one["providers"]["csmy"], "base_url"),
+                string(&one["providers"]["csmy"], "api_key"),
+                string(&one["models"]["csmy"], "model"),
+                String::new(),
+                one["default_model"] == "csmy",
+            ),
+            "openclaw" => (
+                string(&one["models"]["providers"]["csmy"], "baseUrl"),
+                string(&one["models"]["providers"]["csmy"], "apiKey"),
+                string(&one["agents"]["defaults"]["model"], "primary")
+                    .trim_start_matches("csmy/")
+                    .into(),
+                String::new(),
+                string(&one["agents"]["defaults"]["model"], "primary").starts_with("csmy/"),
+            ),
             "codex" => (
                 string(&one["model_providers"]["csmy"], "base_url"),
                 string(&two, "OPENAI_API_KEY"),
@@ -674,13 +859,14 @@ pub fn status(ctx: &Context, agent: &str, applied: Option<&Applied>, base: &str)
                 String::new(),
                 two["defaultProvider"] == "csmy",
             ),
-            _ => (
+            "opencode" => (
                 string(&one["provider"]["csmy"]["options"], "baseURL"),
                 string(&one["provider"]["csmy"]["options"], "apiKey"),
                 string(&one, "model").trim_start_matches("csmy/").into(),
                 String::new(),
                 string(&one, "model").starts_with("csmy/"),
             ),
+            _ => extra::read_status(agent, &paths, &one, &two)?,
         })
     };
     match read() {
@@ -705,6 +891,9 @@ pub fn status(ctx: &Context, agent: &str, applied: Option<&Applied>, base: &str)
             }
         }
         Err(e) => output["error"] = json!(e),
+    }
+    if agent == "agy" {
+        output["launchCommand"] = json!(extra::launch_command(ctx).ok());
     }
     output
 }
