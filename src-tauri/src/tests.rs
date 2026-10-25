@@ -647,10 +647,18 @@ fn agy_launcher_passes_quoted_env_and_unicode_paths_only_to_the_selected_cli() {
 #[test]
 fn agy_powershell_launches_its_private_command_with_restricted_script_policy() {
     let (_dir, mut ctx) = setup();
+    ctx.data = ctx.data.join("数据 ' space");
     let cli = ctx.home.join("工具 ' space/agy.cmd");
+    // Like npm's Windows shims, forward the whole command line. Batch %1
+    // tokenization splits an unquoted '=' and cannot represent Node's argv.
     atomic_write(
         &cli,
-        b"@echo fixture-cli-started\r\n@echo %1\r\n@exit /b 0\r\n",
+        b"@echo off\r\nnode \"%~dp0fixture.cjs\" %*\r\n@exit /b %errorlevel%\r\n",
+    )
+    .unwrap();
+    atomic_write(
+        &cli.with_file_name("fixture.cjs"),
+        b"console.log(JSON.stringify({args:process.argv.slice(2),key:process.env.GEMINI_API_KEY,base:process.env.GOOGLE_GEMINI_BASE_URL}))\n",
     )
     .unwrap();
     ctx.overrides
@@ -692,6 +700,16 @@ fn agy_powershell_launches_its_private_command_with_restricted_script_policy() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("fixture-cli-started"));
-    assert!(stdout.contains("--gemini_dir="));
+    let received: Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|error| panic!("mock CLI did not return JSON: {error}; stdout={stdout}"));
+    assert_eq!(received["key"], "fixture-key-'$()");
+    assert_eq!(received["base"], DEFAULT_BASE);
+    let paths = ctx.paths("agy").unwrap();
+    assert_eq!(
+        received["args"],
+        json!([format!(
+            "--gemini_dir={}",
+            paths[0].parent().unwrap().display()
+        )])
+    );
 }
