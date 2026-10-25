@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { UpdatePanel } from './UpdatePanel'
+import { CodexHistoryPanel } from './CodexHistoryPanel'
 import type { UpdateController } from '../updates'
 import type { AppState } from '../../../shared/types'
 import { Modal, LinkButton } from './Modal'
@@ -46,10 +47,11 @@ export function SettingsModal({ open, onClose, state, onStateChange, notify, upd
       busy={update.status.phase === 'installing'}
       width={620}
       title="设置"
-      subtitle="高级选项改变后，需要重新点击对应 Agent 的「接入」才会写入"
+      subtitle="接口格式在重新接入后生效；历史设置确认后立即应用"
     >
       <div className="settings-box">
         <UpdatePanel update={update} version={state.version} />
+        <CodexHistoryPanel state={state} onStateChange={onStateChange} notify={notify} />
         <section className="settings-section">
           <h3>
             <SettingsIcon size={15} />

@@ -43,6 +43,10 @@ async function updateRequest(
 }
 
 export const api: RendererApi = {
+  codexHistory: {
+    change: (input) => request('codex-history', input),
+    recover: () => request('codex-history-recover')
+  },
   sessions: {
     list: (query, agent) => invoke('list_sessions', { query: query ?? null, agent: agent ?? null }),
     read: (id) => invoke('read_session', { id })

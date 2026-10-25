@@ -216,10 +216,12 @@ impl Backend {
             request = request.json(&body);
         }
         let response = request.send().await.map_err(|error| {
-            if error.is_timeout() {
-                "连接超时，请检查网络后重试"
+            if error.is_timeout() && error.is_connect() {
+                "连接服务超时，请检查系统代理、VPN 和防火墙；可对照浏览器能否打开官网"
+            } else if error.is_timeout() {
+                "等待服务响应超时，请稍后重试；登录请求不会自动重复提交"
             } else {
-                "无法连接服务，请检查网络和服务地址"
+                "无法建立安全连接，请检查系统代理、网络和系统受信任证书"
             }
         })?;
         let status = response.status().as_u16();
@@ -399,6 +401,7 @@ impl Backend {
             "models":self.probe.as_ref().map(|p| p.models.clone()).unwrap_or_default(),"balance":self.probe.as_ref().and_then(|p|p.balance),"rateMultiplier":self.probe.as_ref().and_then(|p|p.rate_multiplier),
             "messages":self.probe.as_ref().map(|p|p.messages.as_str()).unwrap_or("unknown"),"relayError":self.probe.as_ref().and_then(|p|p.error.clone()),
             "legacyData":self.store.dir.join("state.json").exists(),
+            "codexHistory":crate::codex_history::status(&self.context),
             "compatibilityReady":self.bridge_error.is_none(),"compatibilityError":self.bridge_error
         }))
     }
@@ -738,6 +741,11 @@ impl Backend {
                     return Err("请选择智能体".into());
                 }
                 let model = string(&input, "model");
+                if agent == "codex"
+                    && crate::codex_history::status(&self.context)["recoveryRequired"] == true
+                {
+                    return Err("请先在设置中恢复未完成的 Codex 历史操作".into());
+                }
                 agents::preflight(&agent, &model)?;
                 let key = self.key(id).await?;
                 let cached = self.probe_identity.as_ref().is_some_and(|(hash, time)| {
@@ -913,8 +921,18 @@ impl Backend {
                     self.compatibility_active.store(false, Ordering::Relaxed);
                 }
                 self.store.save()?;
+                if agent == "codex" {
+                    crate::codex_history::reconcile(&self.context)?;
+                }
                 self.state()
             }
+            "codex-history" => crate::codex_history::change(
+                &self.context,
+                input["enabled"].as_bool().ok_or("请指定历史开关状态")?,
+                input["migrate"].as_bool().unwrap_or(false),
+                input["restore"].as_bool().unwrap_or(false),
+            ),
+            "codex-history-recover" => crate::codex_history::recover(&self.context),
             "options" => {
                 let mut options = self.store.settings.options.clone();
                 if let Some(v) = input["codexReasoningEffort"].as_str() {

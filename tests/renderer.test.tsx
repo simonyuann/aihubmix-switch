@@ -13,6 +13,10 @@ let api: RendererApi
 beforeEach(() => {
   state = structuredClone(previewState)
   api = {
+    codexHistory: {
+      change: vi.fn(async () => ({ files: 1, rows: 1, history: { enabled: true, backupAvailable: true, recoveryRequired: false, directory: 'fixture', error: null } })),
+      recover: vi.fn(async () => ({ enabled: false, backupAvailable: false, recoveryRequired: false, directory: 'fixture', error: null }))
+    },
     sessions: {
       list: vi.fn(async () => structuredClone(demoSessions)),
       read: vi.fn(async (id) => ({
@@ -424,5 +428,33 @@ describe('signed application updates', () => {
     )
     expect(api.updates.download).not.toHaveBeenCalled()
     expect(api.updates.install).not.toHaveBeenCalled()
+  })
+})
+
+describe('Codex unified resume history', () => {
+  it('keeps existing-history migration opt-in and applies only after confirmation', async () => {
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '开启统一历史' }))
+    const checkbox = screen.getByRole('checkbox', { name: /同时迁入既有官方会话/ })
+    expect((checkbox as HTMLInputElement).checked).toBe(false)
+    expect(api.codexHistory.change).not.toHaveBeenCalled()
+    fireEvent.click(checkbox)
+    fireEvent.click(screen.getByRole('button', { name: '确认并应用' }))
+    await waitFor(() => expect(api.codexHistory.change).toHaveBeenCalledWith({ enabled: true, migrate: true, restore: false }))
+    expect(await screen.findByRole('button', { name: '关闭统一历史' })).toBeTruthy()
+  })
+  it('offers exact-ledger restore only when a backup exists and displays failure', async () => {
+    state.codexHistory = { enabled: true, backupAvailable: true, recoveryRequired: false, directory: 'fixture', error: null }
+    vi.mocked(api.codexHistory.change).mockRejectedValue(new Error('数据库被占用，请关闭 Codex'))
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭统一历史' }))
+    const restore = screen.getByRole('checkbox', { name: /按迁移账本还原/ })
+    expect((restore as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(restore)
+    fireEvent.click(screen.getByRole('button', { name: '确认并应用' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('数据库被占用')
+    expect(api.codexHistory.change).toHaveBeenCalledWith({ enabled: false, migrate: false, restore: true })
   })
 })

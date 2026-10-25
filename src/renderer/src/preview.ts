@@ -41,7 +41,7 @@ export const demoSessions: SessionIndex = {
 }
 
 export const previewState: AppState = {
-  version: '0.3.0',
+  version: '0.3.1',
   secureStorage: true,
   site: {
     name: 'AIHubMix',
@@ -190,6 +190,14 @@ export function createPreviewApi(): RendererApi {
     error: null
   } as import('../../shared/types').UpdateStatus
   return {
+    codexHistory: {
+      change: async (input) => {
+        const history = { enabled: input.enabled, backupAvailable: !!input.migrate, recoveryRequired: false, directory: '~/.codex', error: null }
+        state.codexHistory = history
+        return { files: 0, rows: 0, history }
+      },
+      recover: async () => ({ enabled: false, backupAvailable: false, recoveryRequired: false, directory: '~/.codex', error: null })
+    },
     sessions: {
       list: async () => structuredClone(demoSessions),
       read: async (id) => {

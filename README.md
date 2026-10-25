@@ -112,3 +112,9 @@ MIT License。
 
 
 Claude Code 兼容层已使用真实 CLI 完成烟雾验证，并使用现有 AIHubMix 服务完成流式的两轮工具调用。可选开发验证为 `AIHUBMIX_TEST_CLAUDE_CLI=1 cargo test --manifest-path src-tauri/Cargo.toml live_claude_tool_round_trip -- --ignored --nocapture`；该命令使用已指向同一服务的本机智能体配置，产生少量真实 API 请求，不修改原配置或会话记录。普通测试与 CI 使用模拟服务，不接触真实凭据。
+
+### v0.3.1：Codex CLI 统一续聊历史
+
+在设置中开启「Codex 续聊历史」，官方登录与本工具 API 连接共用 csmy 历史分组。默认关闭，旧官方记录需主动勾选迁移；同步会话 JSONL 和 SQLite 索引，迁移前备份。关闭时可按账本还原原分组，保留后续消息与手动修改。操作前关闭 Codex CLI / App，之后重启 CLI；profile 或命令行 provider 覆盖需单独处理。跨服务加密推理可能无法续用，桌面版通常无需开启。
+
+v0.3.1 同时启用 Rust 系统代理和系统根证书，改善网页正常但桌面客户端连接失败的情况。服务入口本身不可达时仍需恢复服务，软件不会降低 TLS 校验或猜测替换 API 地址。

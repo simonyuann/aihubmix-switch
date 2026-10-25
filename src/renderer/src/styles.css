@@ -1956,3 +1956,8 @@ code,
   font-size: 12px;
   border-bottom: 1px solid #dfe8fa;
 }
+
+.history-confirm { margin-top: 14px; padding: 16px; border: 1px solid var(--border, #e5e7eb); border-radius: 10px; background: #fafbfc; }
+.history-checkbox { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.7; margin: 12px 0; cursor: pointer; }
+.history-checkbox input { margin-top: 5px; flex: 0 0 auto; }
+.history-confirm .modal-actions { margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end; }

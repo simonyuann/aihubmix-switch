@@ -117,6 +117,7 @@ export interface AgentOptions {
 }
 
 export interface AppState {
+  codexHistory?: CodexHistoryStatus
   version: string
   platform?: string
   selectedKeyId?: number | null
@@ -204,6 +205,10 @@ export interface ImportInput {
 }
 
 export interface RendererApi {
+  codexHistory: {
+    change(input: { enabled: boolean; migrate?: boolean; restore?: boolean }): Promise<{ files: number; rows: number; history: CodexHistoryStatus }>
+    recover(): Promise<CodexHistoryStatus>
+  }
   sessions: {
     list(query?: string, agent?: string): Promise<SessionIndex>
     read(id: string): Promise<SessionDetail>
@@ -234,6 +239,14 @@ export interface RendererApi {
     groups(): Promise<GroupInfo[]>
     createKey(input: CreateKeyInput): Promise<CreatedKey>
   }
+}
+
+export interface CodexHistoryStatus {
+  enabled: boolean
+  backupAvailable: boolean
+  recoveryRequired: boolean
+  directory: string
+  error: string | null
 }
 
 export interface LocalSession {

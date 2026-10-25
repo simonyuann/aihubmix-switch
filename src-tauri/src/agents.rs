@@ -45,6 +45,7 @@ impl Context {
         let home = dirs::home_dir().ok_or("无法定位用户目录")?;
         let overrides = [
             "CODEX_HOME",
+            "CODEX_SQLITE_HOME",
             "CLAUDE_CONFIG_DIR",
             "PI_CODING_AGENT_DIR",
             "OPENCODE_CONFIG_DIR",

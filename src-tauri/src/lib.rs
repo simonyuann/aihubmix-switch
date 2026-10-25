@@ -1,5 +1,6 @@
 mod agents;
 mod bridge;
+mod codex_history;
 mod config_formats;
 mod detection;
 mod protocol;
