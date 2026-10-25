@@ -2,20 +2,20 @@
 
 白色、简洁的 API 与智能体接入助手。基于 **Tauri 2 + Rust + React**，支持 Windows、macOS 与 Linux，运行时使用系统 WebView，无需安装 Node.js。
 
-[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.3.0.md)
+[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.3.2.md)
 
 ## 使用
 
 1. 注册或登录 AIHubMix；已有 API Key 可直接添加，不必登录。
 2. 在「我的 API」创建、查看、复制或删除 Key。
 3. 点击某个 Key 的「导入」，选择智能体和模型。通过真实流式与工具调用验证后，自动备份并写入配置。
-4. 「已接入」只显示配置过的工具，可更换配置、还原。
+4. 「已接入」只显示配置过的工具，可运行连接诊断、更换配置、查看对应会话或还原。
 
-0.3.0 覆盖 CC Switch 当前的 13 种智能体配置入口，导入时可搜索，首页只展示 API 与已接入项。导入前会发送两次简短测试请求，可能产生少量模型费用；验证失败时保留原配置。未定位到 CLI 不等于未安装，可重新扫描或在高级设置填写完整路径。Windows 原生和 WSL 的安装与配置相互独立。
+从 0.3.0 起覆盖参考 CC Switch 的的 13 种智能体配置入口，导入时可搜索，首页只展示 API 与已接入项。导入前会发送两次简短测试请求，可能产生少量模型费用；验证失败时保留原配置。未定位到 CLI 不等于未安装，可重新扫描或在高级设置填写完整路径。Windows 原生和 WSL 的安装与配置相互独立。
 
 Gemini CLI / Antigravity CLI 需要 Gemini 原生接口；Claude Desktop 需要支持第三方网关的新版本和 Claude 模型。MiniMax Code / Oh My Pi 导入后在原工具选择 csmy 下的模型。Antigravity CLI 需填写原生显示名并使用生成的专用启动命令；普通 agy 和 IDE 登录不变。常用 IDE 插件另外提供手动接入指南。
 
-「会话」支持本机 Claude Code、Codex、Pi、Grok Build、Gemini CLI、OpenClaw 的记录浏览、标题/项目/预览搜索与复制继续命令，默认只读，不上传内容。**Codex CLI 统一续聊历史开关安排在 0.3.1**，与此会话浏览页不同。
+「会话」支持本机 Claude Code、Codex、Pi、Grok Build、Gemini CLI、OpenClaw 的记录浏览、标题/项目/预览搜索与复制继续命令，默认只读，不上传内容。**Codex CLI 统一续聊历史开关已于 0.3.1 上线**，与此会话浏览页不同；需在设置中主动开启，迁入旧记录也需单独勾选。
 
 充值入口已保留，当前为「即将开放」占位，不发起任何付款。Key 配额与账户钱包余额是不同概念，未获取到的数据不会显示为零。
 
@@ -35,7 +35,7 @@ Linux 安装：Debian / Ubuntu 优先使用 `sudo apt install ./AIHubMix-Switch_
 
 ## 在线更新
 
-带更新入口的版本启动时后台检查新版本，也可在「设置 → 软件更新」手动检查。下载并通过签名校验后，确认「安装并重启」即可覆盖升级，API Key、登录信息和备份保留。重启会短暂中断本地 Claude 兼容服务。没有更新入口的旧版本需先手动覆盖安装一次 v0.2.2，无需卸载。
+带更新入口的版本启动时后台检查新版本，也可在「设置 → 软件更新」手动检查。下载并通过签名校验后，确认「安装并重启」即可覆盖升级，API Key、登录信息和备份保留。重启会短暂中断本地 Claude 兼容服务。没有更新入口的旧版本需先手动覆盖安装一次最新版，无需卸载。
 
 Windows 安装版、macOS App、Linux AppImage / deb 支持对应格式的原生更新；deb 可能需要系统授权。Windows 免安装版检测到更新后直接下载对应免安装文件，不会自动安装安装版。更新包的独立签名与版本绑定均由官方 Tauri Updater 验证，禁止降级。
 
