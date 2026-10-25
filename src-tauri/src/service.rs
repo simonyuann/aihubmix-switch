@@ -7,12 +7,18 @@ use reqwest::{Client, Method};
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
 pub struct Backend {
     pub store: Store,
     pub context: Context,
+    pub bridge_error: Option<String>,
+    pub compatibility_active: Arc<AtomicBool>,
     client: Client,
     probe: Option<Probe>,
     ephemeral_keys: BTreeMap<i64, String>,
@@ -143,7 +149,10 @@ impl Backend {
             .user_agent(concat!("AIHubMix-Switch/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| e.to_string())?;
+        let compatibility_active = Arc::new(AtomicBool::new(store.settings.claude_route.is_some()));
         Ok(Self {
+            bridge_error: None,
+            compatibility_active,
             store,
             context,
             client,
@@ -151,6 +160,36 @@ impl Backend {
             ephemeral_keys: BTreeMap::new(),
             probe_identity: None,
         })
+    }
+
+    pub fn bind_bridge(&mut self) -> Option<std::net::TcpListener> {
+        if let Some(error) = &self.store.secure_error {
+            self.bridge_error = Some(error.clone());
+            self.compatibility_active.store(false, Ordering::Relaxed);
+            return None;
+        }
+        match std::net::TcpListener::bind(("127.0.0.1", self.store.settings.bridge_port)) {
+            Ok(listener) => {
+                match listener.local_addr() {
+                    Ok(address) => self.store.settings.bridge_port = address.port(),
+                    Err(_) => {
+                        self.bridge_error = Some("无法读取本地兼容端口".into());
+                        return None;
+                    }
+                }
+                if let Err(error) = self.store.save() {
+                    self.bridge_error = Some(error);
+                    return None;
+                }
+                Some(listener)
+            }
+            Err(_) => {
+                self.bridge_error =
+                    Some("Claude Code 本地兼容端口被占用，请关闭占用程序后重启应用".into());
+                self.compatibility_active.store(false, Ordering::Relaxed);
+                None
+            }
+        }
     }
 
     async fn raw(
@@ -313,12 +352,24 @@ impl Backend {
         let agents: Vec<Value> = AGENTS
             .iter()
             .map(|agent| {
-                agents::status(
+                let mut status = agents::status(
                     &self.context,
                     agent,
                     settings.applied.get(*agent),
                     &settings.relay_base_url,
-                )
+                );
+                if let Some(record) = settings.applied.get(*agent) {
+                    status["compatibility"] = json!(record.compatibility);
+                    status["keyDeleted"] = json!(record.key_deleted);
+                    if record.key_deleted {
+                        status["connected"] = json!(false);
+                    }
+                    if record.compatibility && self.bridge_error.is_some() {
+                        status["error"] = json!(self.bridge_error);
+                        status["connected"] = json!(false);
+                    }
+                }
+                status
             })
             .collect();
         let selected = settings.selected_key;
@@ -339,7 +390,8 @@ impl Backend {
             "account":settings.account,"agents":agents,"agentModels":settings.agent_models,"options":settings.options,"lastAgent":settings.last_agent,
             "models":self.probe.as_ref().map(|p| p.models.clone()).unwrap_or_default(),"balance":self.probe.as_ref().and_then(|p|p.balance),"rateMultiplier":self.probe.as_ref().and_then(|p|p.rate_multiplier),
             "messages":self.probe.as_ref().map(|p|p.messages.as_str()).unwrap_or("unknown"),"relayError":self.probe.as_ref().and_then(|p|p.error.clone()),
-            "legacyData":self.store.dir.join("state.json").exists()
+            "legacyData":self.store.dir.join("state.json").exists(),
+            "compatibilityReady":self.bridge_error.is_none(),"compatibilityError":self.bridge_error
         }))
     }
     async fn probe_key(&self, key: &str) -> Probe {
@@ -422,6 +474,7 @@ impl Backend {
                 .client
                 .post(format!("{}/v1/messages/count_tokens", probe.base_url))
                 .bearer_auth(key)
+                .header("x-api-key", key)
                 .header("anthropic-version", "2023-06-01")
                 .json(&json!({"model":model.id,"messages":[{"role":"user","content":"hi"}]}))
                 .timeout(Duration::from_secs(8))
@@ -431,8 +484,6 @@ impl Backend {
                 let status = response.status().as_u16();
                 if (200..300).contains(&status) {
                     probe.messages = "supported".into();
-                } else if status == 404 {
-                    probe.messages = "unsupported".into();
                 } else if status == 403 {
                     let message = response.text().await.unwrap_or_default().to_lowercase();
                     if ["does not allow", "permission", "group"]
@@ -595,6 +646,41 @@ impl Backend {
                 self.store.save()?;
                 Ok(json!({"probe":probe,"state":self.state()?,"info":info}))
             }
+            "delete-key" => {
+                let id = input["id"]
+                    .as_i64()
+                    .filter(|id| *id > 0)
+                    .ok_or("请选择平台 API Key")?;
+                self.request(Method::DELETE, &format!("/api/v1/keys/{id}"), None)
+                    .await?;
+                self.ephemeral_keys.remove(&id);
+                let warning = self.store.set_secrets(&[(&self.secret_name(id), "")]).err();
+                for record in self
+                    .store
+                    .settings
+                    .applied
+                    .values_mut()
+                    .filter(|a| a.key_id == id)
+                {
+                    record.key_deleted = true;
+                }
+                if self
+                    .store
+                    .settings
+                    .applied
+                    .get("claude")
+                    .is_some_and(|a| a.key_id == id)
+                {
+                    self.store.settings.claude_route = None;
+                    self.compatibility_active.store(false, Ordering::Relaxed);
+                }
+                if self.store.settings.selected_key == Some(id) {
+                    self.store.settings.selected_key = None;
+                    self.probe = None;
+                }
+                self.store.save()?;
+                Ok(json!({"state":self.state()?,"warning":warning}))
+            }
             "remove-local-key" => {
                 let id = input["id"]
                     .as_i64()
@@ -638,26 +724,88 @@ impl Backend {
                 if !probe.ok {
                     return Err(probe.error.unwrap_or_else(|| "连接检测失败".into()));
                 }
-                if agent == "claude" && probe.messages == "unsupported" {
-                    return Err("此 Key 暂不支持 Claude Code，请选择支持 Claude Code 的模型服务重新申请 Key".into());
-                }
                 let mut options = self.store.settings.options.clone();
                 if let Some(value) = input["effort"].as_str() {
                     validate_effort(value)?;
                     options.codex_reasoning_effort = value.into();
                 }
-                let mut applied = agents::apply(
+                let compatibility = agent == "claude"
+                    && (probe.messages != "supported"
+                        || !model.to_lowercase().starts_with("claude"));
+                let original_upstream = self.store.secret("claude-bridge-upstream");
+                let original_token = self.store.secret("claude-bridge-token");
+                let (base, credential) = if compatibility {
+                    if let Some(error) = &self.bridge_error {
+                        return Err(error.clone());
+                    }
+                    if self.store.settings.bridge_port == 0 {
+                        return Err("本地兼容服务尚未准备好，请重启应用".into());
+                    }
+                    let token = if original_token.is_empty() {
+                        use chacha20poly1305::aead::{KeyInit, OsRng};
+                        hex::encode(chacha20poly1305::ChaCha20Poly1305::generate_key(&mut OsRng))
+                    } else {
+                        original_token.clone()
+                    };
+                    self.store.set_secrets(&[
+                        ("claude-bridge-token", &token),
+                        ("claude-bridge-upstream", &key),
+                    ])?;
+                    (
+                        format!("http://127.0.0.1:{}", self.store.settings.bridge_port),
+                        token,
+                    )
+                } else {
+                    (self.store.settings.relay_base_url.clone(), key.clone())
+                };
+                let applied_result = agents::apply(
                     &self.context,
                     &agent,
                     agents::Connection {
-                        base: &self.store.settings.relay_base_url,
-                        key: &key,
+                        base: &base,
+                        key: &credential,
                         model: &model,
                         models: &probe.models,
                         options: &options,
                     },
                     self.store.settings.applied.get(&agent),
-                )?;
+                );
+                let mut applied = match applied_result {
+                    Ok(value) => value,
+                    Err(error) => {
+                        if compatibility
+                            && self
+                                .store
+                                .set_secrets(&[
+                                    ("claude-bridge-upstream", &original_upstream),
+                                    ("claude-bridge-token", &original_token),
+                                ])
+                                .is_err()
+                        {
+                            self.store.settings.claude_route = None;
+                            self.compatibility_active.store(false, Ordering::Relaxed);
+                            let _ = self.store.save();
+                            return Err(format!(
+                                "{error}；兼容凭据回滚失败，已停止兼容连接，请重新导入"
+                            ));
+                        }
+                        return Err(error);
+                    }
+                };
+                applied.compatibility = compatibility;
+                if agent == "claude" {
+                    self.store.settings.claude_route = compatibility.then(|| ClaudeRoute {
+                        base_url: self.store.settings.relay_base_url.clone(),
+                        model: model.clone(),
+                        reasoning: probe
+                            .models
+                            .iter()
+                            .find(|m| m.id == model)
+                            .is_some_and(|m| m.reasoning == Some(true)),
+                    });
+                    self.compatibility_active
+                        .store(compatibility, Ordering::Relaxed);
+                }
                 applied.key_id = id;
                 applied.key_label = string(&input, "keyLabel");
                 if applied.key_label.is_empty() {
@@ -687,6 +835,10 @@ impl Backend {
                     .clone();
                 agents::restore(&self.context, &agent, &record)?;
                 self.store.settings.applied.remove(&agent);
+                if agent == "claude" {
+                    self.store.settings.claude_route = None;
+                    self.compatibility_active.store(false, Ordering::Relaxed);
+                }
                 self.store.save()?;
                 self.state()
             }

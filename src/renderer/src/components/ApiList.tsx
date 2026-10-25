@@ -1,5 +1,5 @@
 import type { ApiKeyInfo } from '../../../shared/types'
-import { CopyIcon, EyeIcon, KeyIcon, PlusIcon, RefreshIcon, ShieldIcon } from './Icons'
+import { CopyIcon, EyeIcon, KeyIcon, PlusIcon, RefreshIcon, ShieldIcon, TrashIcon } from './Icons'
 
 export function ApiList({
   items,
@@ -10,7 +10,8 @@ export function ApiList({
   onAdd,
   onDetails,
   onCopy,
-  onImport
+  onImport,
+  onDelete
 }: {
   items: ApiKeyInfo[]
   loading: boolean
@@ -21,6 +22,7 @@ export function ApiList({
   onDetails: (item: ApiKeyInfo) => void
   onCopy: (id: number) => void
   onImport: (item: ApiKeyInfo) => void
+  onDelete: (item: ApiKeyInfo) => void
 }) {
   const status: Record<string, string> = {
     active: '正常',
@@ -97,6 +99,14 @@ export function ApiList({
                   {status[item.status] || '状态未知'}
                 </span>
                 <div className="row-actions">
+                  <button
+                    className="icon-btn danger-text"
+                    aria-label={`${item.local ? '移除' : '删除'} ${item.name}`}
+                    title={item.local ? '从本机移除' : '删除 API Key'}
+                    onClick={() => onDelete(item)}
+                  >
+                    <TrashIcon size={16} />
+                  </button>
                   <button
                     className="icon-btn"
                     aria-label={`查看 ${item.name}`}

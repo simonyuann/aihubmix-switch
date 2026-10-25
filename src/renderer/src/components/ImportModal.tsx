@@ -3,15 +3,7 @@ import type { AgentId, ApiKeyInfo, AppState, RelayProbe } from '../../../shared/
 import { AGENTS, CODEX_EFFORT_LABELS } from '../../../shared/constants'
 import { isSelectableModel } from '../../../shared/url'
 import { Modal } from './Modal'
-import {
-  AlertIcon,
-  CheckIcon,
-  CopyIcon,
-  KeyIcon,
-  LoaderIcon,
-  ShieldIcon,
-  TerminalIcon
-} from './Icons'
+import { CheckIcon, CopyIcon, KeyIcon, LoaderIcon, ShieldIcon, TerminalIcon } from './Icons'
 
 const order: AgentId[] = ['codex', 'claude', 'opencode', 'pi']
 
@@ -83,7 +75,10 @@ export function ImportModal({
   }, [agent, probe, state.agentModels])
   const meta = agent ? AGENTS[agent] : null
   const agentState = state.agents.find((value) => value.id === agent)
-  const blocked = agent === 'claude' && probe?.messages === 'unsupported'
+  const compatibility =
+    agent === 'claude' &&
+    (probe?.messages !== 'supported' || !model.toLowerCase().startsWith('claude'))
+  const compatibilityBlocked = compatibility && state.compatibilityReady === false
   const selectedModel = models.find((m) => m.id === model)
   const efforts = selectedModel?.reasoningLevels?.length
     ? selectedModel.reasoningLevels
@@ -94,7 +89,7 @@ export function ImportModal({
       : effort
 
   async function apply() {
-    if (!agent || !model || blocked || !probe?.ok) return
+    if (!agent || !model || compatibilityBlocked || !probe?.ok) return
     setBusy(true)
     setError('')
     try {
@@ -135,6 +130,11 @@ export function ImportModal({
             <ShieldIcon size={16} />
             <span>已自动备份原配置，可在「已接入」中随时还原。</span>
           </div>
+          {agentState?.compatibility && (
+            <div className="notice notice-ok">
+              本地兼容连接已启用。关闭窗口后会保留托盘运行，使用 Claude Code 时请勿完全退出应用。
+            </div>
+          )}
           <p className="fine-print centered">
             {agentState?.installed
               ? `请重新打开 ${meta?.name}，让新配置生效。`
@@ -211,21 +211,21 @@ export function ImportModal({
                     ))}
                   </select>
                 </label>
-                {blocked && (
-                  <div className="notice notice-warn">
-                    <AlertIcon size={16} />
+                {compatibility && (
+                  <div className="notice notice-ok">
+                    <ShieldIcon size={16} />
                     <div>
-                      此 Key 暂不支持 Claude Code。
-                      <p>请更换支持 Claude Code 的模型服务，或选择其他智能体。</p>
-                      <button className="link-btn" onClick={onClose}>
-                        返回更换 API Key
-                      </button>
+                      通过本地兼容连接使用 Claude Code。
+                      <p>
+                        使用当前 Key
+                        的模型，支持对话和工具调用。关闭窗口后会在托盘继续运行；完全退出应用会停止连接。
+                      </p>
                     </div>
                   </div>
                 )}
-                {agent === 'claude' && probe.messages === 'unknown' && (
-                  <div className="notice notice-warn">
-                    暂未确认此 Key 是否支持 Claude Code，请确认所选服务支持 Anthropic 接口。
+                {compatibilityBlocked && (
+                  <div className="notice notice-error">
+                    {state.compatibilityError || '本地兼容服务未就绪，请重启应用。'}
                   </div>
                 )}
                 {!agentState?.installed && (
@@ -294,7 +294,7 @@ export function ImportModal({
             <button
               className="btn primary block"
               onClick={() => void apply()}
-              disabled={busy || testing || !probe?.ok || !agent || !model || blocked}
+              disabled={busy || testing || !probe?.ok || !agent || !model || compatibilityBlocked}
             >
               {busy ? <LoaderIcon size={16} /> : <CheckIcon size={16} />}
               {busy ? '正在备份并导入…' : meta ? `导入到 ${meta.name}` : '选择智能体后导入'}

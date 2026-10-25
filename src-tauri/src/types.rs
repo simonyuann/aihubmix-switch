@@ -79,6 +79,16 @@ pub struct Applied {
     pub key_id: i64,
     pub backup_id: String,
     pub base_url: String,
+    pub compatibility: bool,
+    pub key_deleted: bool,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClaudeRoute {
+    pub base_url: String,
+    pub model: String,
+    pub reasoning: bool,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -101,6 +111,8 @@ pub struct Settings {
     pub agent_models: BTreeMap<String, String>,
     pub applied: BTreeMap<String, Applied>,
     pub last_agent: String,
+    pub bridge_port: u16,
+    pub claude_route: Option<ClaudeRoute>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -113,6 +125,8 @@ impl Default for Settings {
             agent_models: BTreeMap::new(),
             applied: BTreeMap::new(),
             last_agent: String::new(),
+            bridge_port: 0,
+            claude_route: None,
         }
     }
 }

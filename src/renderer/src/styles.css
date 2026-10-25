@@ -476,7 +476,7 @@ code,
 .api-columns,
 .api-row {
   display: grid;
-  grid-template-columns: minmax(200px, 1.8fr) minmax(94px, 1fr) 76px 155px;
+  grid-template-columns: minmax(200px, 1.8fr) minmax(94px, 1fr) 76px 185px;
   gap: 12px;
   align-items: center;
   padding: 0 23px;
@@ -1500,7 +1500,7 @@ code,
   }
   .api-columns,
   .api-row {
-    grid-template-columns: minmax(180px, 1.8fr) minmax(76px, 1fr) 62px 147px;
+    grid-template-columns: minmax(180px, 1.8fr) minmax(76px, 1fr) 62px 177px;
     gap: 8px;
     padding-left: 20px;
     padding-right: 20px;
@@ -1541,7 +1541,7 @@ code,
     display: none;
   }
   .api-row {
-    grid-template-columns: 1fr 135px;
+    grid-template-columns: 1fr 165px;
     gap: 8px;
     padding: 16px;
   }

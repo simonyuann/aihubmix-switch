@@ -28,6 +28,7 @@ beforeEach(() => {
       latencyMs: 50
     })),
     saveKey: vi.fn(),
+    deleteKey: vi.fn(async () => ({ state })),
     removeLocalKey: vi.fn(),
     importAgent: vi.fn(async () => state),
     restoreAgent: vi.fn(async () => state),
@@ -91,18 +92,24 @@ describe('API-first workspace', () => {
       expect.objectContaining({ keyId: 11, agent: 'codex', model: 'gpt-5.4', effort: 'medium' })
     )
   })
-  it('blocks an unsupported Claude key and offers recovery', async () => {
+  it('lets a non-Anthropic key use Claude through local compatibility', async () => {
     state.messages = 'unsupported'
     await ready()
     fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
     const dialog = await screen.findByRole('dialog')
     fireEvent.change(within(dialog).getByLabelText('选择智能体'), { target: { value: 'claude' } })
-    await within(dialog).findByText('返回更换 API Key')
+    await within(dialog).findByText('通过本地兼容连接使用 Claude Code。')
+    fireEvent.change(within(dialog).getByLabelText('使用模型'), { target: { value: 'gpt-5.4' } })
     expect(
       (within(dialog).getByRole('button', { name: '导入到 Claude Code' }) as HTMLButtonElement)
         .disabled
-    ).toBe(true)
-    expect(api.importAgent).not.toHaveBeenCalled()
+    ).toBe(false)
+    fireEvent.click(within(dialog).getByRole('button', { name: '导入到 Claude Code' }))
+    await waitFor(() =>
+      expect(api.importAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ agent: 'claude', keyId: 11 })
+      )
+    )
   })
   it('does not retrieve full keys until the user asks and hides them when closed', async () => {
     await ready()
@@ -156,5 +163,32 @@ describe('API-first workspace', () => {
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByLabelText('API Key')).toBeTruthy()
     expect(api.account.login).not.toHaveBeenCalled()
+  })
+  it('deletes only after explicit confirmation and leaves agent configuration alone', async () => {
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '删除 日常编程' }))
+    let dialog = await screen.findByRole('dialog')
+    expect(api.deleteKey).not.toHaveBeenCalled()
+    expect(within(dialog).getByText(/Codex CLI/)).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }))
+    expect(api.deleteKey).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '删除 日常编程' }))
+    dialog = await screen.findByRole('dialog')
+    vi.mocked(api.keys).mockResolvedValue(demoKeys.filter((key) => key.id !== 11))
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认删除' }))
+    await waitFor(() => expect(api.deleteKey).toHaveBeenCalledWith(11))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '删除 日常编程' })).toBeNull())
+    expect(api.restoreAgent).not.toHaveBeenCalled()
+    expect(api.importAgent).not.toHaveBeenCalled()
+  })
+  it('keeps the key and the confirmation dialog when platform deletion fails', async () => {
+    vi.mocked(api.deleteKey).mockRejectedValue(new Error('服务暂时不可用'))
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '删除 日常编程' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认删除' }))
+    await within(dialog).findByText('服务暂时不可用')
+    expect(screen.getByRole('button', { name: '删除 日常编程' })).toBeTruthy()
+    expect(api.deleteKey).toHaveBeenCalledTimes(1)
   })
 })

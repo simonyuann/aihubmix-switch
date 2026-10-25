@@ -327,8 +327,31 @@ fn changes(
             let mut fields = vec![
                 (path(&["env", "ANTHROPIC_BASE_URL"]), json!(base)),
                 (path(&["env", "ANTHROPIC_AUTH_TOKEN"]), json!(key)),
-                (path(&["env", "ANTHROPIC_API_KEY"]), json!(key)),
+                (path(&["env", "ANTHROPIC_API_KEY"]), Value::Null),
             ];
+            let settings = parse(&files[0], text(&files[0])?.as_deref().unwrap_or_default())?;
+            let tool_search = if base.starts_with("http://127.0.0.1:") {
+                json!("false")
+            } else {
+                settings["env"]["ENABLE_TOOL_SEARCH"].clone()
+            };
+            fields.push((path(&["env", "ENABLE_TOOL_SEARCH"]), tool_search));
+            for (field, value) in [
+                ("ANTHROPIC_CUSTOM_MODEL_OPTION", model),
+                ("ANTHROPIC_CUSTOM_MODEL_OPTION_NAME", model),
+                (
+                    "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION",
+                    "AIHubMix 本地兼容连接",
+                ),
+            ] {
+                let value = if base.starts_with("http://127.0.0.1:") {
+                    json!(value)
+                } else {
+                    settings["env"][field].clone()
+                };
+                fields.push((path(&["env", field]), value));
+            }
+
             for field in [
                 "ANTHROPIC_MODEL",
                 "ANTHROPIC_DEFAULT_SONNET_MODEL",

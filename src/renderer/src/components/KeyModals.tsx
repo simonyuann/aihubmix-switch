@@ -96,7 +96,9 @@ export function CreateKeyModal({
             <div className="inline-meta">
               <span>分组倍率 {group.rateMultiplier ?? '—'}×</span>
               <span className={group.allowMessagesDispatch ? 'text-success' : ''}>
-                {group.allowMessagesDispatch ? '支持 Claude Code' : '暂不支持 Claude Code'}
+                {group.allowMessagesDispatch
+                  ? '原生支持 Claude Code'
+                  : '支持 Claude Code（本地兼容）'}
               </span>
             </div>
           </div>
@@ -222,12 +224,14 @@ export function KeyDetailModal({
   item,
   onClose,
   onCopy,
-  onRemove
+  onRemove,
+  onDelete
 }: {
   item: ApiKeyInfo
   onClose: () => void
   onCopy: (id: number) => Promise<void>
   onRemove: (id: number) => Promise<void>
+  onDelete: () => void
 }) {
   const [full, setFull] = useState('')
   const [busy, setBusy] = useState(false)
@@ -307,6 +311,13 @@ export function KeyDetailModal({
       {error && (
         <div className="notice notice-error" role="alert">
           {error}
+        </div>
+      )}
+      {!item.local && (
+        <div className="danger-area">
+          <button className="link-btn danger-text" onClick={onDelete}>
+            删除平台 API Key
+          </button>
         </div>
       )}
       {item.local && (

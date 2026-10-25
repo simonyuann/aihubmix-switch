@@ -42,6 +42,7 @@ type Panel =
   | 'charge'
   | 'account'
   | 'restore'
+  | 'delete'
   | null
 
 export default function App() {
@@ -55,6 +56,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastId = useRef(0)
   const loadId = useRef(0)
@@ -160,6 +162,39 @@ export default function App() {
       notify('已还原接入前的配置')
     } catch (err) {
       notify(err instanceof Error ? err.message : String(err), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const confirmDelete = (key: ApiKeyInfo) => {
+    setItem(key)
+    setDeleteError('')
+    setPanel('delete')
+  }
+  async function deleteSelected() {
+    if (!item) return
+    setBusy(true)
+    setDeleteError('')
+    try {
+      if (item.local) {
+        setState(await window.api.removeLocalKey(item.id))
+        notify('已从本机移除，智能体配置仍保留')
+      } else {
+        const result = await window.api.deleteKey(item.id)
+        setState(result.state)
+        notify(
+          result.warning
+            ? `平台 Key 已删除；本机清理未完成：${result.warning}`
+            : 'API Key 已从平台删除',
+          result.warning ? 'info' : 'success'
+        )
+      }
+      setKeys((current) => current.filter((key) => key.id !== item.id))
+      setPanel(null)
+      setItem(null)
+      void load()
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
@@ -330,6 +365,7 @@ export default function App() {
               }}
               onCopy={(id) => void copy(id)}
               onImport={startImport}
+              onDelete={confirmDelete}
             />
             <div className="workflow-hint">
               <div className="hint-icon">
@@ -377,14 +413,19 @@ export default function App() {
                       <span
                         className={`status-dot ${agent.connected && !agent.configChanged ? 'status-ok' : 'status-warn'}`}
                       >
-                        {agent.configChanged
-                          ? '配置已变更'
-                          : agent.connected
-                            ? '已接入'
-                            : '当前未启用'}
+                        {agent.keyDeleted
+                          ? 'Key 已删除'
+                          : agent.configChanged
+                            ? '配置已变更'
+                            : agent.connected
+                              ? '已接入'
+                              : '当前未启用'}
                       </span>
                     </div>
-                    <p>{agent.appliedModel || '未指定模型'}</p>
+                    <p>
+                      {agent.appliedModel || '未指定模型'}
+                      {agent.compatibility && <span className="chip tiny">本地兼容连接</span>}
+                    </p>
                     <small>
                       {agent.configChanged
                         ? '当前配置与上次导入记录不同'
@@ -515,6 +556,7 @@ export default function App() {
           item={item}
           onClose={close}
           onCopy={copy}
+          onDelete={() => confirmDelete(item)}
           onRemove={async (id) => {
             setState(await window.api.removeLocalKey(id))
             setPanel(null)
@@ -595,6 +637,49 @@ export default function App() {
             </button>
             <button className="btn primary" disabled={busy} onClick={() => void restore()}>
               {busy ? <LoaderIcon size={15} /> : <CheckIcon size={15} />}确认还原
+            </button>
+          </div>
+        </Modal>
+      )}
+      {panel === 'delete' && item && (
+        <Modal
+          open
+          title={item.local ? '从本机移除 API Key' : '删除 API Key'}
+          subtitle={item.name}
+          onClose={close}
+          width={460}
+          busy={busy}
+        >
+          <div className="selected-key">
+            <KeyIcon size={17} />
+            <code>{item.keyMasked}</code>
+          </div>
+          <div className={`notice ${item.local ? '' : 'notice-warn'}`}>
+            {item.local
+              ? '仅移除此设备保存的 Key，平台 Key 和已导入的智能体配置不会改变。'
+              : '此操作将从平台删除 Key，删除后不能再用它调用模型。已导入的智能体配置不会自动还原。'}
+          </div>
+          {!item.local && state.agents.some((agent) => agent.keyId === item.id) && (
+            <p className="fine-print">
+              此 Key 已用于{' '}
+              {state.agents
+                .filter((agent) => agent.keyId === item.id)
+                .map((agent) => AGENTS[agent.id].name)
+                .join('、')}
+              ，删除后这些连接可能失效。你可以在「已接入」中更换 Key 或还原配置。
+            </p>
+          )}
+          {deleteError && (
+            <div className="notice notice-error" role="alert">
+              {deleteError}
+            </div>
+          )}
+          <div className="confirm-actions">
+            <button className="btn" disabled={busy} onClick={close}>
+              取消
+            </button>
+            <button className="btn danger" disabled={busy} onClick={() => void deleteSelected()}>
+              {busy && <LoaderIcon size={15} />} {item.local ? '确认移除' : '确认删除'}
             </button>
           </div>
         </Modal>

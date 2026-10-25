@@ -1,15 +1,15 @@
-# Tauri 2 迁移与 v0.2.0 发布计划
+# Tauri 2 迁移与 v0.2.0 发布进度
 
-用户已批准以「我的 API + 按需导入」为中心的方案，并授权迁移 Rust、支持 macOS 和发布 GitHub Release。
+用户已批准「我的 API + 按需导入」方案，并授权迁移 Rust、支持 macOS、Linux 和发布 GitHub Release；后续追加 Claude Code 兼容接入与 API Key 删除。
 
-- [x] 检查现有适配器、账户接口、存储和发布权限。
-- [x] 替换 Electron 为 Tauri 2，React + Vite，Rust 完成账户、网络、系统凭据存储和配置操作。
-- [x] 原子写入、JSONC/TOML 保留无关配置、按智能体备份还原、记录每个智能体的 Key 指纹。
-- [x] 实现我的 API、注册登录、创建/查看/复制、按需导入、已接入、充值占位和高级设置。
-- [x] 覆盖 Rust 配置读写/还原与多 Key、网络响应解析和前端关键交互测试。
-- [x] 验证浅色界面和 macOS 本地构建，配置 macOS arm64/x64 与 Windows x64 CI。
-- [ ] 推送经过验证的版本，发布 v0.2.0，等待 CI 产物并确认 Release 下载资产。
+- [x] Electron 迁移为 Tauri 2，Rust 负责网络、系统安全存储、配置操作与备份。
+- [x] 白色 API 工作台、注册登录、创建/查看/复制/删除、按需导入、已接入与充值占位。
+- [x] 四种智能体配置适配器，保留 JSONC/TOML 注释、无关配置与原始还原基线。
+- [x] Claude Code 本地兼容连接、回环地址鉴权、SSE、图片、工具调用、加密推理上下文与托盘运行。
+- [x] 验证真实 AIHubMix 上游的两轮工具调用，并通过本机真实 Claude Code CLI 验证；不修改用户配置。
+- [x] 类型检查、10 项前端交互测试、24 项 Rust 测试、严格 Clippy 和格式检查通过。
+- [x] 初版 macOS 原生窗口、签名和安装包验证；原三平台 CI 已通过。
+- [ ] 最终 macOS arm64/x64、Windows x64、Linux x64（AppImage/deb）全部构建成功。
+- [ ] 合并主分支并发布 v0.2.0，核对全部下载资产和 SHA256。
 
-旧 Electron state.json 与 backups 保留，新设置文件 state-v2.json、备份 backups-v2；原先的加密 Key 需要重新登录或粘贴，文档明确说明。macOS 未提供 Developer ID 证书时使用 ad-hoc 签名并在 Release 说明中如实标注，不能声称已经公证。
-
-本地验证：8 项前端交互测试、13 项 Rust 测试、类型检查、cargo fmt 与严格 Clippy 均通过。macOS 原生窗口、ad-hoc 签名和 DMG 已验证；本地 arm64 应用约 4.78 MiB，DMG 约 2.42 MiB。GitHub 发布仍等待所有平台构建完成。
+旧版 state.json 和 backups 保留，新版使用 state-v2.json、vault-v2.bin、backups-v2。旧密钥需重新登录或添加。macOS 当前使用 ad-hoc 签名，未进行 Apple Developer ID 公证，发布说明如实标注。Linux 安全存储使用 Secret Service；未提供安全存储时不回退为明文。

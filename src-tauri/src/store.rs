@@ -76,6 +76,18 @@ impl Store {
         Ok(result)
     }
 
+    #[cfg(test)]
+    pub fn for_test(dir: PathBuf) -> Self {
+        let mut store = Self::load(dir).expect("temporary test store");
+        store.master = Some(vec![9; 32]);
+        store
+    }
+
+    #[cfg(test)]
+    pub fn memory_secret(&mut self, name: &str, value: &str) {
+        self.secrets.insert(name.into(), value.into());
+    }
+
     fn credential() -> Result<keyring::Entry> {
         keyring::Entry::new("fun.csmy.aihubmix-switch", "vault-v2-master")
             .map_err(|_| "系统安全存储不可用".into())

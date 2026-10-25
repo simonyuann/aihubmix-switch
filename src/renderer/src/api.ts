@@ -33,6 +33,7 @@ export const api: RendererApi = {
   },
   prepareKey: (id) => request('prepare-key', { id }),
   saveKey: (input) => request('save-key', input),
+  deleteKey: (id) => request('delete-key', { id }),
   removeLocalKey: (id) => request('remove-local-key', { id }),
   importAgent: (input) => request('apply', input),
   restoreAgent: (agent) => request('restore', { agent }),

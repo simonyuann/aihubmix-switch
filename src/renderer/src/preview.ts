@@ -138,6 +138,10 @@ export function createPreviewApi(): RendererApi {
       keys.push(info)
       return { probe: probe(), state: await current(), info }
     },
+    deleteKey: async (id) => {
+      keys = keys.filter((k) => k.id !== id)
+      return { state: await current() }
+    },
     removeLocalKey: async (id) => {
       keys = keys.filter((k) => k.id !== id)
       return current()

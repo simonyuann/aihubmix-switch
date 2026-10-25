@@ -43,6 +43,7 @@ jobs:
           node -e 'const fs=require("node:fs"); const v=JSON.parse(fs.readFileSync("package.json")).version; const t=JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json")).version; if(process.env.GITHUB_REF_NAME!==`v${v}` || v!==t || !fs.readFileSync("src-tauri/Cargo.toml","utf8").includes(`version = "${v}"`)) process.exit(1)'
 
   bundle:
+    if: github.ref != 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     needs: checks
     strategy:
       fail-fast: false
@@ -57,9 +58,17 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bundles: nsis
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libssl-dev libxdo-dev patchelf file
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -76,6 +85,10 @@ jobs:
         run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --locked
         env:
           CI: 'true'
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+      - name: Test Linux configuration and storage behavior
+        if: runner.os == 'Linux'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
       - run: node scripts/collect-artifacts.mjs ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:

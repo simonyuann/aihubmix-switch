@@ -282,3 +282,51 @@ fn response_envelopes_models_and_urls_are_normalized() {
     assert!(!selectable("gpt-image-1"));
     assert!(!mask("sk-secret-123456789").contains("secret"));
 }
+
+#[test]
+fn claude_compatibility_registers_custom_models_and_restores_original_environment() {
+    let (_dir, ctx) = setup();
+    let file = ctx.paths("claude").unwrap()[0].clone();
+    atomic_write(&file,br#"{"env":{"ANTHROPIC_API_KEY":"old-key","ENABLE_TOOL_SEARCH":"true","CUSTOM_ENV":"keep"}}"#).unwrap();
+    let record = agents::apply(
+        &ctx,
+        "claude",
+        agents::Connection {
+            base: "http://127.0.0.1:32197",
+            key: "local-auth-token",
+            model: "model-a",
+            models: &models(),
+            options: &Options::default(),
+        },
+        None,
+    )
+    .unwrap();
+    let value = read(&file);
+    assert_eq!(value["env"]["ANTHROPIC_CUSTOM_MODEL_OPTION"], "model-a");
+    assert_eq!(value["env"]["ENABLE_TOOL_SEARCH"], "false");
+    assert!(value["env"].get("ANTHROPIC_API_KEY").is_none());
+    assert_eq!(value["env"]["ANTHROPIC_AUTH_TOKEN"], "local-auth-token");
+    agents::restore(&ctx, "claude", &record).unwrap();
+    let restored = read(&file);
+    assert_eq!(restored["env"]["ANTHROPIC_API_KEY"], "old-key");
+    assert_eq!(restored["env"]["ENABLE_TOOL_SEARCH"], "true");
+    assert_eq!(restored["env"]["CUSTOM_ENV"], "keep");
+    assert!(restored["env"]
+        .get("ANTHROPIC_CUSTOM_MODEL_OPTION")
+        .is_none());
+}
+
+#[test]
+fn claude_cli_system_messages_are_preserved_for_both_upstream_protocols() {
+    let route = ClaudeRoute {
+        base_url: DEFAULT_BASE.into(),
+        model: "test-model".into(),
+        reasoning: false,
+    };
+    let body = json!({"max_tokens":128,"messages":[{"role":"user","content":"Reply OK"},{"role":"system","content":"System context"}]});
+    let response = crate::protocol::responses_request(&body, &route, true).unwrap();
+    assert_eq!(response["input"][1]["role"], "system");
+    assert_eq!(response["input"][1]["content"][0]["text"], "System context");
+    let chat = crate::protocol::chat_request(&body, &route, true).unwrap();
+    assert_eq!(chat["messages"][1]["role"], "system");
+}

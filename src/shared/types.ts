@@ -82,6 +82,8 @@ export interface AgentState {
   appliedEffort?: string | null
   keyLabel?: string | null
   keyId?: number | null
+  compatibility?: boolean
+  keyDeleted?: boolean
   configChanged?: boolean
   backupAvailable: boolean
   error?: string
@@ -99,6 +101,8 @@ export interface AppState {
   selectedKeyId?: number | null
   lastAgent?: string
   legacyData?: boolean
+  compatibilityReady?: boolean
+  compatibilityError?: string | null
   storageError?: string | null
   secureStorage: boolean
   site: SiteInfo
@@ -188,6 +192,7 @@ export interface RendererApi {
     apiKey: string
     name?: string
   }): Promise<{ probe: RelayProbe; state: AppState; info: ApiKeyInfo }>
+  deleteKey(id: number): Promise<{ state: AppState; warning?: string | null }>
   removeLocalKey(id: number): Promise<AppState>
   importAgent(input: ImportInput): Promise<AppState>
   restoreAgent(agent: AgentId): Promise<AppState>
