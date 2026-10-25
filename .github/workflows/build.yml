@@ -138,6 +138,7 @@ jobs:
       - name: Generate updater manifest and checksums
         run: node scripts/generate-update-manifest.mjs artifacts
       - name: Upload complete release as draft
+        id: upload_draft
         uses: softprops/action-gh-release@v2
         with:
           name: AIHubMix Switch ${{ github.ref_name }}
@@ -150,8 +151,8 @@ jobs:
       - name: Verify uploaded assets and publish atomically
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ steps.upload_draft.outputs.id }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release-info.json
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > release-info.json
           node scripts/verify-release-assets.mjs artifacts release-info.json
-          gh release edit "$RELEASE_TAG" --draft=false --latest
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false -f make_latest=true --jq '.html_url'
