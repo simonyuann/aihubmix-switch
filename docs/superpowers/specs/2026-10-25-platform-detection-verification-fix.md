@@ -12,4 +12,11 @@ CLI 探测独立为可按平台测试的模块，读取当前进程 PATH、常�
 
 ## 验证
 
-本地前端 12 项测试、Rust 回归测试、严格 Clippy、类型检查、生产构建；覆盖目录遗漏、手动路径、模型可列出但 HTTP 503 不改配置、SSE 中断与错误、Responses / Chat / Messages 工具往返和 Claude 兼容回退。真实上游的 Responses 和 Chat 工具往返及隔离配置的真实 Pi CLI 已通过，用户现有配置文件哈希未改变。四个平台 CI 将各自执行 Rust 原生测试并生成 v0.2.1 安装包。
+本地前端 12 项测试、Rust 回归测试、严格 Clippy、类型检查、生产构建；覆盖目录遗漏、手动路径、模型可列出但 HTTP 503 不改配置、SSE 中断与错误、Responses / Chat / Messages 工具往返和 Claude 兼容回退。真实上游的 Responses 和 Chat 工具往返及隔离配置的真实 Pi CLI 已通过，用户现有配置文件哈希未改变。四个平台 CI 均已各自执行 Rust 原生回归测试并通过，生成 v0.2.1 安装包。
+
+
+## 发布完成
+
+发布源提交为 `665710667962567730f8b15a9f27dbade52eebe9`，代码已推送到 `main`。[正式 tag 流水线](https://github.com/simonyuann/aihubmix-switch/actions/runs/40189206647) 的代码检查、Windows x64、Linux x64、macOS arm64 / x64 原生测试与打包、自动发布均成功。[v0.2.1 Release](https://github.com/simonyuann/aihubmix-switch/releases/tag/v0.2.1) 已公开，包含八个平台下载文件及 SHA256SUMS.txt。校验文件中的八个 SHA256 与 GitHub 返回的实际资产 digest 全部一致；macOS arm64 应用产物的架构和签名完整性检查通过。
+
+验证范围包括 CI 中的 Windows/Linux 原生测试，不代表已登录用户另一台电脑逐一执行图形界面验收。CLI 自动检测未覆盖的自定义目录，可用手动路径入口处理；WSL 与 Windows 原生配置继续独立。上游 503 的可调度账号池问题仍应在服务端排查，客户端不会掩盖为成功，也不会在验证失败时改写原配置。
