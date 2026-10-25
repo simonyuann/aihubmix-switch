@@ -330,3 +330,52 @@ fn claude_cli_system_messages_are_preserved_for_both_upstream_protocols() {
     let chat = crate::protocol::chat_request(&body, &route, true).unwrap();
     assert_eq!(chat["messages"][1]["role"], "system");
 }
+
+#[test]
+fn additional_native_agents_preserve_unmanaged_fields_and_original_restore_baseline() {
+    for (agent, original) in [
+        ("grokbuild", "# user settings\n[models]\ndefault = 'personal'\n[model.personal]\nmodel = 'old'\n[preferences]\ntheme = 'light' # keep\n"),
+        ("kimi", "# user settings\ndefault_model = 'personal'\n[providers.personal]\ntype = 'openai'\napi_key = 'personal-key'\n[models.personal]\nmodel = 'old'\nprovider = 'personal'\n"),
+        ("openclaw", "{\n// user settings\nchannels: { telegram: { enabled: true } },\nagents: { defaults: { model: { primary: 'personal/old' }, workspace: '/work' } },\nmodels: { providers: { personal: { baseUrl: 'https://other.test/v1' } } },\n}\n"),
+    ] {
+        let (_dir, ctx) = setup();
+        let file = ctx.paths(agent).unwrap()[0].clone();
+        atomic_write(&file, original.as_bytes()).unwrap();
+        let first = apply(&ctx, agent, "first-key", None);
+        assert_eq!(agents::status(&ctx, agent, Some(&first), DEFAULT_BASE)["connected"], true, "{agent}");
+        assert_eq!(agents::status(&ctx, agent, Some(&first), DEFAULT_BASE)["appliedModel"], "model-a");
+        let second = apply(&ctx, agent, "second-key", Some(&first));
+        assert_eq!(first.backup_id, second.backup_id);
+        let written = fs::read_to_string(&file).unwrap();
+        assert!(written.contains("user settings"));
+        assert!(written.contains("personal"));
+        assert!(!written.contains("first-key"));
+        assert!(written.contains("second-key"));
+        agents::restore(&ctx, agent, &second).unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), original, "{agent}");
+    }
+}
+
+#[test]
+fn openclaw_custom_json5_path_preserves_manual_model_changes_on_restore() {
+    let (_dir, mut ctx) = setup();
+    let file = ctx.home.join("custom/claw-config.json");
+    ctx.overrides
+        .insert("OPENCLAW_CONFIG_PATH".into(), file.to_string_lossy().into());
+    let original = "{ // preserve\nagents: { defaults: { model: { primary: 'old/model' }, workspace: '/workspace' } }, channels: { custom: true }, }\n";
+    atomic_write(&file, original.as_bytes()).unwrap();
+    let record = apply(&ctx, "openclaw", "test-key", None);
+    let changed = fs::read_to_string(&file)
+        .unwrap()
+        .replace("csmy/model-a", "personal/new-model");
+    atomic_write(&file, changed.as_bytes()).unwrap();
+    agents::restore(&ctx, "openclaw", &record).unwrap();
+    let restored = fs::read_to_string(&file).unwrap();
+    assert!(restored.contains("personal/new-model"));
+    assert!(
+        restored.contains("preserve")
+            && restored.contains("/workspace")
+            && restored.contains("custom")
+    );
+    assert!(!restored.contains("test-key"));
+}

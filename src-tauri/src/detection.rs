@@ -31,6 +31,8 @@ pub fn candidates(
     for relative in [
         ".local/bin",
         ".opencode/bin",
+        ".grok/bin",
+        ".local/share/uv/tools/kimi-code/bin",
         ".bun/bin",
         ".volta/bin",
         ".npm-global/bin",
@@ -178,6 +180,7 @@ pub fn locate(dirs: &[PathBuf], platform: Platform, command: &str) -> Option<Pat
 }
 
 pub fn detect(home: &Path, agent: &str, custom: Option<&str>) -> Value {
+    let command = if agent == "grokbuild" { "grok" } else { agent };
     let platform = Platform::current();
     let path = if let Some(custom) = custom.filter(|p| !p.trim().is_empty()) {
         let p = PathBuf::from(custom);
@@ -185,7 +188,7 @@ pub fn detect(home: &Path, agent: &str, custom: Option<&str>) -> Value {
     } else {
         let env = std::env::vars().collect();
         let path = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
-        locate(&candidates(home, platform, &env, path), platform, agent)
+        locate(&candidates(home, platform, &env, path), platform, command)
     };
     json!({"installed":path.is_some(), "cliPath":path, "detectionNote":if custom.is_some() && path.is_none() { "指定的 CLI 路径不可用，请重新选择" } else if path.is_some() { "已定位 CLI" } else { "未定位到 CLI，可重新扫描或手动填写路径；不代表软件未安装" }})
 }

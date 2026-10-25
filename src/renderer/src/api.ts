@@ -43,6 +43,10 @@ async function updateRequest(
 }
 
 export const api: RendererApi = {
+  sessions: {
+    list: (query, agent) => invoke('list_sessions', { query: query ?? null, agent: agent ?? null }),
+    read: (id) => invoke('read_session', { id })
+  },
   updates: {
     status: () => updateRequest('update_status'),
     check: () => updateRequest('check_update'),

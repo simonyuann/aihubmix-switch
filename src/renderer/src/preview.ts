@@ -1,8 +1,46 @@
 // This module is loaded only by Vite dev mode with ?preview=1. No real secrets or writes.
-import type { ApiKeyInfo, AppState, RendererApi, RelayProbe } from '../../shared/types'
+import type {
+  ApiKeyInfo,
+  AppState,
+  RendererApi,
+  RelayProbe,
+  SessionIndex
+} from '../../shared/types'
+
+export const demoSessions: SessionIndex = {
+  sessions: [
+    {
+      id: 'demo-codex',
+      agent: 'codex',
+      sessionId: 'demo-project',
+      title: '整理项目的 API 接入流程',
+      project: '~/Projects/example',
+      modifiedAt: 1792909200000,
+      archived: false,
+      preview: '已完成配置检查，下一步完善导入体验。'
+    },
+    {
+      id: 'demo-claude',
+      agent: 'claude',
+      sessionId: 'demo-review',
+      title: '检查模型调用与错误提示',
+      project: '~/Projects/example',
+      modifiedAt: 1792905600000,
+      archived: false,
+      preview: '检查失败时保留原配置，并给出可操作的提示。'
+    }
+  ],
+  sources: ['codex', 'claude', 'pi', 'grokbuild', 'gemini', 'openclaw'].map((agent) => ({
+    agent,
+    count: ['codex', 'claude'].includes(agent) ? 1 : 0,
+    status: ['codex', 'claude'].includes(agent) ? 'ready' : 'missing',
+    note: '未找到本地会话目录'
+  })),
+  truncated: false
+}
 
 export const previewState: AppState = {
-  version: '0.2.2',
+  version: '0.3.0',
   secureStorage: true,
   site: {
     name: 'AIHubMix',
@@ -128,7 +166,7 @@ export function createPreviewApi(): RendererApi {
   })
   let update = {
     phase: 'idle',
-    currentVersion: '0.2.2',
+    currentVersion: '0.3.0',
     version: null,
     notes: null,
     downloaded: 0,
@@ -138,13 +176,31 @@ export function createPreviewApi(): RendererApi {
     error: null
   } as import('../../shared/types').UpdateStatus
   return {
+    sessions: {
+      list: async () => structuredClone(demoSessions),
+      read: async (id) => {
+        const session = demoSessions.sessions.find((s) => s.id === id)
+        if (!session) throw new Error('会话未找到')
+        return {
+          session: structuredClone(session),
+          messages: [
+            { role: 'user', text: session.title },
+            { role: 'assistant', text: session.preview }
+          ],
+          resumeCommand: `${session.agent} ${session.agent === 'codex' ? 'resume' : '--resume'} '${session.sessionId}'`,
+          shell: '终端',
+          truncated: false,
+          note: '界面演示数据；未读取或修改真实会话'
+        }
+      }
+    },
     updates: {
       status: async () => ({ ...update }),
       check: async () => {
         update = {
           ...update,
           phase: 'available',
-          version: '0.2.3',
+          version: '0.3.1',
           notes: '演示更新说明：界面预览不会检查网络或安装程序。'
         }
         return { ...update }

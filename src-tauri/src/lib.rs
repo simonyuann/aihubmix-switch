@@ -3,6 +3,7 @@ mod bridge;
 mod detection;
 mod protocol;
 mod service;
+mod sessions;
 mod store;
 mod types;
 mod updates;
@@ -21,6 +22,40 @@ use tauri::{
 };
 use tokio::sync::Mutex;
 struct Background(Arc<AtomicBool>);
+
+#[tauri::command]
+async fn list_sessions(
+    query: Option<String>,
+    agent: Option<String>,
+    state: tauri::State<'_, Arc<Mutex<Backend>>>,
+) -> Result<sessions::Index, String> {
+    let context = state.lock().await.context.clone();
+    let query = query
+        .unwrap_or_default()
+        .chars()
+        .take(256)
+        .collect::<String>();
+    let agent = agent.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || sessions::list(&context, &query, &agent))
+        .await
+        .map_err(|_| "读取会话失败，请重试".into())
+}
+#[tauri::command]
+async fn read_session(
+    id: String,
+    state: tauri::State<'_, Arc<Mutex<Backend>>>,
+) -> Result<sessions::Detail, String> {
+    let (context, cli_paths) = {
+        let backend = state.lock().await;
+        (
+            backend.context.clone(),
+            backend.store.settings.cli_paths.clone(),
+        )
+    };
+    tauri::async_runtime::spawn_blocking(move || sessions::detail(&context, &id, &cli_paths))
+        .await
+        .map_err(|_| "读取会话失败，请重试".to_string())?
+}
 
 #[tauri::command]
 async fn dispatch(
@@ -106,6 +141,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dispatch,
+            list_sessions,
+            read_session,
             updates::update_status,
             updates::check_update,
             updates::download_update,

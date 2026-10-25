@@ -2,7 +2,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-pub const AGENTS: [&str; 4] = ["codex", "claude", "opencode", "pi"];
+pub const AGENTS: [&str; 7] = [
+    "codex",
+    "claude",
+    "opencode",
+    "pi",
+    "grokbuild",
+    "kimi",
+    "openclaw",
+];
 pub const DEFAULT_BASE: &str = "https://csmy.fun:23457";
 pub type Result<T> = std::result::Result<T, String>;
 

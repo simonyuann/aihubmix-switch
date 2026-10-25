@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { AgentId, ApiKeyInfo, AppState, RelayProbe } from '../../../shared/types'
-import { AGENTS, CODEX_EFFORT_LABELS } from '../../../shared/constants'
+import { AGENTS, AGENT_ORDER, CODEX_EFFORT_LABELS } from '../../../shared/constants'
+import { GuidedAgents } from './GuidedAgents'
 import { isSelectableModel } from '../../../shared/url'
 import { Modal } from './Modal'
 import { CheckIcon, CopyIcon, KeyIcon, LoaderIcon, ShieldIcon, TerminalIcon } from './Icons'
 
-const order: AgentId[] = ['codex', 'claude', 'opencode', 'pi']
+const order = AGENT_ORDER
 
 export function ImportModal({
   item,
@@ -28,6 +29,8 @@ export function ImportModal({
         ? installed[0]?.id || ''
         : ''
   const [agent, setAgent] = useState<AgentId | ''>(initial)
+  const [search, setSearch] = useState('')
+  const [manual, setManual] = useState(false)
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState(state.options.codexReasoningEffort)
   const [probe, setProbe] = useState<RelayProbe | null>(null)
@@ -205,24 +208,61 @@ export function ImportModal({
             <span className="badge">本次使用</span>
           </div>
           <div className="form-stack">
+            <input
+              className="catalog-search"
+              aria-label="搜索智能体"
+              placeholder="搜索你的智能体或编辑器…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              disabled={busy}
+            />
             <label className="field">
               <span>选择智能体</span>
               <select
                 value={agent}
                 disabled={busy}
-                onChange={(event) => setAgent(event.target.value as AgentId | '')}
+                onChange={(event) => {
+                  setAgent(event.target.value as AgentId | '')
+                  setManual(false)
+                }}
               >
                 <option value="">选择你使用的编程工具</option>
-                {order.map((id) => (
-                  <option key={id} value={id}>
-                    {AGENTS[id].name}
-                    {detectedAgents.find((a) => a.id === id)?.installed
-                      ? ' · 已定位 CLI'
-                      : ' · 未定位 CLI'}
-                  </option>
-                ))}
+                {[...order]
+                  .sort(
+                    (a, b) =>
+                      Number(b === state.lastAgent) - Number(a === state.lastAgent) ||
+                      Number(Boolean(detectedAgents.find((v) => v.id === b)?.installed)) -
+                        Number(Boolean(detectedAgents.find((v) => v.id === a)?.installed))
+                  )
+                  .filter(
+                    (id) =>
+                      id === agent ||
+                      `${AGENTS[id].name} ${AGENTS[id].subtitle}`
+                        .toLowerCase()
+                        .includes(search.toLowerCase())
+                  )
+                  .map((id) => (
+                    <option key={id} value={id}>
+                      {AGENTS[id].name} · 自动配置
+                      {detectedAgents.find((a) => a.id === id)?.installed
+                        ? ' · 已定位 CLI'
+                        : ' · 未定位 CLI'}
+                    </option>
+                  ))}
               </select>
             </label>
+            <GuidedAgents
+              query={search}
+              baseUrl={probe?.baseUrl || state.relayBaseUrl}
+              keyId={item.id}
+              onCopy={onCopyCommand}
+              onSelect={() => {
+                setAgent('')
+                setManual(true)
+              }}
+              nativeAgent={agent}
+              models={models.map((m) => m.id)}
+            />
             {testing && (
               <div className="probe-status" role="status">
                 <LoaderIcon size={15} />
@@ -376,17 +416,27 @@ export function ImportModal({
                 </div>
               </div>
             )}
-            <button
-              className="btn primary block"
-              onClick={() => void apply()}
-              disabled={busy || testing || !probe?.ok || !agent || !model || compatibilityBlocked}
-            >
-              {busy ? <LoaderIcon size={16} /> : <CheckIcon size={16} />}
-              {busy ? '正在验证模型与工具调用…' : meta ? `导入到 ${meta.name}` : '选择智能体后导入'}
-            </button>
-            <p className="fine-print centered">
-              导入前会发送两次简短模型请求，可能产生少量费用。验证通过后才备份并写入。
-            </p>
+            {!manual && (
+              <>
+                <button
+                  className="btn primary block"
+                  onClick={() => void apply()}
+                  disabled={
+                    busy || testing || !probe?.ok || !agent || !model || compatibilityBlocked
+                  }
+                >
+                  {busy ? <LoaderIcon size={16} /> : <CheckIcon size={16} />}
+                  {busy
+                    ? '正在验证模型与工具调用…'
+                    : meta
+                      ? `导入到 ${meta.name}`
+                      : '选择智能体后导入'}
+                </button>
+                <p className="fine-print centered">
+                  导入前会发送两次简短模型请求，可能产生少量费用。验证通过后才备份并写入。
+                </p>
+              </>
+            )}
           </div>
         </>
       )}

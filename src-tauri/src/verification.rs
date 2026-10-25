@@ -30,7 +30,8 @@ pub fn wire(agent: &str, options: &Options, compatibility: bool) -> Result<Wire>
         } else {
             Wire::Messages
         }),
-        "opencode" => Ok(Wire::Chat),
+        "opencode" | "kimi" | "openclaw" => Ok(Wire::Chat),
+        "grokbuild" => Ok(Wire::Responses),
         "codex" => match options.codex_wire_api.as_str() {
             "responses" => Ok(Wire::Responses),
             "chat" => Ok(Wire::Chat),

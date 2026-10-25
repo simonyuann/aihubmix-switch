@@ -6,7 +6,15 @@ export const APP_NAME = 'AIHubMix 接入助手'
 export const PROVIDER_ID = 'csmy'
 export const PROVIDER_NAME = 'AIHubMix'
 
-export const AGENT_ORDER: AgentId[] = ['claude', 'codex', 'pi', 'opencode']
+export const AGENT_ORDER: AgentId[] = [
+  'claude',
+  'codex',
+  'pi',
+  'opencode',
+  'grokbuild',
+  'kimi',
+  'openclaw'
+]
 
 export const DEFAULT_CODEX_EFFORT = 'medium'
 
@@ -34,6 +42,30 @@ export const CODEX_EFFORT_LABELS: Record<string, string> = {
 }
 
 export const AGENTS: Record<AgentId, AgentMeta> = {
+  grokbuild: {
+    id: 'grokbuild',
+    name: 'Grok Build',
+    subtitle: 'xAI 编码智能体',
+    color: '#24272a',
+    configHint: '~/.grok/config.toml',
+    installCommand: 'npm install -g @xai-official/grok'
+  },
+  kimi: {
+    id: 'kimi',
+    name: 'Kimi Code',
+    subtitle: '支持自定义模型供应商',
+    color: '#3d63df',
+    configHint: '~/.kimi-code/config.toml',
+    installCommand: 'npm install -g @moonshot-ai/kimi-code'
+  },
+  openclaw: {
+    id: 'openclaw',
+    name: 'OpenClaw',
+    subtitle: '个人智能体与多渠道助手',
+    color: '#de6458',
+    configHint: '~/.openclaw/openclaw.json',
+    installCommand: 'npm install -g openclaw'
+  },
   claude: {
     id: 'claude',
     name: 'Claude Code',

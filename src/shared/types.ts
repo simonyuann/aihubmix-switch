@@ -1,4 +1,4 @@
-export type AgentId = 'claude' | 'codex' | 'pi' | 'opencode'
+export type AgentId = 'claude' | 'codex' | 'pi' | 'opencode' | 'grokbuild' | 'kimi' | 'openclaw'
 
 export interface AgentMeta {
   id: AgentId
@@ -120,7 +120,7 @@ export interface AppState {
   messages: MessageCapability
   relayError: string | null
   agents: AgentState[]
-  agentModels: Record<AgentId, string>
+  agentModels: Partial<Record<AgentId, string>>
   options: AgentOptions
 }
 
@@ -186,6 +186,10 @@ export interface ImportInput {
 }
 
 export interface RendererApi {
+  sessions: {
+    list(query?: string, agent?: string): Promise<SessionIndex>
+    read(id: string): Promise<SessionDetail>
+  }
   updates: UpdatesApi
   getState(): Promise<AppState>
   setCliPath(agent: AgentId, path: string): Promise<AppState>
@@ -212,6 +216,30 @@ export interface RendererApi {
     groups(): Promise<GroupInfo[]>
     createKey(input: CreateKeyInput): Promise<CreatedKey>
   }
+}
+
+export interface LocalSession {
+  id: string
+  agent: string
+  sessionId: string
+  title: string
+  project: string
+  modifiedAt: number
+  archived: boolean
+  preview: string
+}
+export interface SessionIndex {
+  sessions: LocalSession[]
+  sources: Array<{ agent: string; count: number; status: string; note: string }>
+  truncated: boolean
+}
+export interface SessionDetail {
+  session: LocalSession
+  messages: Array<{ role: string; text: string }>
+  resumeCommand: string | null
+  shell: string
+  truncated: boolean
+  note: string
 }
 
 export type UpdatePhase =

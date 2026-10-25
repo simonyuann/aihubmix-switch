@@ -1,6 +1,6 @@
 [package]
 name = "aihubmix-switch"
-version = "0.2.2"
+version = "0.3.0"
 description = "AIHubMix lightweight API and agent manager"
 authors = ["AIHubMix"]
 edition = "2021"
