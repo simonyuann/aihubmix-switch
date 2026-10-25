@@ -2,7 +2,7 @@
 import type { ApiKeyInfo, AppState, RendererApi, RelayProbe } from '../../shared/types'
 
 export const previewState: AppState = {
-  version: '0.2.0',
+  version: '0.2.1',
   secureStorage: true,
   site: {
     name: 'AIHubMix',
@@ -128,6 +128,14 @@ export function createPreviewApi(): RendererApi {
   })
   return {
     getState: current,
+    setCliPath: async (agent, path) => {
+      const value = state.agents.find((a) => a.id === agent)
+      if (value) {
+        value.cliPath = path
+        value.installed = !!path
+      }
+      return current()
+    },
     refresh: current,
     keys: async () => structuredClone(keys),
     getKey: async () => 'DEMO-KEY-NOT-A-REAL-CREDENTIAL',

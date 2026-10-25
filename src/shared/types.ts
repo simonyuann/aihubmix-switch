@@ -74,6 +74,8 @@ export interface ApiKeyInfo {
 
 export interface AgentState {
   id: AgentId
+  cliPath?: string | null
+  detectionNote?: string
   installed: boolean
   version: string | null
   configPath: string
@@ -82,6 +84,7 @@ export interface AgentState {
   appliedEffort?: string | null
   keyLabel?: string | null
   keyId?: number | null
+  verifiedAt?: number
   compatibility?: boolean
   keyDeleted?: boolean
   configChanged?: boolean
@@ -98,6 +101,7 @@ export interface AgentOptions {
 
 export interface AppState {
   version: string
+  platform?: string
   selectedKeyId?: number | null
   lastAgent?: string
   legacyData?: boolean
@@ -183,6 +187,7 @@ export interface ImportInput {
 
 export interface RendererApi {
   getState(): Promise<AppState>
+  setCliPath(agent: AgentId, path: string): Promise<AppState>
   refresh(): Promise<AppState>
   keys(): Promise<ApiKeyInfo[]>
   getKey(id: number): Promise<string>

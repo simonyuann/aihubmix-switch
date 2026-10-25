@@ -358,7 +358,15 @@ impl Backend {
                     settings.applied.get(*agent),
                     &settings.relay_base_url,
                 );
+                if let Some(path) = settings.cli_paths.get(*agent) {
+                    let detected = crate::detection::detect(&self.context.home, agent, Some(path));
+                    status
+                        .as_object_mut()
+                        .unwrap()
+                        .extend(detected.as_object().unwrap().clone());
+                }
                 if let Some(record) = settings.applied.get(*agent) {
+                    status["verifiedAt"] = json!(record.verified_at);
                     status["compatibility"] = json!(record.compatibility);
                     status["keyDeleted"] = json!(record.key_deleted);
                     if record.key_deleted {
@@ -384,7 +392,7 @@ impl Backend {
             })
             .unwrap_or_default();
         Ok(json!({
-            "version":env!("CARGO_PKG_VERSION"),"secureStorage":self.store.secure_error.is_none(),"storageError":self.store.secure_error,
+            "version":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"secureStorage":self.store.secure_error.is_none(),"storageError":self.store.secure_error,
             "site":{"name":"AIHubMix","subtitle":"让每一次连接，都更简单","apiBaseUrl":settings.relay_base_url,"docUrl":"https://docs.csmy.fun:23457","registerUrl":format!("{}/register",settings.relay_base_url),"loginUrl":format!("{}/login",settings.relay_base_url)},
             "relayBaseUrl":settings.relay_base_url,"hasApiKey":selected.is_some(),"keyPreview":preview,"selectedKeyId":selected,
             "account":settings.account,"agents":agents,"agentModels":settings.agent_models,"options":settings.options,"lastAgent":settings.last_agent,
@@ -695,6 +703,24 @@ impl Backend {
                 self.store.save()?;
                 self.state()
             }
+            "set-cli-path" => {
+                let agent = string(&input, "agent");
+                if !AGENTS.contains(&agent.as_str()) {
+                    return Err("请选择智能体".into());
+                }
+                let path = string(&input, "path").trim().to_string();
+                if path.is_empty() {
+                    self.store.settings.cli_paths.remove(&agent);
+                } else {
+                    let result = crate::detection::detect(&self.context.home, &agent, Some(&path));
+                    if result["installed"] != true {
+                        return Err("未找到可用 CLI 文件，请填写完整的可执行文件路径".into());
+                    }
+                    self.store.settings.cli_paths.insert(agent, path);
+                }
+                self.store.save()?;
+                self.state()
+            }
             "prepare-key" => {
                 let id = input["id"].as_i64().ok_or("请选择 Key")?;
                 let key = self.key(id).await?;
@@ -732,6 +758,40 @@ impl Backend {
                 let compatibility = agent == "claude"
                     && (probe.messages != "supported"
                         || !model.to_lowercase().starts_with("claude"));
+                let selected = probe
+                    .models
+                    .iter()
+                    .find(|m| m.id == model)
+                    .ok_or("所选模型不在当前 Key 的模型列表中")?;
+                if compatibility {
+                    if let Some(error) = &self.bridge_error {
+                        return Err(error.clone());
+                    }
+                    if self.store.settings.bridge_port == 0 {
+                        return Err("本地兼容服务尚未准备好，请重启应用".into());
+                    }
+                }
+                let route = ClaudeRoute {
+                    base_url: normalize(&self.store.settings.relay_base_url)?,
+                    model: model.clone(),
+                    reasoning: selected.reasoning == Some(true),
+                };
+                let effort = (agent == "codex"
+                    && options.codex_reasoning_effort != "auto"
+                    && selected.reasoning != Some(false)
+                    && (selected.reasoning_levels.is_empty()
+                        || selected
+                            .reasoning_levels
+                            .contains(&options.codex_reasoning_effort)))
+                .then_some(options.codex_reasoning_effort.as_str());
+                crate::verification::verify(
+                    &self.client,
+                    &key,
+                    &route,
+                    crate::verification::wire(&agent, &options, compatibility)?,
+                    effort,
+                )
+                .await?;
                 let original_upstream = self.store.secret("claude-bridge-upstream");
                 let original_token = self.store.secret("claude-bridge-token");
                 let (base, credential) = if compatibility {
@@ -792,6 +852,7 @@ impl Backend {
                         return Err(error);
                     }
                 };
+                applied.verified_at = now();
                 applied.compatibility = compatibility;
                 if agent == "claude" {
                     self.store.settings.claude_route = compatibility.then(|| ClaudeRoute {

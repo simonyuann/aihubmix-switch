@@ -25,6 +25,7 @@ async function request<T>(command: string, payload?: unknown): Promise<T> {
 
 export const api: RendererApi = {
   getState: () => request('state'),
+  setCliPath: (agent, path) => request('set-cli-path', { agent, path }),
   refresh: () => request('refresh'),
   keys: () => request('keys'),
   getKey: (id) => request('get-key', { id }),

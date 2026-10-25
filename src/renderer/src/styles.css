@@ -1623,3 +1623,18 @@ code,
     scroll-behavior: auto !important;
   }
 }
+
+.detection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.detection-row .fine-print {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.detection-row .link-btn {
+  flex-shrink: 0;
+}

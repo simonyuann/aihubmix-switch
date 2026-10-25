@@ -14,6 +14,7 @@ beforeEach(() => {
   state = structuredClone(previewState)
   api = {
     getState: vi.fn(async () => state),
+    setCliPath: vi.fn(async () => state),
     refresh: vi.fn(async () => state),
     keys: vi.fn(async () => structuredClone(demoKeys)),
     getKey: vi.fn(async () => 'test-key-not-a-real-secret'),
@@ -190,5 +191,40 @@ describe('API-first workspace', () => {
     await within(dialog).findByText('服务暂时不可用')
     expect(screen.getByRole('button', { name: '删除 日常编程' })).toBeTruthy()
     expect(api.deleteKey).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('installation and verification regressions', () => {
+  it('rescans on opening import and uses a manual CLI path', async () => {
+    state.agents.find((a) => a.id === 'codex')!.installed = false
+    await ready()
+    fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('选择智能体'), { target: { value: 'codex' } })
+    await within(dialog).findByText('尚未定位到 Codex CLI')
+    expect(api.getState).toHaveBeenCalledTimes(2)
+    fireEvent.click(within(dialog).getByText('高级设置'))
+    fireEvent.change(within(dialog).getByLabelText('CLI 文件路径（可选）'), {
+      target: { value: '/home/test/.opencode/bin/codex' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: '使用此路径' }))
+    await waitFor(() =>
+      expect(api.setCliPath).toHaveBeenCalledWith('codex', '/home/test/.opencode/bin/codex')
+    )
+  })
+  it('never claims successful import when model validation returns 503', async () => {
+    vi.mocked(api.importAgent).mockRejectedValue(
+      new Error('模型验证失败，原配置未修改。HTTP 503；请求 ID：test-503')
+    )
+    await ready()
+    fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    const submit = await within(dialog).findByRole('button', { name: '导入到 Codex CLI' })
+    await waitFor(() => expect((submit as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(submit)
+    await within(dialog).findByRole('alert')
+    expect(within(dialog).getByText(/请求 ID：test-503/)).toBeTruthy()
+    expect(within(dialog).queryByText('已成功导入')).toBeNull()
+    expect((submit as HTMLButtonElement).disabled).toBe(false)
   })
 })

@@ -418,7 +418,7 @@ export default function App() {
                           : agent.configChanged
                             ? '配置已变更'
                             : agent.connected
-                              ? '已接入'
+                              ? '已配置'
                               : '当前未启用'}
                       </span>
                     </div>

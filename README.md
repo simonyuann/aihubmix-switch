@@ -2,16 +2,16 @@
 
 白色、简洁的 API 与智能体接入助手。基于 **Tauri 2 + Rust + React**，支持 Windows、macOS 与 Linux，运行时使用系统 WebView，无需安装 Node.js。
 
-[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.2.0.md)
+[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.2.1.md)
 
 ## 使用
 
 1. 注册或登录 AIHubMix；已有 API Key 可直接添加，不必登录。
 2. 在「我的 API」创建、查看、复制或删除 Key。
-3. 点击某个 Key 的「导入」，选择智能体和模型，完成配置。
+3. 点击某个 Key 的「导入」，选择智能体和模型。通过真实流式与工具调用验证后，自动备份并写入配置。
 4. 「已接入」只显示配置过的工具，可更换配置、还原。
 
-支持 Codex、Claude Code、OpenCode、Pi。思考强度与配置路径放在导入面板的「高级设置」，接口兼容格式放在设置中。新建 Key 后可直接导入多个智能体，无需手动复制粘贴。
+支持 Codex、Claude Code、OpenCode、Pi。导入前会发送两次简短测试请求，可能产生少量模型费用；验证失败时保留原配置。未定位到 CLI 不等于未安装，可重新扫描或在高级设置填写完整 CLI 路径。Windows 原生和 WSL 的安装与配置相互独立。思考强度与配置路径放在导入面板的「高级设置」，接口兼容格式放在设置中。新建 Key 后可直接导入多个智能体，无需手动复制粘贴。
 
 充值入口已保留，当前为「即将开放」占位，不发起任何付款。Key 配额与账户钱包余额是不同概念，未获取到的数据不会显示为零。
 

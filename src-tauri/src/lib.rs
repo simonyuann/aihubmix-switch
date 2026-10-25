@@ -1,9 +1,11 @@
 mod agents;
 mod bridge;
+mod detection;
 mod protocol;
 mod service;
 mod store;
 mod types;
+mod verification;
 
 use serde_json::Value;
 use service::Backend;

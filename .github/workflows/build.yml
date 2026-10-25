@@ -2,7 +2,7 @@ name: Build and release
 
 on:
   push:
-    branches: [main, feat/tauri-light-client]
+    branches: [main, feat/tauri-light-client, 'fix/**']
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -86,9 +86,8 @@ jobs:
         env:
           CI: 'true'
           APPIMAGE_EXTRACT_AND_RUN: '1'
-      - name: Test Linux configuration and storage behavior
-        if: runner.os == 'Linux'
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
+      - name: Test native configuration, detection and model verification
+        run: cargo test --release --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
       - run: node scripts/collect-artifacts.mjs ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
@@ -117,7 +116,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: AIHubMix Switch ${{ github.ref_name }}
-          body_path: docs/releases/v0.2.0.md
+          body_path: docs/releases/${{ github.ref_name }}.md
           files: artifacts/*
           fail_on_unmatched_files: true
           generate_release_notes: false

@@ -36,6 +36,43 @@ export function ImportModal({
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [retry, setRetry] = useState(0)
+  const [detectedAgents, setDetectedAgents] = useState(state.agents)
+  const [scanning, setScanning] = useState(false)
+  const [cliPath, setCliPath] = useState('')
+  const [detectionError, setDetectionError] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    void window.api
+      .getState()
+      .then((next) => {
+        if (!cancelled) setDetectedAgents(next.agents)
+      })
+      .catch(() => {
+        if (!cancelled) setDetectionError('扫描失败，请重新扫描或手动填写路径')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  useEffect(() => {
+    setCliPath(detectedAgents.find((a) => a.id === agent)?.cliPath || '')
+    setDetectionError('')
+  }, [agent, detectedAgents])
+  async function scan(usePath = false) {
+    if (!agent) return
+    setScanning(true)
+    setDetectionError('')
+    try {
+      const next = usePath
+        ? await window.api.setCliPath(agent, cliPath.trim())
+        : await window.api.getState()
+      setDetectedAgents(next.agents)
+    } catch (err) {
+      setDetectionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setScanning(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -74,7 +111,7 @@ export function ImportModal({
     )
   }, [agent, probe, state.agentModels])
   const meta = agent ? AGENTS[agent] : null
-  const agentState = state.agents.find((value) => value.id === agent)
+  const agentState = detectedAgents.find((value) => value.id === agent)
   const compatibility =
     agent === 'claude' &&
     (probe?.messages !== 'supported' || !model.toLowerCase().startsWith('claude'))
@@ -100,6 +137,7 @@ export function ImportModal({
         model,
         effort: agent === 'codex' ? actualEffort : undefined
       })
+      setDetectedAgents(next.agents)
       onImported(next)
       setSuccess(true)
     } catch (err) {
@@ -112,7 +150,7 @@ export function ImportModal({
     <Modal
       open
       title={success ? '已成功导入' : '导入到智能体'}
-      subtitle={success ? '连接已准备好，可以开始编程了。' : '选择一个工具，我们帮你完成配置。'}
+      subtitle={success ? '模型调用验证通过，配置已写入。' : '选择一个工具，我们帮你完成配置。'}
       onClose={onClose}
       width={500}
       busy={busy}
@@ -138,7 +176,7 @@ export function ImportModal({
           <p className="fine-print centered">
             {agentState?.installed
               ? `请重新打开 ${meta?.name}，让新配置生效。`
-              : `配置已就绪，安装 ${meta?.name} 后即可使用。`}
+              : `配置已写入；请确认 ${meta?.name} 的实际运行环境及配置路径。`}
           </p>
           <button className="btn primary block" onClick={onClose}>
             完成
@@ -178,9 +216,9 @@ export function ImportModal({
                 {order.map((id) => (
                   <option key={id} value={id}>
                     {AGENTS[id].name}
-                    {state.agents.find((a) => a.id === id)?.installed
-                      ? ' · 已安装'
-                      : ' · 未检测到安装'}
+                    {detectedAgents.find((a) => a.id === id)?.installed
+                      ? ' · 已定位 CLI'
+                      : ' · 未定位 CLI'}
                   </option>
                 ))}
               </select>
@@ -232,8 +270,8 @@ export function ImportModal({
                   <div className="install-hint">
                     <TerminalIcon size={17} />
                     <div>
-                      <strong>未检测到 {meta?.name}</strong>
-                      <p>可以先导入配置，安装后直接使用。</p>
+                      <strong>尚未定位到 {meta?.name}</strong>
+                      <p>这不代表未安装。可重新扫描，或在高级设置中填写 CLI 路径。</p>
                     </div>
                     <button
                       className="icon-btn"
@@ -245,6 +283,26 @@ export function ImportModal({
                     >
                       <CopyIcon size={15} />
                     </button>
+                  </div>
+                )}
+                <div className="detection-row">
+                  <span className="fine-print">
+                    {agentState?.installed
+                      ? `已定位：${agentState.cliPath || meta?.name}`
+                      : '尚未定位到 CLI，可先验证并写入配置。'}
+                  </span>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    disabled={busy || scanning}
+                    onClick={() => void scan()}
+                  >
+                    {scanning ? '扫描中…' : '重新扫描'}
+                  </button>
+                </div>
+                {detectionError && (
+                  <div className="notice notice-error" role="alert">
+                    {detectionError}
                   </div>
                 )}
                 <details className="advanced">
@@ -266,6 +324,33 @@ export function ImportModal({
                         ))}
                       </select>
                     </label>
+                  )}
+                  <label className="field">
+                    <span>CLI 文件路径（可选）</span>
+                    <input
+                      value={cliPath}
+                      disabled={busy || scanning}
+                      onChange={(event) => setCliPath(event.target.value)}
+                      placeholder={
+                        state.platform === 'windows'
+                          ? '例如 C:\\Users\\你的用户名\\.local\\bin\\claude.exe'
+                          : '例如 /home/你的用户名/.opencode/bin/opencode'
+                      }
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn sm"
+                    disabled={busy || scanning}
+                    onClick={() => void scan(true)}
+                  >
+                    {cliPath.trim() ? '使用此路径' : '恢复自动检测'}
+                  </button>
+                  {state.platform === 'windows' && (
+                    <p className="fine-print">
+                      Windows 原生与 WSL 的安装和配置相互独立。WSL 中的智能体请使用 WSL
+                      内的接入方式。
+                    </p>
                   )}
                   <div className="advanced-path">
                     <span>配置位置</span>
@@ -297,9 +382,11 @@ export function ImportModal({
               disabled={busy || testing || !probe?.ok || !agent || !model || compatibilityBlocked}
             >
               {busy ? <LoaderIcon size={16} /> : <CheckIcon size={16} />}
-              {busy ? '正在备份并导入…' : meta ? `导入到 ${meta.name}` : '选择智能体后导入'}
+              {busy ? '正在验证模型与工具调用…' : meta ? `导入到 ${meta.name}` : '选择智能体后导入'}
             </button>
-            <p className="fine-print centered">仅修改所选智能体，其他工具的配置保持原样。</p>
+            <p className="fine-print centered">
+              导入前会发送两次简短模型请求，可能产生少量费用。验证通过后才备份并写入。
+            </p>
           </div>
         </>
       )}

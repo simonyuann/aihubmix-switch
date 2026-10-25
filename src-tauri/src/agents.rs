@@ -627,42 +627,17 @@ fn recursively_empty(v: &Value) -> bool {
         .is_some_and(|obj| obj.values().all(recursively_empty))
 }
 
-fn find_cli(home: &Path, agent: &str) -> bool {
-    let command = if agent == "claude" { "claude" } else { agent };
-    let mut dirs: Vec<PathBuf> =
-        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
-    dirs.extend([
-        home.join(".local/bin"),
-        home.join(".bun/bin"),
-        home.join(".volta/bin"),
-        home.join(".npm-global/bin"),
-        PathBuf::from("/opt/homebrew/bin"),
-        PathBuf::from("/usr/local/bin"),
-    ]);
-    if let Some(appdata) = std::env::var_os("APPDATA") {
-        dirs.push(PathBuf::from(appdata).join("npm"));
-    }
-    if let Ok(entries) = fs::read_dir(home.join(".nvm/versions/node")) {
-        dirs.extend(entries.flatten().map(|v| v.path().join("bin")));
-    }
-    let extensions = if cfg!(windows) {
-        vec![".cmd", ".exe", ".bat", ""]
-    } else {
-        vec![""]
-    };
-    dirs.iter().any(|dir| {
-        extensions
-            .iter()
-            .any(|ext| dir.join(format!("{command}{ext}")).is_file())
-    })
-}
-
 pub fn status(ctx: &Context, agent: &str, applied: Option<&Applied>, base: &str) -> Value {
     let paths = match ctx.paths(agent) {
         Ok(v) => v,
         Err(e) => return json!({"id":agent,"error":e}),
     };
-    let mut output = json!({"id":agent,"installed":find_cli(&ctx.home, agent),"version":null,"configPath":paths[0],"connected":false,"appliedModel":null,"appliedEffort":null,"backupAvailable":applied.is_some_and(|a| ctx.backup_file(agent,&a.backup_id).exists()),"keyLabel":applied.map(|a| &a.key_label),"keyId":applied.map(|a| a.key_id)});
+    let mut output = json!({"id":agent,"version":null,"configPath":paths[0],"connected":false,"appliedModel":null,"appliedEffort":null,"backupAvailable":applied.is_some_and(|a| ctx.backup_file(agent,&a.backup_id).exists()),"keyLabel":applied.map(|a| &a.key_label),"keyId":applied.map(|a| a.key_id)});
+    let detection = crate::detection::detect(&ctx.home, agent, None);
+    output
+        .as_object_mut()
+        .unwrap()
+        .extend(detection.as_object().unwrap().clone());
     let read = || -> Result<(String, String, String, String, bool)> {
         let one = parse(&paths[0], text(&paths[0])?.as_deref().unwrap_or_default())?;
         let two = if paths.len() > 1 {

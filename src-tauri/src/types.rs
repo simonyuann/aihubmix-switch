@@ -81,6 +81,7 @@ pub struct Applied {
     pub base_url: String,
     pub compatibility: bool,
     pub key_deleted: bool,
+    pub verified_at: u64,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -111,6 +112,7 @@ pub struct Settings {
     pub agent_models: BTreeMap<String, String>,
     pub applied: BTreeMap<String, Applied>,
     pub last_agent: String,
+    pub cli_paths: BTreeMap<String, String>,
     pub bridge_port: u16,
     pub claude_route: Option<ClaudeRoute>,
 }
@@ -125,6 +127,7 @@ impl Default for Settings {
             agent_models: BTreeMap::new(),
             applied: BTreeMap::new(),
             last_agent: String::new(),
+            cli_paths: BTreeMap::new(),
             bridge_port: 0,
             claude_route: None,
         }
