@@ -18,6 +18,7 @@ pub struct Status {
     pub current_version: String,
     pub version: Option<String>,
     pub notes: Option<String>,
+    pub download_url: Option<String>,
     pub downloaded: u64,
     pub total: Option<u64>,
     pub can_install: bool,
@@ -54,6 +55,7 @@ impl Default for Updates {
                 current_version: env!("CARGO_PKG_VERSION").into(),
                 version: None,
                 notes: None,
+                download_url: None,
                 downloaded: 0,
                 total: None,
                 can_install: supported && !cfg!(debug_assertions),
@@ -201,6 +203,7 @@ pub async fn check_update(
                 "current"
             }
             .into();
+            s.status.download_url = candidate.as_ref().map(|u| u.download_url.to_string());
             s.status.version = candidate.as_ref().map(|u| u.version.clone());
             s.status.notes = candidate.as_ref().and_then(|u| u.body.clone());
             s.status.downloaded = 0;

@@ -219,6 +219,7 @@ export type UpdatePhase =
 export interface UpdateStatus {
   phase: UpdatePhase
   currentVersion: string
+  downloadUrl?: string | null
   version: string | null
   notes: string | null
   downloaded: number

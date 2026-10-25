@@ -11,9 +11,11 @@ export function UpdatePanel({ update, version }: { update: UpdateController; ver
   const percent = status.total
     ? Math.min(100, Math.floor((status.downloaded / status.total) * 100))
     : null
-  async function openDownload() {
+  async function openDownload(
+    url = 'https://github.com/simonyuann/aihubmix-switch/releases/latest'
+  ) {
     try {
-      await window.api.openExternal('https://github.com/simonyuann/aihubmix-switch/releases/latest')
+      await window.api.openExternal(url)
     } catch {
       setLinkError(
         '无法打开浏览器，请访问 github.com/simonyuann/aihubmix-switch/releases/latest 下载。'
@@ -74,10 +76,13 @@ export function UpdatePanel({ update, version }: { update: UpdateController; ver
             ) : (
               <>
                 <p className="fine-print">
-                  此运行方式采用下载覆盖升级，无需卸载。Windows 免安装版请下载新的免安装文件。
+                  此运行方式采用下载覆盖升级，无需卸载。下载完成后退出旧程序，用新文件替换。
                 </p>
-                <button className="btn primary sm" onClick={() => void openDownload()}>
-                  打开下载页
+                <button
+                  className="btn primary sm"
+                  onClick={() => void openDownload(status.downloadUrl || undefined)}
+                >
+                  下载覆盖版本
                 </button>
               </>
             ))}

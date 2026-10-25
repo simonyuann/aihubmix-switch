@@ -33,7 +33,7 @@ Linux 安装：Debian / Ubuntu 优先使用 `sudo apt install ./AIHubMix-Switch_
 
 v0.2.2 起启动时后台检查新版本，也可在「设置 → 软件更新」手动检查。下载并通过签名校验后，确认「安装并重启」即可覆盖升级，API Key、登录信息和备份保留。重启会短暂中断本地 Claude 兼容服务。v0.2.1 及更早版本需先手动覆盖安装一次 v0.2.2。
 
-Windows 安装版、macOS App、Linux AppImage / deb 支持对应格式的原生更新；deb 可能需要系统授权。Windows 免安装版检测到更新后提供下载覆盖入口，不会自动安装安装版。更新包的独立签名与版本绑定均由官方 Tauri Updater 验证，禁止降级。
+Windows 安装版、macOS App、Linux AppImage / deb 支持对应格式的原生更新；deb 可能需要系统授权。Windows 免安装版检测到更新后直接下载对应免安装文件，不会自动安装安装版。更新包的独立签名与版本绑定均由官方 Tauri Updater 验证，禁止降级。
 
 发布新版本：同步 package.json、Cargo.toml、Cargo.lock、tauri.conf.json 版本，添加 docs/releases/v<版本>.md 并推送 v<版本> tag。CI 在四平台测试和打包后，对六种格式签名、校验并生成 latest.json，先上传草稿，核对全部 16 个文件的摘要后才公开发布。普通源码 push 只运行检查，不向用户推送未发布变更。
 

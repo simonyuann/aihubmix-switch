@@ -324,15 +324,20 @@ describe('signed application updates', () => {
   })
   it('portable builds offer the download page and never run an installer', async () => {
     vi.mocked(api.updates.status).mockResolvedValue(
-      updateFixture({ canInstall: false, format: 'portable' })
+      updateFixture({
+        canInstall: false,
+        format: 'portable',
+        downloadUrl:
+          'https://github.com/simonyuann/aihubmix-switch/releases/download/v0.2.3/AIHubMix-Switch_0.2.3_windows-x64-portable.exe'
+      })
     )
     await ready()
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
     const dialog = await screen.findByRole('dialog')
-    fireEvent.click(await within(dialog).findByRole('button', { name: '打开下载页' }))
+    fireEvent.click(await within(dialog).findByRole('button', { name: '下载覆盖版本' }))
     await waitFor(() =>
       expect(api.openExternal).toHaveBeenCalledWith(
-        'https://github.com/simonyuann/aihubmix-switch/releases/latest'
+        'https://github.com/simonyuann/aihubmix-switch/releases/download/v0.2.3/AIHubMix-Switch_0.2.3_windows-x64-portable.exe'
       )
     )
     expect(api.updates.download).not.toHaveBeenCalled()
