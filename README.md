@@ -27,6 +27,8 @@
 
 macOS：将应用拖入 Applications。当前使用 ad-hoc 签名，未通过 Apple Developer ID 公证，首次运行可能需要在「系统设置 → 隐私与安全性」允许打开。Windows 安装包暂未签名；免安装版需要系统已有 Edge WebView2 Runtime。Release 附 SHA256 校验文件。
 
+Linux 安装：Debian / Ubuntu 优先使用 `sudo apt install ./AIHubMix-Switch_<版本>_linux-x64.deb` 自动安装系统依赖；AppImage 需 `chmod +x` 后运行，部分发行版需安装 FUSE。运行环境需提供 WebKitGTK 4.1、GTK 3 与 Secret Service。Linux 构建及配置测试由 Ubuntu 22.04 runner 验证。
+
 ## 配置与安全
 
 - 每个智能体独立记录所用 Key 指纹，不把「当前选择的 Key」当作所有智能体的配置。
@@ -77,12 +79,12 @@ GitHub Actions 运行类型检查、前端交互测试、Rust 格式/Clippy/配�
 npm run tauri -- build --target aarch64-apple-darwin --bundles app,dmg -- --locked
 npm run tauri -- build --target x86_64-apple-darwin --bundles app,dmg -- --locked
 npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+npm run tauri -- build --target x86_64-unknown-linux-gnu --bundles deb,appimage -- --locked
 ```
 
 跨架构 macOS 编译需先 `rustup target add x86_64-apple-darwin`。Windows 安装包在 Windows runner 构建。
 
 MIT License。
 
-Linux 安装：Debian / Ubuntu 优先使用 `sudo apt install ./AIHubMix-Switch_<版本>_linux-x64.deb` 自动安装系统依赖；AppImage 需 `chmod +x` 后运行，部分发行版需安装 FUSE。运行环境需提供 WebKitGTK 4.1、GTK 3 与 Secret Service。Linux 构建及配置测试由 Ubuntu 22.04 runner 验证。
 
 Claude Code 兼容层已使用真实 CLI 完成烟雾验证，并使用现有 AIHubMix 服务完成流式的两轮工具调用。可选开发验证为 `AIHUBMIX_TEST_CLAUDE_CLI=1 cargo test --manifest-path src-tauri/Cargo.toml live_claude_tool_round_trip -- --ignored --nocapture`；该命令使用已指向同一服务的本机智能体配置，产生少量真实 API 请求，不修改原配置或会话记录。普通测试与 CI 使用模拟服务，不接触真实凭据。
