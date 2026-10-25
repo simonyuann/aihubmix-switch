@@ -1,10 +1,13 @@
 import { useState } from 'react'
+import { UpdatePanel } from './UpdatePanel'
+import type { UpdateController } from '../updates'
 import type { AppState } from '../../../shared/types'
 import { Modal, LinkButton } from './Modal'
 import type { ToastKind } from './Toast'
 import { FolderIcon, LoaderIcon, SettingsIcon, ShieldIcon } from './Icons'
 
 interface Props {
+  update: UpdateController
   open: boolean
   onClose: () => void
   state: AppState
@@ -12,7 +15,7 @@ interface Props {
   notify: (message: string, kind?: ToastKind) => void
 }
 
-export function SettingsModal({ open, onClose, state, onStateChange, notify }: Props) {
+export function SettingsModal({ open, onClose, state, onStateChange, notify, update }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
 
   async function updateOptions(patch: Parameters<typeof window.api.updateOptions>[0]) {
@@ -40,11 +43,13 @@ export function SettingsModal({ open, onClose, state, onStateChange, notify }: P
     <Modal
       open={open}
       onClose={onClose}
+      busy={update.status.phase === 'installing'}
       width={620}
       title="设置"
       subtitle="高级选项改变后，需要重新点击对应 Agent 的「接入」才会写入"
     >
       <div className="settings-box">
+        <UpdatePanel update={update} version={state.version} />
         <section className="settings-section">
           <h3>
             <SettingsIcon size={15} />

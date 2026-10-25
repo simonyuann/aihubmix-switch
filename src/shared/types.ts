@@ -186,6 +186,7 @@ export interface ImportInput {
 }
 
 export interface RendererApi {
+  updates: UpdatesApi
   getState(): Promise<AppState>
   setCliPath(agent: AgentId, path: string): Promise<AppState>
   refresh(): Promise<AppState>
@@ -211,4 +212,25 @@ export interface RendererApi {
     groups(): Promise<GroupInfo[]>
     createKey(input: CreateKeyInput): Promise<CreatedKey>
   }
+}
+
+export type UpdatePhase =
+  'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'ready' | 'installing' | 'error'
+export interface UpdateStatus {
+  phase: UpdatePhase
+  currentVersion: string
+  version: string | null
+  notes: string | null
+  downloaded: number
+  total: number | null
+  canInstall: boolean
+  format: string
+  error: string | null
+}
+export interface UpdatesApi {
+  status(): Promise<UpdateStatus>
+  check(): Promise<UpdateStatus>
+  download(): Promise<UpdateStatus>
+  install(confirmed: boolean): Promise<UpdateStatus>
+  onStatus(callback: (status: UpdateStatus) => void): Promise<() => void>
 }

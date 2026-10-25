@@ -1,3 +1,4 @@
+import { useAppUpdates } from './updates'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import type { AgentState, ApiKeyInfo, AppState, CreatedKey } from '../../shared/types'
@@ -46,6 +47,7 @@ type Panel =
   | null
 
 export default function App() {
+  const updates = useAppUpdates()
   const [state, setState] = useState<AppState | null>(null)
   const [keys, setKeys] = useState<ApiKeyInfo[]>([])
   const [page, setPage] = useState<'keys' | 'agents'>('keys')
@@ -267,6 +269,18 @@ export default function App() {
           </button>
         </div>
       </header>
+      {['available', 'ready'].includes(updates.status.phase) && (
+        <div className="update-banner" role="status">
+          <span>
+            {updates.status.phase === 'ready'
+              ? '更新已下载，准备好后可安装'
+              : `新版本 v${updates.status.version} 已发布`}
+          </span>
+          <button className="link-btn" onClick={() => setPanel('settings')}>
+            查看更新
+          </button>
+        </div>
+      )}
       <nav className="navigation" aria-label="主导航">
         <div className="page-tabs">
           <button
@@ -584,6 +598,7 @@ export default function App() {
         />
       )}
       <SettingsModal
+        update={updates}
         open={panel === 'settings'}
         state={state}
         onClose={close}

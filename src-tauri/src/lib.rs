@@ -5,6 +5,7 @@ mod protocol;
 mod service;
 mod store;
 mod types;
+mod updates;
 mod verification;
 
 use serde_json::Value;
@@ -46,6 +47,8 @@ pub fn run() {
             show_window(app)
         }))
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::Updates::default())
         .setup(|app| {
             let dir = dirs::data_dir()
                 .ok_or("无法定位应用数据目录")?
@@ -88,18 +91,33 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window
                     .app_handle()
-                    .state::<Background>()
-                    .0
-                    .load(Ordering::Relaxed)
+                    .state::<updates::Updates>()
+                    .keep_running()
+                    || window
+                        .app_handle()
+                        .state::<Background>()
+                        .0
+                        .load(Ordering::Relaxed)
                 {
                     api.prevent_close();
                     let _ = window.hide();
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![dispatch])
+        .invoke_handler(tauri::generate_handler![
+            dispatch,
+            updates::update_status,
+            updates::check_update,
+            updates::download_update,
+            updates::install_update
+        ])
         .run(tauri::generate_context!())
         .expect("无法启动 AIHubMix Switch");
 }
 #[cfg(test)]
 mod tests;
+
+/// Read-only diagnostic used by release verification; never opens the vault or UI.
+pub fn update_format() -> &'static str {
+    updates::current_format()
+}

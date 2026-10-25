@@ -2,7 +2,7 @@
 
 白色、简洁的 API 与智能体接入助手。基于 **Tauri 2 + Rust + React**，支持 Windows、macOS 与 Linux，运行时使用系统 WebView，无需安装 Node.js。
 
-[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.2.1.md)
+[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.2.2.md)
 
 ## 使用
 
@@ -28,6 +28,16 @@
 macOS：将应用拖入 Applications。当前使用 ad-hoc 签名，未通过 Apple Developer ID 公证，首次运行可能需要在「系统设置 → 隐私与安全性」允许打开。Windows 安装包暂未签名；免安装版需要系统已有 Edge WebView2 Runtime。Release 附 SHA256 校验文件。
 
 Linux 安装：Debian / Ubuntu 优先使用 `sudo apt install ./AIHubMix-Switch_<版本>_linux-x64.deb` 自动安装系统依赖；AppImage 需 `chmod +x` 后运行，部分发行版需安装 FUSE。运行环境需提供 WebKitGTK 4.1、GTK 3 与 Secret Service。Linux 构建及配置测试由 Ubuntu 22.04 runner 验证。
+
+## 在线更新
+
+v0.2.2 起启动时后台检查新版本，也可在「设置 → 软件更新」手动检查。下载并通过签名校验后，确认「安装并重启」即可覆盖升级，API Key、登录信息和备份保留。重启会短暂中断本地 Claude 兼容服务。v0.2.1 及更早版本需先手动覆盖安装一次 v0.2.2。
+
+Windows 安装版、macOS App、Linux AppImage / deb 支持对应格式的原生更新；deb 可能需要系统授权。Windows 免安装版检测到更新后提供下载覆盖入口，不会自动安装安装版。更新包的独立签名与版本绑定均由官方 Tauri Updater 验证，禁止降级。
+
+发布新版本：同步 package.json、Cargo.toml、Cargo.lock、tauri.conf.json 版本，添加 docs/releases/v<版本>.md 并推送 v<版本> tag。CI 在四平台测试和打包后，对六种格式签名、校验并生成 latest.json，先上传草稿，核对全部 16 个文件的摘要后才公开发布。普通源码 push 只运行检查，不向用户推送未发布变更。
+
+更新签名使用仓库 Secrets `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，客户端公钥固定在 tauri.conf.json。首次配置后需长期保存私钥备份；不应为每个版本重新生成密钥。开发构建默认不允许应用内安装更新。
 
 ## 配置与安全
 

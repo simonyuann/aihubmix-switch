@@ -2,7 +2,7 @@
 import type { ApiKeyInfo, AppState, RendererApi, RelayProbe } from '../../shared/types'
 
 export const previewState: AppState = {
-  version: '0.2.1',
+  version: '0.2.2',
   secureStorage: true,
   site: {
     name: 'AIHubMix',
@@ -126,7 +126,38 @@ export function createPreviewApi(): RendererApi {
     messages: state.messages,
     latencyMs: 126
   })
+  let update = {
+    phase: 'idle',
+    currentVersion: '0.2.2',
+    version: null,
+    notes: null,
+    downloaded: 0,
+    total: null,
+    canInstall: true,
+    format: 'app',
+    error: null
+  } as import('../../shared/types').UpdateStatus
   return {
+    updates: {
+      status: async () => ({ ...update }),
+      check: async () => {
+        update = {
+          ...update,
+          phase: 'available',
+          version: '0.2.3',
+          notes: '演示更新说明：界面预览不会检查网络或安装程序。'
+        }
+        return { ...update }
+      },
+      download: async () => {
+        update = { ...update, phase: 'ready', downloaded: 1024, total: 1024 }
+        return { ...update }
+      },
+      install: async () => {
+        throw new Error('这是界面预览，不会安装更新')
+      },
+      onStatus: async () => () => {}
+    },
     getState: current,
     setCliPath: async (agent, path) => {
       const value = state.agents.find((a) => a.id === agent)

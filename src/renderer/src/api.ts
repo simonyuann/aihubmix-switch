@@ -1,6 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
-import type { RendererApi } from '../../shared/types'
+import type { RendererApi, UpdateStatus } from '../../shared/types'
 
 declare global {
   interface Window {
@@ -23,7 +24,33 @@ async function request<T>(command: string, payload?: unknown): Promise<T> {
   }
 }
 
+async function updateRequest(
+  command: string,
+  args?: Record<string, unknown>
+): Promise<UpdateStatus> {
+  if (!isTauri()) throw new Error('请使用桌面客户端检查更新')
+  try {
+    return await invoke<UpdateStatus>(command, args)
+  } catch (error) {
+    throw new Error(
+      typeof error === 'string'
+        ? error
+        : error instanceof Error
+          ? error.message
+          : '更新未完成，请重试'
+    )
+  }
+}
+
 export const api: RendererApi = {
+  updates: {
+    status: () => updateRequest('update_status'),
+    check: () => updateRequest('check_update'),
+    download: () => updateRequest('download_update'),
+    install: (confirmed) => updateRequest('install_update', { confirmed }),
+    onStatus: (callback) =>
+      listen<UpdateStatus>('app-update-status', (event) => callback(event.payload))
+  },
   getState: () => request('state'),
   setCliPath: (agent, path) => request('set-cli-path', { agent, path }),
   refresh: () => request('refresh'),

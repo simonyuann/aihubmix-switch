@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import App from '../src/renderer/src/App'
 import { previewState, demoKeys } from '../src/renderer/src/preview'
-import type { AppState, RendererApi } from '../src/shared/types'
+import type { AppState, RendererApi, UpdateStatus } from '../src/shared/types'
 
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
   writeText: vi.fn().mockResolvedValue(undefined)
@@ -13,6 +13,33 @@ let api: RendererApi
 beforeEach(() => {
   state = structuredClone(previewState)
   api = {
+    updates: {
+      status: vi.fn(async () => ({
+        phase: 'idle' as const,
+        currentVersion: '0.2.2',
+        version: null,
+        notes: null,
+        downloaded: 0,
+        total: null,
+        canInstall: true,
+        format: 'app',
+        error: null
+      })),
+      check: vi.fn(async () => ({
+        phase: 'current' as const,
+        currentVersion: '0.2.2',
+        version: null,
+        notes: null,
+        downloaded: 0,
+        total: null,
+        canInstall: true,
+        format: 'app',
+        error: null
+      })),
+      download: vi.fn(),
+      install: vi.fn(),
+      onStatus: vi.fn(async () => () => {})
+    },
     getState: vi.fn(async () => state),
     setCliPath: vi.fn(async () => state),
     refresh: vi.fn(async () => state),
@@ -226,5 +253,89 @@ describe('installation and verification regressions', () => {
     expect(within(dialog).getByText(/请求 ID：test-503/)).toBeTruthy()
     expect(within(dialog).queryByText('已成功导入')).toBeNull()
     expect((submit as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+const updateFixture = (changes: Partial<UpdateStatus> = {}): UpdateStatus => ({
+  phase: 'available',
+  currentVersion: '0.2.2',
+  version: '0.2.3',
+  notes: '修复与改进',
+  downloaded: 0,
+  total: null,
+  canInstall: true,
+  format: 'app',
+  error: null,
+  ...changes
+})
+describe('signed application updates', () => {
+  it('notifies without downloading or interrupting the API workspace', async () => {
+    vi.mocked(api.updates.status).mockResolvedValue(updateFixture())
+    await ready()
+    await screen.findByText('新版本 v0.2.3 已发布')
+    expect(api.updates.download).not.toHaveBeenCalled()
+    expect(api.updates.install).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '查看更新' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('region', { name: '软件更新' })).toBeTruthy()
+  })
+  it('shows progress and requires confirmation before installing a verified update', async () => {
+    let callback: ((status: UpdateStatus) => void) | undefined
+    let finish: ((status: UpdateStatus) => void) | undefined
+    vi.mocked(api.updates.status).mockResolvedValue(updateFixture())
+    vi.mocked(api.updates.onStatus).mockImplementation(async (listener) => {
+      callback = listener
+      return () => {}
+    })
+    vi.mocked(api.updates.download).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        })
+    )
+    vi.mocked(api.updates.install).mockResolvedValue(updateFixture({ phase: 'installing' }))
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(await within(dialog).findByRole('button', { name: '下载更新' }))
+    act(() => callback?.(updateFixture({ phase: 'downloading', downloaded: 50, total: 100 })))
+    expect((within(dialog).getByRole('progressbar') as HTMLProgressElement).value).toBe(50)
+    expect(api.updates.install).not.toHaveBeenCalled()
+    await act(async () => finish?.(updateFixture({ phase: 'ready', downloaded: 100, total: 100 })))
+    const install = within(dialog).getByRole('button', {
+      name: '安装并重启'
+    }) as HTMLButtonElement
+    expect(install.disabled).toBe(true)
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /我已准备好重启应用/ }))
+    fireEvent.click(install)
+    fireEvent.click(install)
+    await waitFor(() => expect(api.updates.install).toHaveBeenCalledExactlyOnceWith(true))
+    expect(api.importAgent).not.toHaveBeenCalled()
+  })
+  it('reports a failed check and keeps existing keys available', async () => {
+    vi.mocked(api.updates.check).mockRejectedValue(new Error('更新网络连接失败'))
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '检查更新' }))
+    await within(dialog).findByText('更新网络连接失败')
+    expect(screen.getByText('日常编程')).toBeTruthy()
+    expect(api.updates.install).not.toHaveBeenCalled()
+  })
+  it('portable builds offer the download page and never run an installer', async () => {
+    vi.mocked(api.updates.status).mockResolvedValue(
+      updateFixture({ canInstall: false, format: 'portable' })
+    )
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(await within(dialog).findByRole('button', { name: '打开下载页' }))
+    await waitFor(() =>
+      expect(api.openExternal).toHaveBeenCalledWith(
+        'https://github.com/simonyuann/aihubmix-switch/releases/latest'
+      )
+    )
+    expect(api.updates.download).not.toHaveBeenCalled()
+    expect(api.updates.install).not.toHaveBeenCalled()
   })
 })

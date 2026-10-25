@@ -30,15 +30,10 @@ if (platform.startsWith('macos')) {
   const file = (await readdir(folder)).find((f) => f.endsWith('.dmg'))
   if (!file) throw new Error('DMG was not generated')
   await copyFile(join(folder, file), join('artifacts', `${prefix}.dmg`))
-  const app = join(release, 'bundle', 'macos', 'AIHubMix Switch.app')
-  await access(app)
-  execFileSync('tar', [
-    '-czf',
-    join('artifacts', `${prefix}.app.tar.gz`),
-    '-C',
-    join(release, 'bundle', 'macos'),
-    'AIHubMix Switch.app'
-  ])
+  const folderMac = join(release, 'bundle', 'macos')
+  const archive = (await readdir(folderMac)).find((file) => file.endsWith('.app.tar.gz'))
+  if (!archive) throw new Error('Official macOS updater archive was not generated')
+  await copyFile(join(folderMac, archive), join('artifacts', `${prefix}.app.tar.gz`))
 } else if (platform === 'linux-x64') {
   for (const [format, extension] of [
     ['deb', '.deb'],
@@ -54,6 +49,35 @@ if (platform.startsWith('macos')) {
   const file = (await readdir(folder)).find((f) => f.endsWith('.exe'))
   if (!file) throw new Error('Windows installer was not generated')
   await copyFile(join(folder, file), join('artifacts', `${prefix}-setup.exe`))
-  await copyFile(join(release, 'aihubmix-switch.exe'), join('artifacts', `${prefix}-portable.exe`))
+  await access(join('artifacts', `${prefix}-portable.exe`))
 }
-console.log(`Collected ${platform} release artifacts`)
+const updaterSuffixes = platform.startsWith('macos')
+  ? ['.app.tar.gz']
+  : platform === 'linux-x64'
+    ? ['.AppImage', '.deb']
+    : ['-setup.exe', '-portable.exe']
+if (!process.env.TAURI_SIGNING_PRIVATE_KEY || !process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD)
+  throw new Error('Updater signing credentials are not configured')
+for (const suffix of updaterSuffixes) {
+  const file = join('artifacts', `${prefix}${suffix}`)
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        join('node_modules', '@tauri-apps', 'cli', 'tauri.js'),
+        'signer',
+        'sign',
+        '--app-version',
+        version,
+        file
+      ],
+      { stdio: 'pipe' }
+    )
+  } catch {
+    throw new Error(
+      `Unable to sign updater package ${platform}${suffix}; private material withheld`
+    )
+  }
+  await access(`${file}.sig`)
+}
+console.log(`Collected and signed ${platform} release artifacts`)
