@@ -15,13 +15,15 @@ const time = (value: number) =>
   })
 
 export function SessionPage({
-  onNotify
+  onNotify,
+  initialSource = ''
 }: {
   onNotify: (message: string, kind?: 'success' | 'error') => void
+  initialSource?: string
 }) {
   const [index, setIndex] = useState<SessionIndex | null>(null)
   const [query, setQuery] = useState('')
-  const [source, setSource] = useState('')
+  const [source, setSource] = useState(initialSource)
   const [selected, setSelected] = useState('')
   const [detail, setDetail] = useState<SessionDetail | null>(null)
   const [loading, setLoading] = useState(true)

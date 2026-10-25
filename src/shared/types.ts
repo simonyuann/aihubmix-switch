@@ -205,8 +205,13 @@ export interface ImportInput {
 }
 
 export interface RendererApi {
+  diagnoseAgent(agent: AgentId): Promise<ConnectionReport>
   codexHistory: {
-    change(input: { enabled: boolean; migrate?: boolean; restore?: boolean }): Promise<{ files: number; rows: number; history: CodexHistoryStatus }>
+    change(input: {
+      enabled: boolean
+      migrate?: boolean
+      restore?: boolean
+    }): Promise<{ files: number; rows: number; history: CodexHistoryStatus }>
     recover(): Promise<CodexHistoryStatus>
   }
   sessions: {
@@ -239,6 +244,16 @@ export interface RendererApi {
     groups(): Promise<GroupInfo[]>
     createKey(input: CreateKeyInput): Promise<CreatedKey>
   }
+}
+
+export interface ConnectionReport {
+  agent: AgentId
+  ok: boolean
+  checkedAt: number
+  latencyMs: number
+  model: string
+  protocol: string
+  checks: Array<{ name: string; status: 'ok' | 'error' | 'info'; detail: string }>
 }
 
 export interface CodexHistoryStatus {

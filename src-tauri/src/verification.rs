@@ -833,4 +833,88 @@ mod tests {
             );
         }
     }
+    #[tokio::test]
+    async fn connection_diagnostic_is_read_only_uses_active_protocol_and_blocks_changed_configs() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let called = count.clone();
+        let failure = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let failed = failure.clone();
+        let (base,task)=mock(Router::new()
+            .route("/v1/models",get(||async{Json(json!({"data":[{"id":"model-a"}]}))}))
+            .route("/v1/responses",post(move||{let called=called.clone();let failed=failed.clone();async move{
+                let n=called.fetch_add(1,Ordering::SeqCst);
+                if failed.load(Ordering::SeqCst) { return (StatusCode::SERVICE_UNAVAILABLE,Json(json!({"error":{"message":"fixture-secret-key is unavailable"}}))).into_response(); }
+                events(complete(n.is_multiple_of(2))).into_response()
+            }}))).await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::for_test(dir.path().join("data"));
+        store.settings.relay_base_url = base;
+        store.memory_secret("local:-1", "fixture-secret-key");
+        let mut backend = Backend::new(store).unwrap();
+        backend.context = Context {
+            home: dir.path().join("home"),
+            data: dir.path().join("data"),
+            overrides: Default::default(),
+        };
+        backend
+            .dispatch(
+                "apply",
+                json!({"keyId":-1,"agent":"codex","model":"model-a"}),
+            )
+            .await
+            .unwrap();
+        let paths = backend.context.paths("codex").unwrap();
+        let config = std::fs::read(&paths[0]).unwrap();
+        let auth = std::fs::read(&paths[1]).unwrap();
+        let settings = std::fs::read(backend.store.dir.join("state-v2.json")).unwrap();
+        // Changing the UI default must not change the protocol of an existing connection.
+        backend.store.settings.options.codex_wire_api = "chat".into();
+        let report = backend
+            .dispatch("diagnose", json!({"agent":"codex"}))
+            .await
+            .unwrap();
+        assert_eq!(report["ok"], true);
+        assert_eq!(report["protocol"], "Responses");
+        assert_eq!(count.load(Ordering::SeqCst), 4);
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), config);
+        assert_eq!(std::fs::read(&paths[1]).unwrap(), auth);
+        assert_eq!(
+            std::fs::read(backend.store.dir.join("state-v2.json")).unwrap(),
+            settings
+        );
+        failure.store(true, Ordering::SeqCst);
+        let report = backend
+            .dispatch("diagnose", json!({"agent":"codex"}))
+            .await
+            .unwrap();
+        assert_eq!(report["ok"], false);
+        assert!(!report.to_string().contains("fixture-secret-key"));
+        assert!(report.to_string().contains("503"));
+        let before = count.load(Ordering::SeqCst);
+        let raw = String::from_utf8(config.clone())
+            .unwrap()
+            .replace("model-a", "manually-changed");
+        atomic_write(&paths[0], raw.as_bytes()).unwrap();
+        let report = backend
+            .dispatch("diagnose", json!({"agent":"codex"}))
+            .await
+            .unwrap();
+        assert_eq!(report["ok"], false);
+        assert_eq!(count.load(Ordering::SeqCst), before);
+        atomic_write(&paths[0], &config).unwrap();
+        backend
+            .store
+            .settings
+            .applied
+            .get_mut("codex")
+            .unwrap()
+            .key_deleted = true;
+        let report = backend
+            .dispatch("diagnose", json!({"agent":"codex"}))
+            .await
+            .unwrap();
+        assert_eq!(report["ok"], false);
+        assert_eq!(count.load(Ordering::SeqCst), before);
+        task.abort();
+    }
 }

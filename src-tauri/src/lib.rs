@@ -3,6 +3,7 @@ mod bridge;
 mod codex_history;
 mod config_formats;
 mod detection;
+mod diagnostics;
 mod protocol;
 mod service;
 mod sessions;
@@ -65,6 +66,16 @@ async fn dispatch(
     payload: Option<Value>,
     state: tauri::State<'_, Arc<Mutex<Backend>>>,
 ) -> Result<Value, String> {
+    if command == "diagnose" {
+        let input = payload.unwrap_or(Value::Null);
+        let task = state
+            .lock()
+            .await
+            .prepare_diagnostic(&types::string(&input, "agent"))
+            .await?;
+        // Model requests must not hold the store mutex or delay the Claude bridge.
+        return Ok(diagnostics::run(task).await);
+    }
     state
         .lock()
         .await

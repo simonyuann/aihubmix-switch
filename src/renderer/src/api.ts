@@ -43,6 +43,7 @@ async function updateRequest(
 }
 
 export const api: RendererApi = {
+  diagnoseAgent: (agent) => request('diagnose', { agent }),
   codexHistory: {
     change: (input) => request('codex-history', input),
     recover: () => request('codex-history-recover')

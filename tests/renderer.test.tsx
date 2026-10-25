@@ -13,9 +13,34 @@ let api: RendererApi
 beforeEach(() => {
   state = structuredClone(previewState)
   api = {
+    diagnoseAgent: vi.fn(async (agent) => ({
+      agent,
+      ok: true,
+      checkedAt: 1,
+      latencyMs: 60,
+      model: 'gpt-5.4',
+      protocol: 'Responses',
+      checks: [{ name: '模型与工具调用', status: 'ok' as const, detail: '模拟工具往返通过' }]
+    })),
     codexHistory: {
-      change: vi.fn(async () => ({ files: 1, rows: 1, history: { enabled: true, backupAvailable: true, recoveryRequired: false, directory: 'fixture', error: null } })),
-      recover: vi.fn(async () => ({ enabled: false, backupAvailable: false, recoveryRequired: false, directory: 'fixture', error: null }))
+      change: vi.fn(async () => ({
+        files: 1,
+        rows: 1,
+        history: {
+          enabled: true,
+          backupAvailable: true,
+          recoveryRequired: false,
+          directory: 'fixture',
+          error: null
+        }
+      })),
+      recover: vi.fn(async () => ({
+        enabled: false,
+        backupAvailable: false,
+        recoveryRequired: false,
+        directory: 'fixture',
+        error: null
+      }))
     },
     sessions: {
       list: vi.fn(async () => structuredClone(demoSessions)),
@@ -441,11 +466,23 @@ describe('Codex unified resume history', () => {
     expect(api.codexHistory.change).not.toHaveBeenCalled()
     fireEvent.click(checkbox)
     fireEvent.click(screen.getByRole('button', { name: '确认并应用' }))
-    await waitFor(() => expect(api.codexHistory.change).toHaveBeenCalledWith({ enabled: true, migrate: true, restore: false }))
+    await waitFor(() =>
+      expect(api.codexHistory.change).toHaveBeenCalledWith({
+        enabled: true,
+        migrate: true,
+        restore: false
+      })
+    )
     expect(await screen.findByRole('button', { name: '关闭统一历史' })).toBeTruthy()
   })
   it('offers exact-ledger restore only when a backup exists and displays failure', async () => {
-    state.codexHistory = { enabled: true, backupAvailable: true, recoveryRequired: false, directory: 'fixture', error: null }
+    state.codexHistory = {
+      enabled: true,
+      backupAvailable: true,
+      recoveryRequired: false,
+      directory: 'fixture',
+      error: null
+    }
     vi.mocked(api.codexHistory.change).mockRejectedValue(new Error('数据库被占用，请关闭 Codex'))
     await ready()
     fireEvent.click(screen.getByRole('button', { name: '设置' }))
@@ -455,6 +492,41 @@ describe('Codex unified resume history', () => {
     fireEvent.click(restore)
     fireEvent.click(screen.getByRole('button', { name: '确认并应用' }))
     expect((await screen.findByRole('alert')).textContent).toContain('数据库被占用')
-    expect(api.codexHistory.change).toHaveBeenCalledWith({ enabled: false, migrate: false, restore: true })
+    expect(api.codexHistory.change).toHaveBeenCalledWith({
+      enabled: false,
+      migrate: false,
+      restore: true
+    })
+  })
+})
+
+describe('connected-agent shortcuts and diagnostics', () => {
+  it('starts a paid model check only after explicit action and shows the report', async () => {
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: /已接入/ }))
+    fireEvent.click(screen.getByRole('button', { name: '连接诊断' }))
+    expect(api.diagnoseAgent).not.toHaveBeenCalled()
+    expect(screen.getByText(/诊断会发送两次简短模型请求/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '开始诊断' }))
+    expect(await screen.findByText('模拟工具往返通过')).toBeTruthy()
+    expect(api.diagnoseAgent).toHaveBeenCalledWith('codex')
+    expect(api.importAgent).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '复制报告' })).toBeTruthy()
+  })
+  it('preselects the chosen connected agent when changing its key or model', async () => {
+    state.lastAgent = 'pi'
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: /已接入/ }))
+    fireEvent.click(screen.getByRole('button', { name: '更换配置' }))
+    fireEvent.click(screen.getByRole('button', { name: /日常编程.*当前使用/ }))
+    await screen.findByText('导入到智能体')
+    expect((screen.getByLabelText('选择智能体') as HTMLSelectElement).value).toBe('codex')
+  })
+  it('opens sessions filtered to the connected agent', async () => {
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: /已接入/ }))
+    fireEvent.click(screen.getByRole('button', { name: '查看会话' }))
+    expect(await screen.findByRole('button', { name: /整理项目的 API 接入流程/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /检查模型调用与错误提示/ })).toBeNull()
   })
 })

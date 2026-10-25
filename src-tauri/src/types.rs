@@ -89,6 +89,7 @@ pub struct KeyInfo {
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Applied {
+    pub reasoning: bool,
     pub model: String,
     pub fingerprint: String,
     pub key_label: String,

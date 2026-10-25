@@ -162,6 +162,75 @@ impl Backend {
         })
     }
 
+    pub async fn prepare_diagnostic(&mut self, agent: &str) -> Result<crate::diagnostics::Task> {
+        if !AGENTS.contains(&agent) {
+            return Err("未知智能体".into());
+        }
+        let record = self
+            .store
+            .settings
+            .applied
+            .get(agent)
+            .ok_or("请先通过本工具导入，再运行模型诊断")?
+            .clone();
+        let (mut report, target) = crate::diagnostics::preflight(
+            &self.context,
+            agent,
+            &record,
+            &self.store.settings.options,
+            self.bridge_error.as_deref(),
+            self.store.settings.cli_paths.get(agent).map(String::as_str),
+        )?;
+        let Some((wire, effort)) = target else {
+            return Ok(crate::diagnostics::Task::report(report));
+        };
+        let key = match self.key(record.key_id).await {
+            Ok(key) => key,
+            Err(_) => {
+                report.add(
+                    "读取凭据",
+                    "error",
+                    "无法读取该连接的 Key，请解锁安全存储或重新登录、导入",
+                );
+                return Ok(crate::diagnostics::Task::report(report));
+            }
+        };
+        if !record.compatibility && fingerprint(&key) != record.fingerprint {
+            report.add(
+                "读取凭据",
+                "error",
+                "保存的 Key 与导入记录不同，请重新导入；未发送模型请求",
+            );
+            return Ok(crate::diagnostics::Task::report(report));
+        }
+        let route = if record.compatibility {
+            let Some(route) = self.store.settings.claude_route.clone() else {
+                report.add("本地兼容连接", "error", "兼容路由缺失，请重新导入");
+                return Ok(crate::diagnostics::Task::report(report));
+            };
+            if self.store.secret("claude-bridge-upstream") != key {
+                report.add("读取凭据", "error", "兼容凭据与当前 Key 不同，请重新导入");
+                return Ok(crate::diagnostics::Task::report(report));
+            }
+            route
+        } else {
+            ClaudeRoute {
+                base_url: record.base_url.clone(),
+                model: record.model.clone(),
+                reasoning: record.reasoning,
+            }
+        };
+        report.add("读取凭据", "ok", "已读取匹配的 Key；报告不包含密钥");
+        Ok(crate::diagnostics::Task::network(
+            report,
+            self.client.clone(),
+            key,
+            route,
+            wire,
+            effort,
+        ))
+    }
+
     pub fn bind_bridge(&mut self) -> Option<std::net::TcpListener> {
         if let Some(error) = &self.store.secure_error {
             self.bridge_error = Some(error.clone());
@@ -873,6 +942,7 @@ impl Backend {
                     }
                 };
                 applied.verified_at = now();
+                applied.reasoning = selected.reasoning == Some(true);
                 applied.compatibility = compatibility;
                 if agent == "claude" {
                     self.store.settings.claude_route = compatibility.then(|| ClaudeRoute {
@@ -933,6 +1003,10 @@ impl Backend {
                 input["restore"].as_bool().unwrap_or(false),
             ),
             "codex-history-recover" => crate::codex_history::recover(&self.context),
+            "diagnose" => {
+                let task = self.prepare_diagnostic(&string(&input, "agent")).await?;
+                Ok(crate::diagnostics::run(task).await)
+            }
             "options" => {
                 let mut options = self.store.settings.options.clone();
                 if let Some(v) = input["codexReasoningEffort"].as_str() {

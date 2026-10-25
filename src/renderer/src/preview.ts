@@ -41,7 +41,7 @@ export const demoSessions: SessionIndex = {
 }
 
 export const previewState: AppState = {
-  version: '0.3.1',
+  version: '0.3.2',
   secureStorage: true,
   site: {
     name: 'AIHubMix',
@@ -180,7 +180,7 @@ export function createPreviewApi(): RendererApi {
   })
   let update = {
     phase: 'idle',
-    currentVersion: '0.3.0',
+    currentVersion: state.version,
     version: null,
     notes: null,
     downloaded: 0,
@@ -190,13 +190,41 @@ export function createPreviewApi(): RendererApi {
     error: null
   } as import('../../shared/types').UpdateStatus
   return {
+    diagnoseAgent: async (agent) => ({
+      agent,
+      ok: true,
+      checkedAt: Date.now() / 1000,
+      latencyMs: 240,
+      model: 'gpt-5.4',
+      protocol: 'Responses',
+      checks: [
+        { name: '当前配置', status: 'ok', detail: '演示配置与导入记录一致' },
+        {
+          name: '模型与工具调用',
+          status: 'ok',
+          detail: '界面演示：未发送网络请求，也未修改本机配置'
+        }
+      ]
+    }),
     codexHistory: {
       change: async (input) => {
-        const history = { enabled: input.enabled, backupAvailable: !!input.migrate, recoveryRequired: false, directory: '~/.codex', error: null }
+        const history = {
+          enabled: input.enabled,
+          backupAvailable: !!input.migrate,
+          recoveryRequired: false,
+          directory: '~/.codex',
+          error: null
+        }
         state.codexHistory = history
         return { files: 0, rows: 0, history }
       },
-      recover: async () => ({ enabled: false, backupAvailable: false, recoveryRequired: false, directory: '~/.codex', error: null })
+      recover: async () => ({
+        enabled: false,
+        backupAvailable: false,
+        recoveryRequired: false,
+        directory: '~/.codex',
+        error: null
+      })
     },
     sessions: {
       list: async () => structuredClone(demoSessions),
@@ -222,7 +250,7 @@ export function createPreviewApi(): RendererApi {
         update = {
           ...update,
           phase: 'available',
-          version: '0.3.1',
+          version: '0.3.3',
           notes: '演示更新说明：界面预览不会检查网络或安装程序。'
         }
         return { ...update }

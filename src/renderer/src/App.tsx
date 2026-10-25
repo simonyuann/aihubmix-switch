@@ -13,6 +13,7 @@ import {
 } from './components/KeyModals'
 import { ImportModal } from './components/ImportModal'
 import { SessionPage } from './components/SessionPage'
+import { DiagnosticsModal } from './components/DiagnosticsModal'
 import { SettingsModal } from './components/SettingsModal'
 import { Modal } from './components/Modal'
 import { Toast, type ToastKind, type ToastState } from './components/Toast'
@@ -45,6 +46,8 @@ type Panel =
   | 'account'
   | 'restore'
   | 'delete'
+  | 'diagnostics'
+  | 'connection-key'
   | null
 
 export default function App() {
@@ -56,6 +59,8 @@ export default function App() {
   const [item, setItem] = useState<ApiKeyInfo | null>(null)
   const [created, setCreated] = useState<CreatedKey | null>(null)
   const [restoreTarget, setRestoreTarget] = useState<AgentState | null>(null)
+  const [connectionTarget, setConnectionTarget] = useState<AgentState | null>(null)
+  const [sessionSource, setSessionSource] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -121,6 +126,7 @@ export default function App() {
     }
   }
   const startImport = (key: ApiKeyInfo) => {
+    setConnectionTarget(null)
     setItem(key)
     setCreated(null)
     setPanel('import')
@@ -311,7 +317,10 @@ export default function App() {
           <button
             className={page === 'sessions' ? 'active' : ''}
             aria-current={page === 'sessions' ? 'page' : undefined}
-            onClick={() => setPage('sessions')}
+            onClick={() => {
+              setSessionSource('')
+              setPage('sessions')
+            }}
           >
             <FolderIcon size={16} />
             会话
@@ -418,7 +427,7 @@ export default function App() {
             </div>
           </>
         ) : page === 'sessions' ? (
-          <SessionPage onNotify={notify} />
+          <SessionPage key={sessionSource} initialSource={sessionSource} onNotify={notify} />
         ) : (
           <section className="api-panel connected-panel" aria-label="已接入的智能体">
             <div className="panel-toolbar">
@@ -476,6 +485,15 @@ export default function App() {
                     {agent.error && <p className="danger-text">{agent.error}</p>}
                   </div>
                   <div className="connection-actions">
+                    <button
+                      className="btn sm"
+                      onClick={() => {
+                        setConnectionTarget(agent)
+                        setPanel('diagnostics')
+                      }}
+                    >
+                      连接诊断
+                    </button>
                     {agent.launchCommand && !agent.keyDeleted && (
                       <button
                         className="btn sm"
@@ -487,12 +505,25 @@ export default function App() {
                     <button
                       className="btn sm"
                       onClick={() => {
-                        setPage('keys')
-                        notify('请选择 API Key，重新导入到该智能体', 'info')
+                        setConnectionTarget(agent)
+                        setPanel('connection-key')
                       }}
                     >
                       更换配置
                     </button>
+                    {['claude', 'codex', 'pi', 'grokbuild', 'gemini', 'openclaw'].includes(
+                      agent.id
+                    ) && (
+                      <button
+                        className="btn ghost sm"
+                        onClick={() => {
+                          setSessionSource(agent.id)
+                          setPage('sessions')
+                        }}
+                      >
+                        查看会话
+                      </button>
+                    )}
                     {agent.backupAvailable && (
                       <button
                         className="btn ghost sm"
@@ -571,6 +602,51 @@ export default function App() {
           }}
         />
       )}
+      {panel === 'diagnostics' && connectionTarget && (
+        <DiagnosticsModal agent={connectionTarget} onClose={close} notify={notify} />
+      )}
+      {panel === 'connection-key' && connectionTarget && (
+        <Modal
+          open
+          title={`更换 ${AGENTS[connectionTarget.id].name} 配置`}
+          subtitle="选择本次使用的 Key，下一步直接选择模型并验证。"
+          onClose={close}
+          width={460}
+        >
+          <div className="connection-key-list">
+            {keys.map((key) => (
+              <button
+                key={key.id}
+                className="connection-key-choice"
+                onClick={() => {
+                  setItem(key)
+                  setPanel('import')
+                }}
+              >
+                <div>
+                  <strong>{key.name}</strong>
+                  <code>{key.keyMasked}</code>
+                </div>
+                <span>
+                  {key.id === connectionTarget.keyId && !connectionTarget.keyDeleted
+                    ? '当前使用'
+                    : '选择 →'}
+                </span>
+              </button>
+            ))}
+          </div>
+          {!keys.length && <p className="fine-print">暂无可读取的 Key，请先登录或添加已有 Key。</p>}
+          <button
+            className="btn block"
+            onClick={() => {
+              setPage('keys')
+              setPanel(null)
+            }}
+          >
+            管理 API Key
+          </button>
+        </Modal>
+      )}
       {panel === 'create' && (
         <CreateKeyModal
           onClose={close}
@@ -620,6 +696,7 @@ export default function App() {
         <ImportModal
           key={item.id}
           item={item}
+          initialAgent={connectionTarget?.id}
           state={state}
           onClose={close}
           onImported={setState}

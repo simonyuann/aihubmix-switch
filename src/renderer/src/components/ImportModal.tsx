@@ -10,12 +10,14 @@ const order = AGENT_ORDER
 
 export function ImportModal({
   item,
+  initialAgent,
   state,
   onClose,
   onImported,
   onCopyCommand
 }: {
   item: ApiKeyInfo
+  initialAgent?: AgentId
   state: AppState
   onClose: () => void
   onImported: (state: AppState) => void
@@ -23,11 +25,12 @@ export function ImportModal({
 }) {
   const installed = state.agents.filter((agent) => agent.installed)
   const initial =
-    state.lastAgent && order.includes(state.lastAgent as AgentId)
+    initialAgent ||
+    (state.lastAgent && order.includes(state.lastAgent as AgentId)
       ? (state.lastAgent as AgentId)
       : installed.length === 1
         ? installed[0]?.id || ''
-        : ''
+        : '')
   const [agent, setAgent] = useState<AgentId | ''>(initial)
   const [search, setSearch] = useState('')
   const [manual, setManual] = useState(false)
