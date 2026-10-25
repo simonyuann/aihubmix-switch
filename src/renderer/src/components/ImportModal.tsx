@@ -192,7 +192,7 @@ export function ImportModal({
               onClick={() => void onCopyCommand(agentState.launchCommand!)}
             >
               <TerminalIcon size={15} />
-              复制专用启动命令
+              {state.platform === 'windows' ? '复制 PowerShell 启动命令' : '复制专用启动命令'}
             </button>
           )}
           <button className="btn primary block" onClick={onClose}>

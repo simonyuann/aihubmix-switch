@@ -642,3 +642,56 @@ fn agy_launcher_passes_quoted_env_and_unicode_paths_only_to_the_selected_cli() {
     );
     assert_eq!(read(&files[1])["model"], "Gemini 3.1 Pro (High)");
 }
+
+#[cfg(windows)]
+#[test]
+fn agy_powershell_launches_its_private_command_with_restricted_script_policy() {
+    let (_dir, mut ctx) = setup();
+    let cli = ctx.home.join("工具 ' space/agy.cmd");
+    atomic_write(
+        &cli,
+        b"@echo fixture-cli-started\r\n@echo %1\r\n@exit /b 0\r\n",
+    )
+    .unwrap();
+    ctx.overrides
+        .insert("AIHUBMIX_AGY_CLI".into(), cli.to_string_lossy().into());
+    let options = Options {
+        agy_model_name: "Gemini 3.1 Pro (High)".into(),
+        ..Options::default()
+    };
+    let record = agents::apply(
+        &ctx,
+        "agy",
+        agents::Connection {
+            base: DEFAULT_BASE,
+            key: "fixture-key-'$()",
+            model: "model-a",
+            models: &models(),
+            options: &options,
+        },
+        None,
+    )
+    .unwrap();
+    let status = agents::status(&ctx, "agy", Some(&record), DEFAULT_BASE);
+    let command = status["launchCommand"].as_str().unwrap();
+    assert!(!command.contains("fixture-key"));
+    assert!(!command.contains("Bypass"));
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Restricted",
+            "-Command",
+            command,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("fixture-cli-started"));
+    assert!(stdout.contains("--gemini_dir="));
+}

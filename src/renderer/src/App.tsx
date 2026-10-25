@@ -481,7 +481,7 @@ export default function App() {
                         className="btn sm"
                         onClick={() => void copyCommand(agent.launchCommand!)}
                       >
-                        复制启动命令
+                        {state.platform === 'windows' ? '复制 PowerShell 命令' : '复制启动命令'}
                       </button>
                     )}
                     <button

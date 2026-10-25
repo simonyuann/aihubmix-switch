@@ -216,7 +216,10 @@ pub(super) fn launch_command(ctx: &Context) -> Result<String> {
     let files = paths(ctx, "agy")?;
     let file = quote(&files[2].to_string_lossy());
     Ok(if cfg!(windows) {
-        format!("powershell -NoProfile -File {file}")
+        // Execute only our generated local command body. No execution-policy setting
+        // is changed, and credentials stay in the private file, outside argv.
+        let body = format!("& ([ScriptBlock]::Create([IO.File]::ReadAllText({file})))");
+        format!("powershell -NoProfile -Command {}", quote(&body))
     } else {
         format!("sh {file}")
     })
