@@ -536,12 +536,17 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8(output.stdout).unwrap();
+        let lines = stdout
+            .trim_start_matches('\u{feff}')
+            .lines()
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], source);
+        // PowerShell expands Windows 8.3 aliases such as RUNNER~1. Compare
+        // directory identity while still checking the argument byte for byte.
         assert_eq!(
-            stdout
-                .trim_start_matches('\u{feff}')
-                .lines()
-                .collect::<Vec<_>>(),
-            vec![source, cwd.to_str().unwrap()]
+            std::path::Path::new(lines[1]).canonicalize().unwrap(),
+            cwd.canonicalize().unwrap()
         );
     }
 

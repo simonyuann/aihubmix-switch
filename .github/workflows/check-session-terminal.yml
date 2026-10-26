@@ -1,0 +1,18 @@
+name: Check native session terminal regressions
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: tests/session-terminal-harness
+      - run: cargo test --manifest-path tests/session-terminal-harness/Cargo.toml --locked

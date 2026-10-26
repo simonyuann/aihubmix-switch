@@ -385,11 +385,16 @@ mod tests {
             Some("agy --conversation=abc-123")
         );
         let private = Path::new("/home/me/.aihubmix-switch/agy/relay");
+        let expected = if cfg!(windows) {
+            "agy '--gemini_dir=/home/me/.aihubmix-switch/agy/relay' --conversation=abc-123"
+        } else {
+            "agy --gemini_dir=/home/me/.aihubmix-switch/agy/relay --conversation=abc-123"
+        };
         assert_eq!(
             scan_root(dir.path(), Some(private))[0]
                 .resume_command
                 .as_deref(),
-            Some("agy --gemini_dir=/home/me/.aihubmix-switch/agy/relay --conversation=abc-123")
+            Some(expected)
         );
         let messages = load_messages(&file).unwrap();
         assert_eq!(messages.len(), 2);
