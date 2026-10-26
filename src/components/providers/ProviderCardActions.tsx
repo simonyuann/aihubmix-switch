@@ -66,6 +66,8 @@ const BUTTON_ICON: Record<string, LucideIcon> = {
 
 interface ProviderCardActionsProps {
   providerName: string;
+  fixedService?: boolean;
+  hideEdit?: boolean;
   presentation: CardPresentation;
   onEdit: () => void;
   onDelete: () => void;
@@ -86,6 +88,8 @@ interface ProviderCardActionsProps {
  */
 export function ProviderCardActions({
   providerName,
+  fixedService = false,
+  hideEdit = false,
   presentation,
   onEdit,
   onDelete,
@@ -174,72 +178,76 @@ export function ProviderCardActions({
         </HoverTip>
       )}
 
-      <IconAction
-        tip={t("common.edit")}
-        disabledReason={presentation.editDisabledReason}
-      >
-        <Button
-          variant="quiet"
-          size="icon-compact"
-          aria-label={t("providerCard.action.edit", { name: providerName })}
-          onClick={onEdit}
+      {!hideEdit && (
+        <IconAction
+          tip={t("common.edit")}
+          disabledReason={presentation.editDisabledReason}
         >
-          <Pencil className="h-4 w-4" strokeWidth={1.5} />
-        </Button>
-      </IconAction>
-
-      <DropdownMenu>
-        <HoverTip content={t("common.more")}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="quiet"
-              size="icon-compact"
-              aria-label={t("providerCard.action.more", {
-                name: providerName,
-              })}
-            >
-              <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} />
-            </Button>
-          </DropdownMenuTrigger>
-        </HoverTip>
-        <DropdownMenuContent align="end" className="min-w-[180px]">
-          {menuItems.map((item) => (
-            <ModeMenuItem key={item.key} item={item} />
-          ))}
-          {menuItems.length > 0 && <DropdownMenuSeparator />}
-          {onDuplicate && (
-            <DropdownMenuItem onSelect={onDuplicate}>
-              {t("provider.duplicate")}
-            </DropdownMenuItem>
-          )}
-          {onTest && (
-            <DropdownMenuItem disabled={isTesting} onSelect={onTest}>
-              {isTesting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {t("provider.connectivityCheck")}
-            </DropdownMenuItem>
-          )}
-          {onConfigureUsage && (
-            <DropdownMenuItem onSelect={onConfigureUsage}>
-              {t("provider.configureUsage")}
-            </DropdownMenuItem>
-          )}
-          {(onDuplicate || onTest || onConfigureUsage) && (
-            <DropdownMenuSeparator />
-          )}
-          <DropdownMenuItem
-            disabled={Boolean(presentation.deleteDisabledReason)}
-            onSelect={onDelete}
-            className="flex-col items-start gap-0.5 text-danger-text focus:text-danger-text"
+          <Button
+            variant="quiet"
+            size="icon-compact"
+            aria-label={t("providerCard.action.edit", { name: providerName })}
+            onClick={onEdit}
           >
-            {t("common.delete")}
-            {presentation.deleteDisabledReason && (
-              <span className="text-caption text-fg-3">
-                {presentation.deleteDisabledReason}
-              </span>
+            <Pencil className="h-4 w-4" strokeWidth={1.5} />
+          </Button>
+        </IconAction>
+      )}
+
+      {!fixedService && (
+        <DropdownMenu>
+          <HoverTip content={t("common.more")}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="quiet"
+                size="icon-compact"
+                aria-label={t("providerCard.action.more", {
+                  name: providerName,
+                })}
+              >
+                <MoreHorizontal className="h-4 w-4" strokeWidth={1.5} />
+              </Button>
+            </DropdownMenuTrigger>
+          </HoverTip>
+          <DropdownMenuContent align="end" className="min-w-[180px]">
+            {menuItems.map((item) => (
+              <ModeMenuItem key={item.key} item={item} />
+            ))}
+            {menuItems.length > 0 && <DropdownMenuSeparator />}
+            {onDuplicate && (
+              <DropdownMenuItem onSelect={onDuplicate}>
+                {t("provider.duplicate")}
+              </DropdownMenuItem>
             )}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            {onTest && (
+              <DropdownMenuItem disabled={isTesting} onSelect={onTest}>
+                {isTesting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {t("provider.connectivityCheck")}
+              </DropdownMenuItem>
+            )}
+            {onConfigureUsage && (
+              <DropdownMenuItem onSelect={onConfigureUsage}>
+                {t("provider.configureUsage")}
+              </DropdownMenuItem>
+            )}
+            {(onDuplicate || onTest || onConfigureUsage) && (
+              <DropdownMenuSeparator />
+            )}
+            <DropdownMenuItem
+              disabled={Boolean(presentation.deleteDisabledReason)}
+              onSelect={onDelete}
+              className="flex-col items-start gap-0.5 text-danger-text focus:text-danger-text"
+            >
+              {t("common.delete")}
+              {presentation.deleteDisabledReason && (
+                <span className="text-caption text-fg-3">
+                  {presentation.deleteDisabledReason}
+                </span>
+              )}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

@@ -1244,7 +1244,8 @@ fn collect_app_snapshot(
     let mut rows = app_state.db.get_all_providers(app.as_str())?;
     if crate::product_policy::active() {
         rows.retain(|_, p| {
-            crate::product_policy::authenticated() && crate::product_policy::own_provider(app, p)
+            crate::product_policy::authenticated()
+                && crate::product_policy::visible_provider(app, p)
         });
     }
     let providers: Vec<ProviderEntry> = sort_providers(&rows)

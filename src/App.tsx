@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
@@ -6,6 +8,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { AccountProvider, useAccount } from "@/contexts/AccountContext";
 import { LoginPage } from "@/components/aihubmix/LoginPage";
 import { AccountPage } from "@/components/aihubmix/AccountPage";
+import { PROMPT_APP_IDS } from "@/lib/query/prompts";
+import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
+import { hasUnsavedChanges, discardUnsavedChanges } from "@/lib/unsavedChanges";
+import { WalletActionsProvider } from "@/components/aihubmix/WalletPanel";
 import { ToolPage } from "@/components/aihubmix/ToolPage";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { WindowControlsContext } from "@/components/shell/AppPageHeader";
@@ -50,9 +56,18 @@ const SettingsPage = lazy(() =>
     default: m.SettingsPage,
   })),
 );
+const UnifiedMcpPanel = lazy(() => import("@/components/mcp/UnifiedMcpPanel"));
+const UnifiedSkillsPanel = lazy(
+  () => import("@/components/skills/UnifiedSkillsPanel"),
+);
+const PromptPanel = lazy(() => import("@/components/prompts/PromptPanel"));
 const PAGES = new Set<View>([
   "providers",
   "aihubmix",
+  "mcp",
+  "skills",
+  "skillsDiscovery",
+  "prompts",
   "sessions",
   "usage",
   "apps",
@@ -75,6 +90,20 @@ export function AccountBoundary({ children }: { children: React.ReactNode }) {
   return state?.account.loggedIn ? <>{children}</> : <LoginPage />;
 }
 function ClientShell() {
+  useUsageCacheBridge();
+  const { t } = useTranslation();
+  const [pendingLeave, setPendingLeave] = useState<(() => void) | null>(null);
+  function navigate(proceed: () => void) {
+    if (mcpBusy || skillsBusy || promptBusy) return;
+    if (hasUnsavedChanges()) setPendingLeave(() => proceed);
+    else proceed();
+  }
+  const [mcpBusy, setMcpBusy] = useState(false);
+  const [skillsBusy, setSkillsBusy] = useState(false);
+  const [promptBusy, setPromptBusy] = useState(false);
+  const [promptApp, setPromptApp] = useState<AppId>("claude");
+  const guardedNavigation = useRef(navigate);
+  guardedNavigation.current = navigate;
   const client = useQueryClient();
   useEffect(() => {
     void syncModelsDevPricingOnStartup()
@@ -108,14 +137,22 @@ function ClientShell() {
           "take_tray_navigation",
         );
         if (!active || !next) return;
-        if (next.app && APP_IDS.includes(next.app as AppId)) {
-          setApp(next.app as AppId);
-          localStorage.setItem(APP_STORAGE_KEY, next.app);
-          setView("providers");
-        } else if (next.section) {
-          setSection(next.section === "about" ? "about" : "general");
-          setView("settings");
-        }
+        guardedNavigation.current(() => {
+          if (next.app && APP_IDS.includes(next.app as AppId)) {
+            setApp(next.app as AppId);
+            localStorage.setItem(APP_STORAGE_KEY, next.app);
+            setView("providers");
+          } else if (next.section) {
+            setSection(
+              next.section === "appConfig"
+                ? "appConfig"
+                : next.section === "about"
+                  ? "about"
+                  : "general",
+            );
+            setView("settings");
+          }
+        });
       } catch {
         /* Native events are unavailable in renderer-only development. */
       }
@@ -158,12 +195,14 @@ function ClientShell() {
       .catch(() => {});
   }, [controls]);
   function selectApp(next: AppId) {
-    setApp(next);
-    setView("providers");
-    localStorage.setItem(APP_STORAGE_KEY, next);
+    navigate(() => {
+      setApp(next);
+      setView("providers");
+      localStorage.setItem(APP_STORAGE_KEY, next);
+    });
   }
-  function selectPage(next: GlobalPage | "settings") {
-    setView(PAGES.has(next) ? next : "providers");
+  function selectPage(next: GlobalPage | "settings" | "providers") {
+    navigate(() => setView(PAGES.has(next) ? next : "providers"));
   }
   const sharedApp = app === "claude-desktop" ? "claude" : app;
   return (
@@ -182,9 +221,17 @@ function ClientShell() {
           onSelectApp={selectApp}
           onSelectPage={selectPage}
           onSelectSettingsSection={(next) =>
-            setSection(next === "about" ? "about" : "general")
+            navigate(() =>
+              setSection(
+                next === "appConfig"
+                  ? "appConfig"
+                  : next === "about"
+                    ? "about"
+                    : "general",
+              ),
+            )
           }
-          onExitSettings={() => setView("providers")}
+          onExitSettings={() => selectPage("providers")}
         />
         <div
           id="content-area"
@@ -199,6 +246,29 @@ function ClientShell() {
           >
             {view === "providers" && <ToolPage key={app} app={app} />}
             {view === "aihubmix" && <AccountPage />}
+            {view === "mcp" && (
+              <UnifiedMcpPanel onInteractionBlockedChange={setMcpBusy} />
+            )}
+            {(view === "skills" || view === "skillsDiscovery") && (
+              <UnifiedSkillsPanel
+                initialView={
+                  view === "skillsDiscovery" ? "discover" : "installed"
+                }
+                onNavigationBlockedChange={setSkillsBusy}
+              />
+            )}
+            {view === "prompts" && (
+              <div id="main-content" className="flex min-h-0 flex-1 flex-col">
+                <PromptPanel
+                  appId={promptApp}
+                  apps={PROMPT_APP_IDS.filter(
+                    (app) => visible[app] || app === promptApp,
+                  )}
+                  onAppChange={setPromptApp}
+                  onNavigationBlockedChange={setPromptBusy}
+                />
+              </div>
+            )}
             {view === "usage" && <UsagePage />}
             {view === "sessions" && (
               <SessionManagerPage
@@ -222,6 +292,21 @@ function ClientShell() {
           </Suspense>
         </div>
       </div>
+      <ConfirmDialog
+        isOpen={!!pendingLeave}
+        title={t("common.unsavedLeaveTitle")}
+        message={t("common.unsavedLeaveMessage")}
+        confirmText={t("common.unsavedLeaveConfirm")}
+        cancelText={t("common.unsavedLeaveCancel")}
+        zIndex="top"
+        onConfirm={() => {
+          const proceed = pendingLeave;
+          setPendingLeave(null);
+          discardUnsavedChanges();
+          proceed?.();
+        }}
+        onCancel={() => setPendingLeave(null)}
+      />
     </WindowControlsContext.Provider>
   );
 }
@@ -229,7 +314,9 @@ export default function App() {
   return (
     <AccountProvider>
       <AccountBoundary>
-        <ClientShell />
+        <WalletActionsProvider>
+          <ClientShell />
+        </WalletActionsProvider>
       </AccountBoundary>
     </AccountProvider>
   );

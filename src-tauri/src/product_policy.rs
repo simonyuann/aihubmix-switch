@@ -77,10 +77,16 @@ fn own_value(value: &serde_json::Value) -> bool {
     }
 }
 pub fn own_provider(app: &AppType, p: &Provider) -> bool {
-    (!active() || p.id == provider_id(app.as_str(), ACCOUNT_ID.load(Ordering::SeqCst)))
-        && p.id
-            .starts_with(&format!("aihubmix-{}-account-", app.as_str()))
-        && p.name == "AIHubMix"
+    (!active() || {
+        let prefix = provider_id(app.as_str(), ACCOUNT_ID.load(Ordering::SeqCst));
+        p.id == prefix
+            || p.id
+                .strip_prefix(&format!("{prefix}-service-"))
+                .is_some_and(|id| id.parse::<i64>().is_ok_and(|id| id > 0))
+    }) && p
+        .id
+        .starts_with(&format!("aihubmix-{}-account-", app.as_str()))
+        && (p.name == "AIHubMix" || p.name.starts_with("AIHubMix · "))
         && p.category.as_deref() == Some("custom")
         && p.website_url.as_deref() == Some(ORIGIN)
         && p.meta
@@ -88,13 +94,31 @@ pub fn own_provider(app: &AppType, p: &Provider) -> bool {
             .is_none_or(|m| m.auth_binding.is_none() && m.custom_endpoints.is_empty())
         && own_value(&p.settings_config)
 }
+/// Only canonical CC seeds qualify; an arbitrary row marked official cannot bypass policy.
+pub fn official_provider(app: &AppType, p: &Provider) -> bool {
+    crate::database::OFFICIAL_SEEDS.iter().any(|seed| {
+        seed.app_type == *app
+            && seed.id == p.id
+            && p.category.as_deref() == Some("official")
+            && serde_json::from_str::<serde_json::Value>(seed.settings_config_json)
+                .ok()
+                .as_ref()
+                == Some(&p.settings_config)
+            && p.meta
+                .as_ref()
+                .is_none_or(|m| m.auth_binding.is_none() && m.custom_endpoints.is_empty())
+    })
+}
+pub fn visible_provider(app: &AppType, p: &Provider) -> bool {
+    own_provider(app, p) || official_provider(app, p)
+}
 pub fn require_provider(app: &AppType, p: &Provider) -> Result<(), AppError> {
     require_session().map_err(AppError::InvalidInput)?;
-    if !active() || own_provider(app, p) {
+    if !active() || visible_provider(app, p) {
         Ok(())
     } else {
         Err(AppError::InvalidInput(
-            "仅支持本平台的默认 API 配置，请在工具页选择 Key 和模型".into(),
+            "仅支持本平台服务卡片与内置官方配置，请在工具页填写 API Key".into(),
         ))
     }
 }
@@ -121,15 +145,15 @@ fn command_allowed(command: &str, signed_in: bool) -> Result<(), String> {
     if !signed_in {
         return Err("AUTH_REQUIRED: 请先登录账号".into());
     }
+    if command.contains("skill") || command.contains("mcp") || command.contains("prompt") {
+        return Ok(());
+    }
     if command.contains("oauth")
         || command.contains("copilot")
         || command.contains("auth_account")
         || command.starts_with("auth_")
-        || command.contains("mcp")
-        || command.contains("prompt")
         || command.contains("profile")
         || command.starts_with("ensure_")
-        || command.contains("skill")
         || command.starts_with("import_")
         || command.starts_with("webdav_")
         || command.starts_with("s3_")
@@ -169,6 +193,24 @@ fn command_allowed(command: &str, signed_in: bool) -> Result<(), String> {
 mod tests {
     use super::*;
     #[test]
+    fn official_exception_accepts_only_cc_seeds() {
+        for seed in crate::database::OFFICIAL_SEEDS {
+            let mut p = Provider::with_id(
+                seed.id.into(),
+                seed.name.into(),
+                serde_json::from_str(seed.settings_config_json).unwrap(),
+                Some(seed.website_url.into()),
+            );
+            p.category = Some("official".into());
+            assert!(official_provider(&seed.app_type, &p));
+            p.settings_config["injected"] = serde_json::json!("https://foreign.test");
+            assert!(!official_provider(&seed.app_type, &p));
+            p.settings_config = serde_json::from_str(seed.settings_config_json).unwrap();
+            p.id = "fake-official".into();
+            assert!(!official_provider(&seed.app_type, &p));
+        }
+    }
+    #[test]
     fn fixed_origin_rejects_lookalikes_credentials_and_downgrades() {
         assert!(own_url("https://csmy.fun:23457/v1/responses"));
         for value in [
@@ -204,7 +246,6 @@ mod tests {
             "set_common_config_snippet",
             "add_custom_endpoint",
             "apply_profile",
-            "upsert_mcp_server",
         ] {
             assert!(command_allowed(command, true).is_err());
         }
@@ -212,6 +253,17 @@ mod tests {
             assert!(command_allowed(command, false).is_ok());
         }
         assert!(command_allowed("get_providers", true).is_ok());
+        for command in [
+            "upsert_mcp_server",
+            "install_skill",
+            "get_prompts",
+            "import_skills_from_apps",
+            "list_sessions",
+            "sync_session_usage",
+        ] {
+            assert!(command_allowed(command, true).is_ok(), "{command}");
+            assert!(command_allowed(command, false).is_err(), "{command}");
+        }
     }
     #[test]
     fn fixed_provider_rejects_nested_and_toml_foreign_endpoints() {

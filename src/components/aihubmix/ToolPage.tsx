@@ -1,118 +1,131 @@
-import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Loader2, KeyRound } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
+import { ProviderCard } from "@/components/providers/ProviderCard";
 import { Button } from "@/components/ui/button";
-import { dispatch, type KeyInfo } from "@/lib/api/aihubmix";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { settingsApi } from "@/lib/api/settings";
+import { dispatch, type GroupInfo, type KeyInfo } from "@/lib/api/aihubmix";
 import type { AppId } from "@/lib/api";
+import type { Provider } from "@/types";
 import { ApplyApiDialog } from "./ApplyApiDialog";
-interface ToolStatus {
+import { BalanceDisplay } from "./BalanceDisplay";
+interface ToolCard {
+  provider: Provider;
   configured: boolean;
-  model: string;
-  keyId: number | null;
+  keyMasked: string;
+  platform?: string;
+  groupId?: number;
+  selectedKeyId?: number | null;
+}
+interface ToolCards {
+  cards: ToolCard[];
+  groups: GroupInfo[];
+  currentProviderId: string | null;
+  warning?: string;
 }
 export function ToolPage({ app }: { app: AppId }) {
   const client = useQueryClient();
-  const [keys, setKeys] = useState<KeyInfo[]>([]);
-  const [keyId, setKey] = useState("");
-  const [models, setModels] = useState<{ id: string; name: string }[]>([]);
-  const [model, setModel] = useState("");
-  const [effort, setEffort] = useState("auto");
-  const [loading, setLoading] = useState(true);
-  const [modelsLoading, setModelsLoading] = useState(false);
+  const {
+    data,
+    isPending,
+    error: loadError,
+    refetch,
+  } = useQuery({
+    queryKey: ["tool-cards", app],
+    queryFn: () => dispatch<ToolCards>("tool-cards", { app }),
+  });
+  const [editing, setEditing] = useState<ToolCard | null>(null);
+  const [keyId, setKeyId] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [groupId, setGroupId] = useState("");
   const [busy, setBusy] = useState(false);
-  const [configured, setConfigured] = useState(false);
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [apply, setApply] = useState(false);
-  const [reload, setReload] = useState(0);
   const gate = useRef(false);
-  const revision = useRef(0);
-  useEffect(() => {
-    const rev = ++revision.current;
-    setLoading(true);
-    setKeys([]);
-    setModels([]);
-    setKey("");
-    setModel("");
+  const keyQuery = useQuery({
+    queryKey: ["platform-keys"],
+    queryFn: () => dispatch<KeyInfo[]>("keys"),
+    enabled: editing !== null,
+  });
+  const keys = (keyQuery.data ?? []).filter(
+    (key) =>
+      !key.local &&
+      key.id > 0 &&
+      key.status === "active" &&
+      key.groupId === editing?.groupId,
+  );
+  const groups = data?.groups ?? [];
+  const availableGroups = groups.filter(
+    (group) => !data?.cards.some((card) => card.groupId === group.id),
+  );
+  const groupAdded = (id: number) =>
+    data?.cards.some((card) => card.groupId === id);
+  function edit(card: ToolCard) {
+    setKeyId(card.selectedKeyId ? String(card.selectedKeyId) : "");
+    setError("");
+    setEditing(card);
+  }
+  async function createCard() {
+    if (gate.current || !groupId) return;
+    gate.current = true;
+    setBusy(true);
     setError("");
     setNotice("");
-    setConfigured(false);
-    Promise.all([
-      dispatch<KeyInfo[]>("keys"),
-      dispatch<ToolStatus>("tool-status", { app }),
-    ])
-      .then(([all, status]) => {
-        if (rev !== revision.current) return;
-        const own = all.filter((k) => k.id > 0 && !k.local);
-        setKeys(own);
-        setKey(
-          String(
-            own.find((k) => k.id === status.keyId)?.id ?? own[0]?.id ?? "",
-          ),
-        );
-        setModel(status.model ?? "");
-        setConfigured(status.configured);
-      })
-      .catch((e) => {
-        if (rev === revision.current) setError(String(e));
-      })
-      .finally(() => {
-        if (rev === revision.current) setLoading(false);
-      });
-    return () => {
-      revision.current++;
-    };
-  }, [app, reload]);
-  useEffect(() => {
-    if (!keyId) return;
-    let active = true;
-    setModelsLoading(true);
-    setModels([]);
-    setError("");
-    dispatch<typeof models>("models", { id: Number(keyId) })
-      .then((list) => {
-        if (active) {
-          setModels(list);
-          setModel((current) =>
-            list.some((m) => m.id === current) ? current : (list[0]?.id ?? ""),
-          );
-        }
-      })
-      .catch((e) => {
-        if (active) setError(String(e));
-      })
-      .finally(() => {
-        if (active) setModelsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [keyId]);
-  async function save() {
+    try {
+      await dispatch("create-tool-card", { app, groupId: Number(groupId) });
+      await refetch();
+      setAdding(false);
+      setNotice("分组已添加，请选择此分组的 API Key。");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      gate.current = false;
+      setBusy(false);
+    }
+  }
+  async function operate(card: ToolCard, start: boolean, selectedKey?: string) {
     if (gate.current) return;
     gate.current = true;
     setBusy(true);
     setError("");
     setNotice("");
-    const rev = revision.current;
     try {
-      await dispatch("configure-tool", {
-        app,
-        keyId: Number(keyId),
-        model,
-        ...(app === "codex" && effort !== "auto" ? { effort } : {}),
-      });
-      if (rev !== revision.current) return;
-      setConfigured(true);
-      setNotice("平台 API 配置已应用。重新打开工具即可使用。");
-      await client.invalidateQueries({ queryKey: ["providers", app] });
+      const result = await dispatch<{ warnings?: string[] }>(
+        start ? "start-tool-card" : "save-tool-key",
+        {
+          app,
+          providerId: card.provider.id,
+          ...(selectedKey ? { keyId: Number(selectedKey) } : {}),
+        },
+      );
+      setEditing(null);
+      setKeyId("");
+      setNotice(
+        start
+          ? `已切换到 ${card.provider.name}。在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。`
+          : "API Key 已保存。",
+      );
+      if (result?.warnings?.length)
+        setNotice((notice) => `${notice} ${result.warnings!.join("；")}`);
+      await Promise.all([
+        refetch(),
+        client.invalidateQueries({ queryKey: ["providers", app] }),
+        client.invalidateQueries({ queryKey: ["proxy"] }),
+      ]);
     } catch (e) {
-      if (rev === revision.current) setError(String(e));
+      setError(String(e));
     } finally {
       gate.current = false;
-      if (rev === revision.current) setBusy(false);
+      setBusy(false);
     }
   }
   return (
@@ -122,152 +135,317 @@ export function ToolPage({ app }: { app: AppId }) {
         variant="app"
         icon={<AppGlyph app={app} size={22} />}
         actions={
-          <Button variant="outline" onClick={() => setApply(true)}>
-            申请 API
-          </Button>
+          <>
+            <BalanceDisplay />
+            <Button
+              variant="outline"
+              disabled={busy || isPending || !!loadError}
+              onClick={() => {
+                setError("");
+                setGroupId(String(availableGroups[0]?.id ?? ""));
+                setAdding(true);
+                void refetch();
+              }}
+            >
+              添加分组
+            </Button>
+            <Button variant="outline" onClick={() => setApply(true)}>
+              申请 API
+            </Button>
+          </>
         }
       />
       <main
         id="main-content"
         className="min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-6"
       >
-        <div className="max-w-3xl space-y-6">
-          <section className="rounded-panel border border-border bg-surface">
-            <div className="flex items-center justify-between gap-3 border-b border-border p-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-control bg-action/10 text-action">
-                  <KeyRound className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="font-semibold">AIHubMix API</h2>
-                  <p className="mt-1 text-caption text-fg-3">默认平台服务</p>
-                </div>
-              </div>
-              <span className="flex items-center gap-1.5 text-caption text-fg-3">
-                {configured && <CheckCircle2 className="h-4 w-4 text-action" />}
-                {configured ? "已配置" : "待配置"}
-              </span>
+        <div className="space-y-3">
+          {isPending && (
+            <p role="status" className="text-body text-fg-3">
+              正在加载模型服务…
+            </p>
+          )}
+          {loadError && (
+            <div role="alert" className="text-body text-destructive">
+              {String(loadError)}{" "}
+              <Button variant="outline" onClick={() => void refetch()}>
+                重试
+              </Button>
             </div>
+          )}
+          {data?.warning && (
+            <p role="alert" className="text-body text-fg-3">
+              {data.warning}{" "}
+              <Button variant="outline" onClick={() => void refetch()}>
+                重试
+              </Button>
+            </p>
+          )}
+          {data?.cards.map((card) => {
+            const current = card.provider.id === data.currentProviderId;
+            return (
+              <ProviderCard
+                key={card.provider.id}
+                provider={card.provider}
+                appId={app}
+                fixedService
+                isCurrent={current}
+                presentation={{
+                  tone: current ? "direct" : undefined,
+                  status: current
+                    ? { label: "使用中", dot: "direct" }
+                    : undefined,
+                  buttons: current
+                    ? []
+                    : [
+                        {
+                          key: "switch",
+                          label: `启动 ${card.provider.name}`,
+                          disabledReason: busy ? "正在切换配置" : undefined,
+                          onClick: () =>
+                            card.configured
+                              ? void operate(card, true)
+                              : edit(card),
+                        },
+                      ],
+                  chips:
+                    card.provider.category === "official"
+                      ? []
+                      : [
+                          {
+                            key: "key",
+                            label: card.configured
+                              ? card.keyMasked || "已配置"
+                              : "待选择 API",
+                            tone: "outline",
+                          },
+                        ],
+                  editDisabledReason: busy ? "正在保存配置" : undefined,
+                }}
+                onEdit={() => edit(card)}
+                onDelete={() => {}}
+                onConfigureUsage={() => {}}
+                onOpenWebsite={(url) => void settingsApi.openExternal(url)}
+              />
+            );
+          })}
+          {data && !data.cards.length && (
+            <p className="text-body text-fg-3">
+              当前暂无适用于此工具的模型服务。
+            </p>
+          )}
+          {error && !editing && !adding && (
+            <p role="alert" className="break-words text-body text-destructive">
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p role="status" className="text-body text-fg-2">
+              {notice}
+            </p>
+          )}
+        </div>
+      </main>
+      {adding && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !busy) setAdding(false);
+          }}
+        >
+          <DialogContent className="w-[calc(100vw-2rem)]">
+            <DialogHeader>
+              <DialogTitle>添加分组</DialogTitle>
+              <DialogDescription>
+                选择已持有可用 API 的分组，卡片中只会显示此分组的 API Key。
+              </DialogDescription>
+            </DialogHeader>
             <form
-              className="space-y-5 p-5"
+              className="space-y-4 px-6 pb-6"
               onSubmit={(e) => {
                 e.preventDefault();
-                void save();
+                void createCard();
               }}
             >
-              {loading ? (
-                <p role="status" className="text-body text-fg-3">
-                  正在加载账号配置…
+              <label className="block space-y-2 text-body">
+                <span>平台分组</span>
+                <select
+                  aria-label="平台分组"
+                  className="h-10 w-full rounded-control border border-border bg-surface px-3"
+                  value={groupId}
+                  onChange={(e) => setGroupId(e.target.value)}
+                  disabled={busy || !groups.length}
+                >
+                  <option value="">请选择分组</option>
+                  {groups.map((group) => (
+                    <option
+                      key={group.id}
+                      value={group.id}
+                      disabled={groupAdded(group.id)}
+                    >
+                      {group.name}
+                      {groupAdded(group.id) ? "（已添加）" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy || isPending}
+                onClick={() => void refetch()}
+              >
+                刷新分组
+              </Button>
+              {!availableGroups.length && (
+                <p className="text-body text-fg-3">
+                  暂无可添加的分组。请先申请对应分组的 API；已添加的分组已标记。
                 </p>
-              ) : !keys.length ? (
-                <div className="py-5 text-center">
-                  <p className="mb-4 text-body text-fg-3">
-                    先申请一个 API Key，即可连接此工具。
-                  </p>
-                  <Button type="button" onClick={() => setApply(true)}>
-                    申请 API
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <label className="block space-y-2 text-body">
-                    <span>API Key</span>
-                    <select
-                      aria-label="API Key"
-                      className="h-10 w-full rounded-control border border-border bg-surface px-3"
-                      value={keyId}
-                      onChange={(e) => {
-                        setKey(e.target.value);
-                        setModel("");
-                        setNotice("");
-                      }}
-                      disabled={busy}
-                    >
-                      {keys.map((k) => (
-                        <option key={k.id} value={k.id}>
-                          {k.name} · {k.keyMasked}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block space-y-2 text-body">
-                    <span>模型</span>
-                    <select
-                      aria-label="模型"
-                      className="h-10 w-full rounded-control border border-border bg-surface px-3"
-                      value={model}
-                      onChange={(e) => setModel(e.target.value)}
-                      disabled={busy || modelsLoading}
-                    >
-                      {modelsLoading ? (
-                        <option value="">正在加载模型…</option>
-                      ) : models.length ? (
-                        models.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.name || m.id}
-                          </option>
-                        ))
-                      ) : (
-                        <option value="">暂无可用模型</option>
-                      )}
-                    </select>
-                  </label>
-                  {app === "codex" && (
-                    <label className="block space-y-2 text-body">
-                      <span>推理强度</span>
-                      <select
-                        aria-label="推理强度"
-                        className="h-10 w-full rounded-control border border-border bg-surface px-3"
-                        value={effort}
-                        onChange={(e) => setEffort(e.target.value)}
-                        disabled={busy}
-                      >
-                        {[
-                          "auto",
-                          "minimal",
-                          "low",
-                          "medium",
-                          "high",
-                          "xhigh",
-                        ].map((v) => (
-                          <option key={v} value={v}>
-                            {v === "auto" ? "自动" : v}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <p className="text-caption leading-6 text-fg-3">
-                    应用后会更新 {APP_DISPLAY_NAME[app]} 的本机连接配置。
-                  </p>
-                  <div className="flex justify-end">
-                    <Button disabled={busy || modelsLoading || !model}>
-                      {busy && (
-                        <Loader2 className="me-2 h-4 w-4 animate-spin" />
-                      )}
-                      {busy ? "正在应用…" : "应用配置"}
-                    </Button>
-                  </div>
-                </>
               )}
               {error && (
                 <p role="alert" className="text-body text-destructive">
                   {error}
                 </p>
               )}
-              {notice && (
-                <p role="status" className="text-body text-fg-2">
-                  {notice}
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setAdding(false)}
+                >
+                  取消
+                </Button>
+                <Button
+                  aria-label="确认添加分组"
+                  disabled={
+                    busy ||
+                    !availableGroups.some(
+                      (group) => String(group.id) === groupId,
+                    )
+                  }
+                >
+                  {busy ? "正在添加…" : "添加分组"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
+      {editing && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !busy) {
+              setEditing(null);
+              setKeyId("");
+            }
+          }}
+        >
+          <DialogContent className="w-[calc(100vw-2rem)]">
+            <DialogHeader>
+              <DialogTitle>{editing.provider.name}</DialogTitle>
+              <DialogDescription>
+                仅显示此分组下可用的 API Key。模型可在 Agent 中通过 /model
+                切换。
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              className="space-y-4 px-6 pb-6"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void operate(editing, false, keyId);
+              }}
+            >
+              <label className="block space-y-2 text-body">
+                <span>API Key</span>
+                <select
+                  autoFocus
+                  aria-label="API Key"
+                  className="h-10 w-full rounded-control border border-border bg-surface px-3"
+                  value={keyId}
+                  onChange={(e) => setKeyId(e.target.value)}
+                  disabled={busy || keyQuery.isPending}
+                >
+                  <option value="">请选择 API Key</option>
+                  {keys.map((key) => (
+                    <option key={key.id} value={key.id}>
+                      {key.name} · {key.keyMasked}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {keyQuery.isPending && (
+                <p role="status" className="text-body text-fg-3">
+                  正在加载 API…
                 </p>
               )}
+              {keyQuery.error && (
+                <p role="alert" className="text-body text-destructive">
+                  {String(keyQuery.error)}{" "}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void keyQuery.refetch()}
+                  >
+                    重试
+                  </Button>
+                </p>
+              )}
+              {!keyQuery.isPending && !keyQuery.error && !keys.length && (
+                <p className="text-body text-fg-3">
+                  此分组暂无可用 API，请通过右上角「申请 API」创建。
+                </p>
+              )}
+              {error && (
+                <p
+                  role="alert"
+                  className="break-words text-body text-destructive"
+                >
+                  {error}
+                </p>
+              )}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => {
+                    setEditing(null);
+                    setKeyId("");
+                  }}
+                >
+                  取消
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={
+                    busy || !keys.some((key) => String(key.id) === keyId)
+                  }
+                >
+                  保存
+                </Button>
+                <Button
+                  type="button"
+                  disabled={
+                    busy || !keys.some((key) => String(key.id) === keyId)
+                  }
+                  onClick={() => void operate(editing, true, keyId)}
+                >
+                  {busy ? "正在处理…" : "保存并启动"}
+                </Button>
+              </div>
             </form>
-          </section>
-        </div>
-      </main>
+          </DialogContent>
+        </Dialog>
+      )}
       {apply && (
         <ApplyApiDialog
           onClose={() => setApply(false)}
-          onCreated={() => setReload((v) => v + 1)}
+          onCreated={() => {
+            void refetch();
+            void client.invalidateQueries({ queryKey: ["platform-keys"] });
+          }}
         />
       )}
     </>

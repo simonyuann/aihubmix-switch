@@ -79,15 +79,15 @@ export function ApplyApiDialog({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent>
+      <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden">
         <DialogHeader>
           <DialogTitle>申请 API</DialogTitle>
           <DialogDescription>
-            为当前账号创建平台 Key，随后可在工具页选择使用。
+            为当前账号申请平台 Key，随后在对应分组卡片中选择此 Key。
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="min-h-0 space-y-4 overflow-y-auto px-6 pb-6"
           onSubmit={(e) => {
             e.preventDefault();
             void create();

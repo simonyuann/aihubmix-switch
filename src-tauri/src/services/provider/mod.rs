@@ -5464,7 +5464,7 @@ impl ProviderService {
         if crate::product_policy::active() {
             crate::product_policy::require_session().map_err(AppError::InvalidInput)?;
             let mut rows = state.db.get_all_providers(app_type.as_str())?;
-            rows.retain(|_, p| crate::product_policy::own_provider(&app_type, p));
+            rows.retain(|_, p| crate::product_policy::visible_provider(&app_type, p));
             return Ok(rows);
         }
         if app_type == AppType::Pi {

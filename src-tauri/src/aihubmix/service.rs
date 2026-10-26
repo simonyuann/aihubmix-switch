@@ -191,7 +191,7 @@ impl Backend {
         self.refresh_access().await?;
         self.payment_session().await
     }
-    async fn raw(
+    pub(super) async fn raw(
         &self,
         method: Method,
         path: &str,
@@ -349,7 +349,7 @@ impl Backend {
             )
         }
     }
-    async fn key(&mut self, id: i64) -> Result<String> {
+    pub(super) async fn key(&mut self, id: i64) -> Result<String> {
         if crate::product_policy::active() && id <= 0 {
             return Err("请选择当前账号的平台 Key".into());
         }
@@ -585,6 +585,11 @@ impl Backend {
                     .await?;
                 self.ephemeral_keys.remove(&id);
                 self.store.set_secrets(&[(&self.secret_name(id), "")])?;
+                self.store
+                    .settings
+                    .service_key_ids
+                    .retain(|_, value| *value != id);
+                self.store.save()?;
                 self.state()
             }
             "set-base" => {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg(test)]
 pub const AGENTS: [&str; 13] = [
@@ -80,6 +80,8 @@ pub struct Settings {
     pub selected_key: Option<i64>,
     pub agent_models: BTreeMap<String, String>,
     pub tool_selections: BTreeMap<String, ToolSelection>,
+    pub service_cards: BTreeSet<String>,
+    pub service_key_ids: BTreeMap<String, i64>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -90,6 +92,8 @@ impl Default for Settings {
             selected_key: None,
             agent_models: BTreeMap::new(),
             tool_selections: BTreeMap::new(),
+            service_cards: BTreeSet::new(),
+            service_key_ids: BTreeMap::new(),
         }
     }
 }

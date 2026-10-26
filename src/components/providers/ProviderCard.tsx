@@ -71,6 +71,8 @@ interface ProviderCardProps {
   onOpenTerminal?: (provider: Provider) => void;
   isTesting?: boolean;
   dragHandleProps?: DragHandleProps;
+  /** Fixed service catalogs offer only activation and Key editing. */
+  fixedService?: boolean;
 }
 
 /** 当前那张：模式色边框 + 淡底；共存式应用的默认那家同直连色。 */
@@ -196,6 +198,7 @@ export function ProviderCard({
   onOpenTerminal,
   isTesting,
   dragHandleProps,
+  fixedService = false,
 }: ProviderCardProps) {
   const { t } = useTranslation();
   const codexOfficialIdentity = resolveCodexOfficialIdentity(appId, provider);
@@ -637,6 +640,8 @@ export function ProviderCard({
             </div>
           </div>
           <ProviderCardActions
+            fixedService={fixedService}
+            hideEdit={fixedService && provider.category === "official"}
             providerName={provider.name}
             presentation={presentation}
             onEdit={() => onEdit(provider)}

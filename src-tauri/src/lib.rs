@@ -747,7 +747,6 @@ pub fn run() {
             // 按表独立判断的导入逻辑（各类数据独立检查，互不影响）
             // ============================================================
 
-            if !product_policy::active() {
             // 1. 初始化默认 Skills 仓库（已有内置检查：表非空则跳过）
             match app_state.db.init_default_skill_repos() {
                 Ok(count) if count > 0 => {
@@ -798,7 +797,6 @@ pub fn run() {
                 Err(e) => log::warn!("✗ Failed to read skills migration flag: {e}"),
             }
 
-            }
 
             // 1.5. 自动导入 live 配置 + seed 官方预设供应商（Claude / Codex / Gemini）
             //
@@ -1044,7 +1042,7 @@ pub fn run() {
 
             }
             // 3. 导入 MCP 服务器配置（表空时触发）
-            if !product_policy::active() && app_state.db.is_mcp_table_empty().unwrap_or(false) {
+            if app_state.db.is_mcp_table_empty().unwrap_or(false) {
                 log::info!("MCP table empty, importing from live configurations...");
 
                 match crate::services::mcp::McpService::import_from_claude(&app_state) {

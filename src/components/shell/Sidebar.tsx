@@ -4,10 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { getVersion } from "@tauri-apps/api/app";
 import {
   ArrowLeft,
+  BookOpen,
+  Folder,
+  Server,
   ChartColumn,
   ChevronsLeft,
   ChevronsRight,
-  Globe,
   History,
   Info,
   Layers,
@@ -21,6 +23,7 @@ import type { VisibleApps } from "@/types";
 import { orderAppIds } from "@/config/appConfig";
 import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage } from "@/lib/navigation";
+import { SkillsIcon } from "@/components/BrandIcons";
 import { WalletPanel } from "@/components/aihubmix/WalletPanel";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
@@ -262,7 +265,9 @@ function MainDirectory({
     trailingLabel?: string;
     alert?: string;
   }[] = [
-    { page: "aihubmix", label: "我的账户", icon: Globe },
+    { page: "mcp", label: "MCP", icon: Server },
+    { page: "skills", label: "Skills", icon: SkillsIcon },
+    { page: "prompts", label: t("nav.prompts"), icon: BookOpen },
     { page: "sessions", label: t("nav.sessions"), icon: History },
     {
       page: "usage",
@@ -310,11 +315,17 @@ function MainDirectory({
         )}
       />
 
-      <WalletPanel
-        collapsed={collapsed}
-        onOpenAccount={() => onSelectPage("aihubmix")}
-      />
       <div className="flex shrink-0 flex-col">
+        <WalletPanel
+          onOpenAccount={() => onSelectPage("aihubmix")}
+          renderItem={(item) => (
+            <NavItem
+              {...item}
+              collapsed={collapsed}
+              selected={item.label === "API 管理" && view === "aihubmix"}
+            />
+          )}
+        />
         {globals.map((item) => (
           <NavItem
             key={item.page}
@@ -679,6 +690,7 @@ function NavItem({
 
 const SETTINGS_ITEMS: { section: SettingsSection; icon: IconComponent }[] = [
   { section: "general", icon: SlidersHorizontal },
+  { section: "appConfig", icon: Folder },
   { section: "about", icon: Info },
 ];
 

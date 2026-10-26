@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Globe, Plus, LogOut } from "lucide-react";
+import { KeyRound, Plus, LogOut } from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/contexts/AccountContext";
 import { dispatch, type KeyInfo } from "@/lib/api/aihubmix";
 import { ApplyApiDialog } from "./ApplyApiDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 export function AccountPage() {
   const { state, logout } = useAccount();
   const [keys, setKeys] = useState<KeyInfo[]>([]);
@@ -12,6 +13,8 @@ export function AccountPage() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [apply, setApply] = useState(false);
+  const [deleting, setDeleting] = useState<KeyInfo | null>(null);
+  const operation = useRef(false);
   const revision = useRef(0);
   const load = useCallback(async () => {
     const rev = ++revision.current;
@@ -33,13 +36,55 @@ export function AccountPage() {
       revision.current++;
     };
   }, [load]);
+  async function copyKey(key: KeyInfo) {
+    if (operation.current) return;
+    operation.current = true;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    const rev = revision.current;
+    try {
+      const value = await dispatch<string>("get-key", { id: key.id });
+      if (rev !== revision.current) return;
+      await navigator.clipboard.writeText(value);
+      setNotice("API Key 已复制");
+    } catch (e) {
+      if (rev === revision.current) setError(String(e));
+    } finally {
+      operation.current = false;
+      if (rev === revision.current) setBusy(false);
+    }
+  }
+  async function deleteKey() {
+    if (!deleting || operation.current) return;
+    operation.current = true;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    const rev = revision.current;
+    try {
+      await dispatch("delete-key", { id: deleting.id });
+      if (rev !== revision.current) return;
+      setKeys((current) => current.filter((key) => key.id !== deleting.id));
+      setNotice(`已删除 API Key「${deleting.name}」`);
+      setDeleting(null);
+    } catch (e) {
+      if (rev === revision.current) {
+        setDeleting(null);
+        setError(`${String(e)}。请刷新列表确认删除结果后再重试。`);
+      }
+    } finally {
+      operation.current = false;
+      if (rev === revision.current) setBusy(false);
+    }
+  }
   return (
     <>
       <AppPageHeader
-        title="我的账户"
-        icon={<Globe className="h-5 w-5" />}
+        title="API 管理"
+        icon={<KeyRound className="h-5 w-5" />}
         actions={
-          <Button onClick={() => setApply(true)}>
+          <Button disabled={busy} onClick={() => setApply(true)}>
             <Plus className="me-2 h-4 w-4" />
             申请 API
           </Button>
@@ -124,26 +169,43 @@ export function AccountPage() {
                     Key 配额：{k.quotaUsed ?? "—"} / {k.quota ?? "—"}
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setError("");
-                    void dispatch<string>("get-key", { id: k.id })
-                      .then((key) => navigator.clipboard.writeText(key))
-                      .then(() => setNotice("API Key 已复制"))
-                      .catch((e) => setError(String(e)));
-                  }}
-                >
-                  复制 Key
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    aria-label={`复制 ${k.name}`}
+                    onClick={() => void copyKey(k)}
+                  >
+                    复制 Key
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={busy}
+                    aria-label={`删除 ${k.name}`}
+                    onClick={() => setDeleting(k)}
+                  >
+                    删除
+                  </Button>
+                </div>
               </div>
             ))}
           </section>
           <p className="text-caption leading-6 text-fg-3">
-            在左侧选择工具，再选择当前账号的 Key 与模型，即可应用平台 API 配置。
+            在左侧选择工具，添加平台分组卡片，选择对应的 API Key
+            后启动。模型可在 Agent 中通过 /model 切换。
           </p>
         </div>
       </main>
+      <ConfirmDialog
+        isOpen={deleting !== null}
+        title="删除 API Key"
+        message={`确定删除「${deleting?.name ?? ""}」？删除后，使用此 Key 的工具将无法继续调用 API，此操作无法撤销。`}
+        confirmText="确认删除"
+        cancelText="取消"
+        pending={busy}
+        onConfirm={() => void deleteKey()}
+        onCancel={() => setDeleting(null)}
+      />
       {apply && (
         <ApplyApiDialog
           onClose={() => setApply(false)}

@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -215,143 +216,152 @@ export function RechargeDialog({
         if (!value && !busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] overflow-hidden">
         <DialogHeader>
           <DialogTitle>账户充值</DialogTitle>
           <DialogDescription>
             钱包余额与 Key 配额分别计算。创建订单后请在支付页面完成付款。
           </DialogDescription>
         </DialogHeader>
-        <p>
-          {overview?.email} · 钱包余额：{overview?.currency ?? ""}{" "}
-          {overview?.balance?.toFixed(2) ?? "—"}
-        </p>
-        <Button
-          variant="outline"
-          disabled={busy || loading}
-          onClick={() => void refresh()}
-        >
-          刷新余额与充值记录
-        </Button>
-        {error && (
-          <p role="alert" className="text-destructive">
-            {error}
+        <div className="min-h-0 space-y-4 overflow-y-auto px-6 pb-2 text-body [&_label]:block [&_label]:space-y-2">
+          <p className="break-words">
+            {overview?.email} · 钱包余额：{overview?.currency ?? ""}{" "}
+            {overview?.balance?.toFixed(2) ?? "—"}
           </p>
-        )}
-        {uncertain && (
-          <p role="alert">
-            提交结果不确定。请成功刷新订单记录后再创建，避免重复付款。
+          <Button
+            variant="outline"
+            disabled={busy || loading}
+            onClick={() => void refresh()}
+          >
+            刷新余额与充值记录
+          </Button>
+          {error && (
+            <p role="alert" className="break-words text-destructive">
+              {error}
+            </p>
+          )}
+          {uncertain && (
+            <p role="alert">
+              提交结果不确定。请成功刷新订单记录后再创建，避免重复付款。
+            </p>
+          )}
+          <label>
+            充值金额
+            <Input
+              value={amount}
+              inputMode="decimal"
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+          <p className="text-fg-3">
+            范围：{minimum}–{Number.isFinite(maximum) ? maximum : "不限"}
+            ；手续费：{selected?.feeRate ?? 0}
           </p>
-        )}
-        <label>
-          充值金额
-          <Input
-            value={amount}
-            inputMode="decimal"
-            onChange={(e) => setAmount(e.target.value)}
-            disabled={busy}
-          />
-        </label>
-        <p className="text-fg-3">
-          范围：{minimum}–{Number.isFinite(maximum) ? maximum : "不限"}
-          ；手续费：{selected?.feeRate ?? 0}
-        </p>
-        <label>
-          支付方式
-          <select
-            className="w-full rounded-control border border-border bg-surface p-2"
-            value={method}
-            onChange={(e) => setMethod(e.target.value)}
+          <label>
+            支付方式
+            <select
+              className="w-full rounded-control border border-border bg-surface p-2"
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+            >
+              {overview?.methods.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            disabled={
+              !overview?.enabled ||
+              !selected ||
+              !validAmount(amount, minimum, maximum) ||
+              !!outstanding ||
+              uncertain ||
+              busy ||
+              loading
+            }
+            onClick={() =>
+              void operate("payment-create", { amount, method }, true)
+            }
           >
-            {overview?.methods.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Button
-          disabled={
-            !overview?.enabled ||
-            !selected ||
-            !validAmount(amount, minimum, maximum) ||
-            !!outstanding ||
-            uncertain ||
-            busy ||
-            loading
-          }
-          onClick={() =>
-            void operate("payment-create", { amount, method }, true)
-          }
-        >
-          创建充值订单
-        </Button>
-        {order && (
-          <section className="space-y-2 rounded-panel border border-border p-3">
-            <p>
-              订单 #{order.id} · {order.status}
-            </p>
-            <p>
-              支付金额：{order.currency} {order.payAmount ?? "—"}
-            </p>
-            {order.status === "PENDING" && <p>剩余 {remaining} 秒</p>}
-            {qr && order.status === "PENDING" && remaining > 0 && (
-              <img src={qr} alt="订单付款二维码" width={260} height={260} />
-            )}
-            <div className="flex gap-2">
-              {order.payUrl && order.status === "PENDING" && remaining > 0 && (
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    void settingsApi
-                      .openExternal(order.payUrl!)
-                      .catch((e) => setError(String(e)))
-                  }
-                >
-                  打开支付页面
-                </Button>
+            创建充值订单
+          </Button>
+          {order && (
+            <section className="space-y-2 rounded-panel border border-border p-3">
+              <p>
+                订单 #{order.id} · {order.status}
+              </p>
+              <p>
+                支付金额：{order.currency} {order.payAmount ?? "—"}
+              </p>
+              {order.status === "PENDING" && <p>剩余 {remaining} 秒</p>}
+              {qr && order.status === "PENDING" && remaining > 0 && (
+                <img src={qr} alt="订单付款二维码" width={260} height={260} />
               )}
-              {pending(order) && (
-                <Button
-                  disabled={busy}
-                  onClick={() =>
-                    void operate("payment-verify", { id: order.id })
-                  }
-                >
-                  我已付款，核验
-                </Button>
-              )}
-              {order.status === "PENDING" && (
-                <Button
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() =>
-                    void operate("payment-cancel", { id: order.id })
-                  }
-                >
-                  取消订单
-                </Button>
-              )}
-            </div>
-          </section>
-        )}
-        <h3 className="font-semibold">充值记录</h3>
-        {overview?.orders.map((o) => (
-          <button
-            key={o.id}
-            className="flex w-full justify-between rounded-control border border-border p-2 text-start hover:bg-subtle"
-            onClick={() => void operate("payment-order", { id: o.id })}
-            disabled={busy}
-          >
-            <span>
-              #{o.id} · {o.currency} {o.amount ?? "—"}
-            </span>
-            <span>{o.status}</span>
-          </button>
-        ))}
-        {overview && !overview.orders.length && (
-          <p className="text-fg-3">暂无充值记录</p>
-        )}
+              <div className="flex flex-wrap gap-2">
+                {order.payUrl &&
+                  order.status === "PENDING" &&
+                  remaining > 0 && (
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        void settingsApi
+                          .openExternal(order.payUrl!)
+                          .catch((e) => setError(String(e)))
+                      }
+                    >
+                      打开支付页面
+                    </Button>
+                  )}
+                {pending(order) && (
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void operate("payment-verify", { id: order.id })
+                    }
+                  >
+                    我已付款，核验
+                  </Button>
+                )}
+                {order.status === "PENDING" && (
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      void operate("payment-cancel", { id: order.id })
+                    }
+                  >
+                    取消订单
+                  </Button>
+                )}
+              </div>
+            </section>
+          )}
+          <h3 className="font-semibold">充值记录</h3>
+          {overview?.orders.map((o) => (
+            <button
+              key={o.id}
+              className="flex w-full justify-between rounded-control border border-border p-2 text-start hover:bg-subtle"
+              onClick={() => void operate("payment-order", { id: o.id })}
+              disabled={busy}
+            >
+              <span>
+                #{o.id} · {o.currency} {o.amount ?? "—"}
+              </span>
+              <span>{o.status}</span>
+            </button>
+          ))}
+          {overview && !overview.orders.length && (
+            <p className="text-fg-3">暂无充值记录</p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={onClose}>
+            关闭
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
