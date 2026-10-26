@@ -104,13 +104,13 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
 
       if (!displayVersion) {
         await settingsApi.openExternal(
-          "https://github.com/farion1231/cc-switch/releases",
+          "https://github.com/simonyuann/aihubmix-switch/releases",
         );
         return;
       }
 
       await settingsApi.openExternal(
-        `https://github.com/farion1231/cc-switch/releases/tag/${displayVersion}`,
+        `https://github.com/simonyuann/aihubmix-switch/releases/tag/${displayVersion}`,
       );
     } catch (error) {
       console.error("[AboutSection] Failed to open release notes", error);
@@ -119,7 +119,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   }, [t, updateInfo?.availableVersion, version]);
 
   const handleOpenGithub = useCallback(() => {
-    void settingsApi.openExternal("https://github.com/farion1231/cc-switch");
+    void settingsApi.openExternal("https://github.com/simonyuann/aihubmix-switch");
   }, []);
 
   const handleDismissStarPrompt = useCallback(() => {
@@ -204,7 +204,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           className="h-10 w-10 shrink-0 p-1"
         />
         <div className="min-w-0 flex-1">
-          <div className="text-title text-fg-1">CC Switch</div>
+          <div className="text-title text-fg-1">AIHubMix Switch</div>
           <div className="flex flex-wrap items-center gap-2 text-caption text-fg-2">
             {isLoadingVersion ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -287,7 +287,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           type="button"
           variant="neutral"
           size="compact"
-          onClick={() => settingsApi.openExternal("https://ccswitch.io")}
+          onClick={() => settingsApi.openExternal("https://dl.csmy.fun:23457")}
         >
           <Globe className="h-3.5 w-3.5" />
           {t("settings.officialWebsite")}
@@ -314,7 +314,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
         )}
       </div>
 
-      {/* 下载与更新都走 ccswitch.io，用户不再经过仓库页，邀 Star 单独占一行；按钮即 GitHub 入口。
+      {/* 下载与更新都走 AIHubMix 下载站，用户不再经过仓库页，邀 Star 单独占一行；按钮即 GitHub 入口。
           关掉后链接行补回 GitHub 按钮 */}
       {!starPromptDismissed && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3 bg-action-soft py-3.5 ps-5 pe-3">

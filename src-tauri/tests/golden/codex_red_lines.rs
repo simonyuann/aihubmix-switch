@@ -429,7 +429,7 @@ fn normalization_never_overwrites_a_user_table() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     reset_test_fs();
     set_login_preservation(false);
-    let user_table = "[model_providers.cc-switch]\nname = \"Mine\"\nbase_url = \"https://mine.example/v1\"\nwire_api = \"responses\"\nhttp_headers = { X-Tenant = \"t1\" }\n";
+    let user_table = "[model_providers.aihubmix-switch]\nname = \"Mine\"\nbase_url = \"https://mine.example/v1\"\nwire_api = \"responses\"\nhttp_headers = { X-Tenant = \"t1\" }\n";
     let state = setup(
         vec![codex(
             "legacy",
@@ -676,7 +676,7 @@ fn model_catalog_pointer_ownership() {
     switch(&state, "plain").expect("switch to plain");
     assert!(
         live_config().get("model_catalog_json").is_none(),
-        "CC Switch removes its own pointer when the target has no catalog"
+        "AIHubMix Switch removes its own pointer when the target has no catalog"
     );
 
     switch(&state, "user-pointer").expect("switch to user pointer");

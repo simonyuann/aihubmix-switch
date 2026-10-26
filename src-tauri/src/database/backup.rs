@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use tempfile::{Builder, NamedTempFile};
 
-const CC_SWITCH_SQL_EXPORT_HEADER: &str = "-- CC Switch SQLite 导出";
+const CC_SWITCH_SQL_EXPORT_HEADER: &str = "-- AIHubMix Switch SQLite 导出";
 
 /// Bound combined INSERT batches while still amortizing statement parsing.
 /// A row larger than this cap is emitted alone because it cannot be split.
@@ -288,8 +288,8 @@ impl Database {
 
         Err(AppError::localized(
             "backup.sql.invalid_format",
-            "仅支持导入由 CC Switch 导出的 SQL 备份文件。",
-            "Only SQL backups exported by CC Switch are supported.",
+            "仅支持导入由 AIHubMix Switch 导出的 SQL 备份文件。",
+            "Only SQL backups exported by AIHubMix Switch are supported.",
         ))
     }
 
@@ -533,7 +533,7 @@ impl Database {
         // discovery and retention only see the final path after the complete
         // SQLite image has been atomically published.
         let mut temp_path = Builder::new()
-            .prefix(".cc-switch-backup-")
+            .prefix(".aihubmix-switch-backup-")
             .suffix(".tmp")
             .tempfile_in(&backup_dir)
             .map_err(|e| AppError::io(&backup_dir, e))?
@@ -698,8 +698,8 @@ impl Database {
             let names = missing.join(", ");
             return Err(AppError::localized(
                 "backup.sql.invalid_schema",
-                format!("导入的 SQL 缺少 CC Switch 必需表：{names}"),
-                format!("The imported SQL is missing required CC Switch tables: {names}"),
+                format!("导入的 SQL 缺少 AIHubMix Switch 必需表：{names}"),
+                format!("The imported SQL is missing required AIHubMix Switch tables: {names}"),
             ));
         }
         Ok(())
@@ -714,7 +714,7 @@ impl Database {
             .unwrap_or(0);
 
         output.push_str(&format!(
-            "-- CC Switch SQLite 导出\n-- 生成时间: {timestamp}\n-- user_version: {user_version}\n"
+            "-- AIHubMix Switch SQLite 导出\n-- 生成时间: {timestamp}\n-- user_version: {user_version}\n"
         ));
         output.push_str("PRAGMA foreign_keys=OFF;\n");
         output.push_str(&format!("PRAGMA user_version={user_version};\n"));
@@ -1201,7 +1201,7 @@ mod tests {
             // Prevent the Windows legacy-HOME fallback without mutating HOME:
             // an existing default DB keeps get_app_config_dir() anchored under
             // CC_SWITCH_TEST_HOME and makes import exercise its safety backup.
-            let config_dir = temp_dir.path().join(".cc-switch");
+            let config_dir = temp_dir.path().join(".aihubmix-switch");
             std::fs::create_dir_all(&config_dir).expect("create isolated config directory");
             std::fs::File::create(config_dir.join("cc-switch.db"))
                 .expect("create isolated database sentinel");
@@ -1457,8 +1457,8 @@ mod tests {
             .import_sql_string(&header_only)
             .expect_err("缺少原始 schema 的文件必须被拒绝");
         assert!(
-            error.to_string().contains("required CC Switch tables")
-                || error.to_string().contains("CC Switch 必需表"),
+            error.to_string().contains("required AIHubMix Switch tables")
+                || error.to_string().contains("AIHubMix Switch 必需表"),
             "应由原始 schema 校验拒绝，实际错误: {error}"
         );
 
@@ -1603,7 +1603,7 @@ mod tests {
         let exported = source.export_sql_string()?;
         let truncated = exported
             .strip_suffix("COMMIT;\nPRAGMA foreign_keys=ON;\n")
-            .expect("CC Switch export should end with a committed transaction");
+            .expect("AIHubMix Switch export should end with a committed transaction");
 
         let target = Database::memory()?;
         {
@@ -2514,7 +2514,7 @@ mod tests {
                 entry
                     .file_name()
                     .to_string_lossy()
-                    .starts_with(".cc-switch-backup-")
+                    .starts_with(".aihubmix-switch-backup-")
             })
             .count();
         assert_eq!(

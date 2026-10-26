@@ -69,7 +69,7 @@ pub fn assert_config_dir(data_dir: &Path, dir: &Path) -> Result<(), AppError> {
     }
     if !dir.starts_with(accounts_root(data_dir)) {
         return Err(AppError::Message(format!(
-            "账号目录不在 CC Switch 的账号根下: {}",
+            "账号目录不在 AIHubMix Switch 的账号根下: {}",
             dir.display()
         )));
     }
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn recognizes_only_account_config_dirs() {
-        let data = Path::new("/data/.cc-switch");
+        let data = Path::new("/data/.aihubmix-switch");
         let id = "0123456789abcdef0123456789abcdef";
         let dir = config_dir(data, id);
         assert!(is_account_config_dir(data, &dir.to_string_lossy()));

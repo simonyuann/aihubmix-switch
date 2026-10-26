@@ -38,7 +38,7 @@ vi.mock("@/hooks/useSettings", () => ({
 
 vi.mock("@/hooks/useSkills", () => ({
   useInstalledSkills: () => ({ data: m.installed }),
-  useCcSwitchSkillsDir: () => ({ data: "/Users/jason/.cc-switch/skills" }),
+  useCcSwitchSkillsDir: () => ({ data: "/Users/jason/.aihubmix-switch/skills" }),
   useResyncSkillsToApps: () => ({ mutateAsync: m.resync, isPending: false }),
 }));
 
@@ -100,11 +100,11 @@ describe("SkillsStorageSheet", () => {
     });
   });
 
-  it("shows the real CC Switch folder and opens it", async () => {
+  it("shows the real AIHubMix Switch folder and opens it", async () => {
     m.openDir.mockResolvedValue(undefined);
     renderDialog();
 
-    expect(screen.getByText("~/.cc-switch/skills")).toBeInTheDocument();
+    expect(screen.getByText("~/.aihubmix-switch/skills")).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole("button", {
         name: "skills.storageSheet.openFolderAria",

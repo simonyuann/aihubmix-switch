@@ -93,7 +93,7 @@ export function changelogUrl(
   language: WhatsNewLanguage,
   version?: string,
 ): string {
-  const siteLanguage = language === "zh-TW" ? "zh" : language;
-  const base = `https://ccswitch.io/${siteLanguage}/changelog`;
-  return version ? `${base}/${version}` : base;
+  void language;
+  const base = "https://github.com/simonyuann/aihubmix-switch/releases";
+  return version ? `${base}/tag/v${version.replace(/^v/, "")}` : base;
 }

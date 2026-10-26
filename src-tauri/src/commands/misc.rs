@@ -79,7 +79,7 @@ pub async fn check_for_updates(handle: AppHandle) -> Result<bool, String> {
     handle
         .opener()
         .open_url(
-            "https://github.com/farion1231/cc-switch/releases/latest",
+            "https://github.com/simonyuann/aihubmix-switch/releases/latest",
             None::<String>,
         )
         .map_err(|e| format!("打开更新页面失败: {e}"))?;
@@ -87,9 +87,8 @@ pub async fn check_for_updates(handle: AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
-/// 便携版新版本压缩包的下载地址，命名与 release.yml 的「Prepare Windows Assets」一致：
-/// `CC-Switch-v<版本>-Windows[-arm64]-Portable.zip`。版本号不像版本号时返回 None。
-fn portable_zip_url(version: &str, arm64: bool) -> Option<String> {
+/// Product release page for portable downloads; users select an available architecture.
+fn portable_zip_url(version: &str, _arm64: bool) -> Option<String> {
     let version = version.trim().trim_start_matches('v');
     let looks_like_version = version.starts_with(|c: char| c.is_ascii_digit())
         && version
@@ -98,13 +97,12 @@ fn portable_zip_url(version: &str, arm64: bool) -> Option<String> {
     if !looks_like_version {
         return None;
     }
-    let suffix = if arm64 { "-arm64" } else { "" };
     Some(format!(
-        "https://github.com/farion1231/cc-switch/releases/download/v{version}/CC-Switch-v{version}-Windows{suffix}-Portable.zip"
+        "https://github.com/simonyuann/aihubmix-switch/releases/tag/v{version}"
     ))
 }
 
-/// 便携版更新：直接下载对应架构的新版压缩包（解压覆盖即可，数据在 ~/.cc-switch 不受影响）。
+/// 便携版更新：直接下载对应架构的新版压缩包（解压覆盖即可，数据在 ~/.aihubmix-switch 不受影响）。
 /// 不做原地替换自身 exe：那样很容易被杀毒软件当成病毒拦截。
 #[tauri::command]
 pub async fn open_portable_update_download(
@@ -112,7 +110,7 @@ pub async fn open_portable_update_download(
     version: String,
 ) -> Result<bool, String> {
     let url = portable_zip_url(&version, cfg!(target_arch = "aarch64"))
-        .unwrap_or_else(|| "https://github.com/farion1231/cc-switch/releases/latest".to_string());
+        .unwrap_or_else(|| "https://github.com/simonyuann/aihubmix-switch/releases/latest".to_string());
     handle
         .opener()
         .open_url(url, None::<String>)
@@ -6416,11 +6414,11 @@ mod tests {
     fn portable_zip_url_matches_release_asset_names() {
         assert_eq!(
             portable_zip_url("4.0.12", false).as_deref(),
-            Some("https://github.com/farion1231/cc-switch/releases/download/v4.0.12/CC-Switch-v4.0.12-Windows-Portable.zip")
+            Some("https://github.com/simonyuann/aihubmix-switch/releases/tag/v4.0.12")
         );
         assert_eq!(
             portable_zip_url("v4.1.0-beta.1", true).as_deref(),
-            Some("https://github.com/farion1231/cc-switch/releases/download/v4.1.0-beta.1/CC-Switch-v4.1.0-beta.1-Windows-arm64-Portable.zip")
+            Some("https://github.com/simonyuann/aihubmix-switch/releases/tag/v4.1.0-beta.1")
         );
         for bad in ["", "v", "latest", "4.0/../x", "4.0.0?x=1"] {
             assert!(portable_zip_url(bad, false).is_none(), "{bad}");
@@ -6874,9 +6872,9 @@ mod tests {
     fn agy_key_launch() -> ProviderLaunch {
         ProviderLaunch {
             title: "Using a private Antigravity profile for this provider:",
-            detail: Some(PathBuf::from("/home/me/.cc-switch/agy/relay")),
+            detail: Some(PathBuf::from("/home/me/.aihubmix-switch/agy/relay")),
             program: "agy",
-            args: vec!["--gemini_dir=/home/me/.cc-switch/agy/relay".to_string()],
+            args: vec!["--gemini_dir=/home/me/.aihubmix-switch/agy/relay".to_string()],
             batch_command: format!("agy \"--gemini_dir=%{AGY_DIR_BATCH_VAR}%\""),
             env: vec![
                 ("GEMINI_API_KEY", Some("k'$(echo no)`x`%PATH%".to_string())),
@@ -6884,7 +6882,7 @@ mod tests {
             ],
             batch_vars: vec![(
                 AGY_DIR_BATCH_VAR,
-                r"C:\Users\张三\.cc-switch\agy\relay".to_string(),
+                r"C:\Users\张三\.aihubmix-switch\agy\relay".to_string(),
             )],
             cleanup: Vec::new(),
         }
@@ -6895,7 +6893,7 @@ mod tests {
         let launch = agy_key_launch();
         assert_eq!(
             unix_launch_command(&launch),
-            "env -u CC_SWITCH_LAUNCH_ENV_0 -u CC_SWITCH_LAUNCH_ENV_1 -u GOOGLE_GEMINI_BASE_URL GEMINI_API_KEY=\"$CC_SWITCH_LAUNCH_ENV_0\" agy --gemini_dir=/home/me/.cc-switch/agy/relay"
+            "env -u CC_SWITCH_LAUNCH_ENV_0 -u CC_SWITCH_LAUNCH_ENV_1 -u GOOGLE_GEMINI_BASE_URL GEMINI_API_KEY=\"$CC_SWITCH_LAUNCH_ENV_0\" agy --gemini_dir=/home/me/.aihubmix-switch/agy/relay"
         );
         assert_eq!(
             unix_launch_env_file(&launch),
@@ -6907,7 +6905,7 @@ mod tests {
         };
         assert_eq!(
             unix_launch_command(&plain),
-            "agy --gemini_dir=/home/me/.cc-switch/agy/relay"
+            "agy --gemini_dir=/home/me/.aihubmix-switch/agy/relay"
         );
         assert_eq!(unix_launch_env_file(&plain), "");
     }
@@ -6990,7 +6988,7 @@ mod tests {
         assert!(status.success());
         assert_eq!(
             std::fs::read_to_string(&out).unwrap(),
-            "k'$(echo no)`x`%PATH%\nunset\nunset\n--gemini_dir=/home/me/.cc-switch/agy/relay\n"
+            "k'$(echo no)`x`%PATH%\nunset\nunset\n--gemini_dir=/home/me/.aihubmix-switch/agy/relay\n"
         );
         assert!(
             !env_file.exists(),
@@ -7013,7 +7011,7 @@ mod tests {
             carried,
             vec![(
                 "CC_SWITCH_INTERNAL_ENV_2".to_string(),
-                r"C:\Users\张三\.cc-switch\agy\relay".to_string()
+                r"C:\Users\张三\.aihubmix-switch\agy\relay".to_string()
             )]
         );
     }
