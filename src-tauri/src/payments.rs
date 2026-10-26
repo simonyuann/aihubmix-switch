@@ -177,6 +177,16 @@ impl Session {
                     "methods": methods(&checkout), "orders": history
                 }))
             }
+            // Home-page badge: wallet only, no order history or channel config.
+            "payment-balance" => {
+                let user = self.request(Method::GET, "/api/v1/auth/me", None).await?;
+                if user["id"].as_i64() != Some(self.user_id) {
+                    return Err("充值账号不匹配，请重新登录".into());
+                }
+                Ok(json!({
+                    "email": user["email"], "balance": user["balance"], "currency": "CNY"
+                }))
+            }
             "payment-create" => {
                 let minor = parse_amount(&string(input, "amount"))?;
                 let method = string(input, "method");
@@ -495,6 +505,19 @@ mod tests {
         assert_eq!(result["balance"], 3.21);
         assert_eq!(result["methods"].as_array().unwrap().len(), 1);
         assert_eq!(result["methods"][0]["id"], "wxpay");
+        assert!(!result.to_string().contains("secret"));
+        assert_eq!(state.posts.load(Ordering::SeqCst), 0);
+        assert_eq!(state.checks.load(Ordering::SeqCst), 0);
+        task.abort();
+    }
+    #[tokio::test]
+    async fn balance_badge_reads_the_wallet_and_nothing_else() {
+        let (session, state, task) = server().await;
+        let result = session.run("payment-balance", &Value::Null).await.unwrap();
+        assert_eq!(result["balance"], 3.21);
+        assert_eq!(result["email"], "fixture@example.com");
+        assert_eq!(result["currency"], "CNY");
+        assert_eq!(result.as_object().unwrap().len(), 3);
         assert!(!result.to_string().contains("secret"));
         assert_eq!(state.posts.load(Ordering::SeqCst), 0);
         assert_eq!(state.checks.load(Ordering::SeqCst), 0);

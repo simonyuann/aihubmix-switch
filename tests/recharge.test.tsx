@@ -37,6 +37,11 @@ beforeEach(() => {
     orders: []
   }
   api = {
+    balance: vi.fn(async () => ({
+      email: 'simon@example.com',
+      balance: overview.balance,
+      currency: 'CNY'
+    })),
     overview: vi.fn(async () => structuredClone(overview)),
     create: vi.fn(async () => structuredClone(pending)),
     order: vi.fn(async () => structuredClone(pending)),

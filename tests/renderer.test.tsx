@@ -14,6 +14,11 @@ beforeEach(() => {
   state = structuredClone(previewState)
   api = {
     payments: {
+      balance: vi.fn(async () => ({
+        email: 'simon@example.com',
+        balance: 128.5,
+        currency: 'CNY'
+      })),
       overview: vi.fn(async () => ({
         enabled: true,
         email: 'simon@example.com',
@@ -342,7 +347,8 @@ describe('API-first workspace', () => {
     fireEvent.change(within(auth).getByLabelText('密码'), { target: { value: 'fixture-password' } })
     fireEvent.submit(within(auth).getByLabelText('密码').closest('form')!)
     await screen.findByRole('dialog', { name: '账户充值' })
-    await screen.findByText('¥128.50')
+    const wallet = await screen.findByRole('dialog', { name: '账户充值' })
+    await within(wallet).findByText('¥128.50')
     expect(api.account.createKey).not.toHaveBeenCalled()
     expect(api.payments.create).not.toHaveBeenCalled()
   })
@@ -506,6 +512,30 @@ describe('signed application updates', () => {
     )
     expect(api.updates.download).not.toHaveBeenCalled()
     expect(api.updates.install).not.toHaveBeenCalled()
+  })
+})
+
+describe('wallet balance on the home page', () => {
+  it('shows the wallet balance without opening the recharge dialog', async () => {
+    await ready()
+    expect(await screen.findByLabelText('余额 ¥128.50')).toBeTruthy()
+    expect(api.payments.balance).toHaveBeenCalledTimes(1)
+    expect(api.payments.overview).not.toHaveBeenCalled()
+  })
+  it('keeps a placeholder and stays usable when the wallet cannot be read', async () => {
+    vi.mocked(api.payments.balance).mockRejectedValue(new Error('登录已过期，请重新登录'))
+    await ready()
+    const chip = await screen.findByLabelText('余额 加载中')
+    await waitFor(() => expect(chip.getAttribute('title')).toBe('登录已过期，请重新登录'))
+    fireEvent.click(chip)
+    const recharge = await screen.findByRole('dialog', { name: '账户充值' })
+    expect(within(recharge).getByLabelText('充值金额（元）')).toBeTruthy()
+  })
+  it('shows nothing for guests so the login prompt stays the only call to action', async () => {
+    state.account = { loggedIn: false }
+    await ready()
+    expect(screen.queryByLabelText(/^余额/)).toBeNull()
+    expect(api.payments.balance).not.toHaveBeenCalled()
   })
 })
 

@@ -45,6 +45,7 @@ async function updateRequest(
 export const api: RendererApi = {
   payments: {
     overview: () => request('payment-overview'),
+    balance: () => request('payment-balance'),
     create: (input) => request('payment-create', input),
     order: (id) => request('payment-order', { id }),
     verify: (id) => request('payment-verify', { id }),

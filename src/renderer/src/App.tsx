@@ -15,6 +15,7 @@ import { ImportModal } from './components/ImportModal'
 import { SessionPage } from './components/SessionPage'
 import { DiagnosticsModal } from './components/DiagnosticsModal'
 import { RechargeModal } from './components/RechargeModal'
+import { BalanceChip } from './components/BalanceChip'
 import { SettingsModal } from './components/SettingsModal'
 import { Modal } from './components/Modal'
 import { Toast, type ToastKind, type ToastState } from './components/Toast'
@@ -58,6 +59,7 @@ export default function App() {
   const [panel, setPanel] = useState<Panel>(null)
   const [item, setItem] = useState<ApiKeyInfo | null>(null)
   const [created, setCreated] = useState<CreatedKey | null>(null)
+  const [walletTick, setWalletTick] = useState(0)
   const [restoreTarget, setRestoreTarget] = useState<AgentState | null>(null)
   const [connectionTarget, setConnectionTarget] = useState<AgentState | null>(null)
   const [sessionSource, setSessionSource] = useState('')
@@ -113,6 +115,7 @@ export default function App() {
   }, [toast])
   const close = () => {
     if (!busy) {
+      if (panel === 'charge') setWalletTick((tick) => tick + 1)
       setPanel(null)
       setItem(null)
       setCreated(null)
@@ -258,6 +261,7 @@ export default function App() {
           </div>
         </div>
         <div className="top-actions">
+          <BalanceChip state={state} refresh={walletTick} onOpen={() => setPanel('charge')} />
           <button className="btn charge-btn sm" onClick={() => setPanel('charge')}>
             <span aria-hidden="true">＋</span>充值
           </button>
@@ -709,7 +713,10 @@ export default function App() {
           afterAuth.current = 'charge'
           setPanel('login')
         }}
-        onPaid={() => void load()}
+        onPaid={() => {
+          setWalletTick((tick) => tick + 1)
+          void load()
+        }}
       />
       {panel === 'account' && (
         <Modal open title="我的账户" onClose={close} width={420} busy={busy}>

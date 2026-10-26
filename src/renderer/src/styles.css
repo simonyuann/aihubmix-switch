@@ -517,6 +517,35 @@ code,
   border-color: var(--border);
   background: #fff;
 }
+.balance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: #f7f9fc;
+  border-radius: 7px;
+  padding: 5px 9px;
+  font-size: 11px;
+  color: #6b7484;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.balance-chip strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2632;
+  font-variant-numeric: tabular-nums;
+}
+.balance-chip svg {
+  color: #9aa2af;
+}
+.balance-chip:hover {
+  border-color: var(--border-strong);
+  background: #fff;
+}
+.balance-chip-error strong {
+  color: #b4442f;
+}
 .coming-soon {
   color: #9aa2af;
   font-size: 9px;
@@ -1702,6 +1731,9 @@ code,
   }
   .top-actions {
     gap: 10px;
+  }
+  .balance-chip span {
+    display: none;
   }
   .account-btn > span:last-child {
     display: none;

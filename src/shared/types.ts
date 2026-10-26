@@ -236,8 +236,14 @@ export interface RechargeOverview {
   methods: RechargeMethod[]
   orders: RechargeOrder[]
 }
+export interface WalletBalance {
+  email: string
+  balance: number | null
+  currency: string
+}
 export interface PaymentsApi {
   overview(): Promise<RechargeOverview>
+  balance(): Promise<WalletBalance>
   create(input: { amount: string; method: string }): Promise<RechargeOrder>
   order(id: number): Promise<RechargeOrder>
   verify(id: number): Promise<RechargeOrder>

@@ -193,6 +193,11 @@ export function createPreviewApi(): RendererApi {
   let wallet = 128.5
   return {
     payments: {
+      balance: async () => ({
+        email: state.account.email || 'preview@example.com',
+        balance: wallet,
+        currency: 'CNY'
+      }),
       overview: async () => ({
         enabled: true,
         email: state.account.email || 'preview@example.com',

@@ -856,7 +856,13 @@ mod tests {
             .map(|e| e.path())
             .find(|p| p.is_dir())
             .expect("migration created a backup generation");
-        assert_eq!(fs::read_dir(&backup).unwrap().count(), 201);
+        let copies = fs::read_dir(&backup)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(copies.iter().filter(|n| n.ends_with(".jsonl")).count(), 201);
+        assert!(backup.join("state-0.sqlite").is_file());
         assert!(text(&backup.join("0.jsonl"))
             .unwrap()
             .contains("\"openai\""));
@@ -880,7 +886,10 @@ mod tests {
         let batch = plan(&ctx, &backup).unwrap();
         assert_eq!(batch.files.len(), 1);
         assert_eq!(batch.files[0].path, file);
-        assert_eq!(fs::read_dir(&backup).unwrap().count(), 1);
+        // One session copy plus the index snapshot; the other provider is untouched.
+        assert!(backup.join("0.jsonl").is_file());
+        assert!(backup.join("state-0.sqlite").is_file());
+        assert_eq!(fs::read_dir(&backup).unwrap().count(), 2);
         assert!(guard_migration(MAX_MIGRATE_FILES, MAX_MIGRATE_BYTES).is_ok());
         let too_many = guard_migration(MAX_MIGRATE_FILES + 1, 0).unwrap_err();
         assert!(too_many.contains(&(MAX_MIGRATE_FILES + 1).to_string()));
