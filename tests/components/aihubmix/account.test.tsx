@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import {
   fireEvent,
   render,
@@ -154,6 +155,26 @@ describe("AIHubMix account integration", () => {
     resolve({ id: "stale" });
     await Promise.resolve();
     expect(mocks.add).not.toHaveBeenCalled();
+  });
+  it("loads the account inside CC StrictMode", async () => {
+    mocks.dispatch.mockResolvedValue({
+      relayBaseUrl: "https://example.test",
+      account: { loggedIn: false },
+      localKeys: [],
+      legacyData: false,
+      storageError: null,
+    });
+    wrap(
+      <StrictMode>
+        <AccountPage />
+      </StrictMode>,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("服务地址")).toHaveValue(
+        "https://example.test",
+      ),
+    );
+    expect(screen.getByRole("button", { name: "登录" })).toBeEnabled();
   });
   it("discards stale account details after navigating away", async () => {
     let resolve!: (value: unknown) => void;

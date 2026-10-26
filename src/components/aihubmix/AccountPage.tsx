@@ -72,14 +72,17 @@ export function AccountPage() {
     } catch (e) {
       if (rev === revision.current) setError(String(e));
     } finally {
-      gate.current = false;
-      if (rev === revision.current) setBusy(false);
+      if (rev === revision.current) {
+        gate.current = false;
+        setBusy(false);
+      }
     }
   }
   useEffect(() => {
     void run();
     return () => {
       revision.current++;
+      gate.current = false;
     };
   }, []);
   async function keyAction(command: string, payload: unknown) {
