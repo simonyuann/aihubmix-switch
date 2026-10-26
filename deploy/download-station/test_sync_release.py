@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import os
 import time
+from urllib.error import HTTPError
 from update_feed import FORMATS, ORIGIN, PREFIX, update_file
 
 
@@ -63,14 +64,21 @@ class SyncReleaseTests(unittest.TestCase):
                    'published_at': '2026-10-25T00:00:00Z', 'assets': assets}
         responses = {self.module.API_URL: json.dumps(release).encode()}
         responses.update({item['browser_download_url']: content[item['name']] for item in assets})
+        responses[self.module.LATEST_MANIFEST_URL] = content['latest.json']
         return responses
 
     def install_responses(self, responses):
         def fake_urlopen(req, timeout=0):
-            return io.BytesIO(responses[req.full_url])
+            result = responses[req.full_url]
+            if isinstance(result, Exception):
+                raise result
+            return io.BytesIO(result)
         self.module.urlopen = fake_urlopen
 
     def test_classification_and_checksum_parsing(self):
+        self.assertEqual(
+            self.module.LATEST_MANIFEST_URL,
+            'https://github.com/simonyuann/aihubmix-switch/releases/latest/download/latest.json')
         self.assertEqual(self.module.platform_for('AIHubMix-Switch_1.0_windows-x64-setup.exe'), 'Windows')
         self.assertEqual(self.module.platform_for('AIHubMix-Switch_1.0_macos-arm64.dmg'), 'macOS')
         self.assertEqual(self.module.platform_for('AIHubMix-Switch_1.0_linux-x64.AppImage'), 'Linux')
@@ -79,6 +87,18 @@ class SyncReleaseTests(unittest.TestCase):
         self.assertEqual(self.module.parse_checksums(f'{digest}  app.exe')['app.exe'], digest)
         with self.assertRaises(ValueError):
             self.module.validate_name('../app.exe')
+
+    def test_api_rate_limit_falls_back_to_public_release_files(self):
+        responses = self.release()
+        responses[self.module.API_URL] = HTTPError(
+            self.module.API_URL, 403, 'rate limit exceeded', {}, None)
+        self.install_responses(responses)
+        self.assertTrue(self.module.sync_once())
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.3')
+        self.assertFalse(self.module.sync_once())
+        state = json.loads(self.module.STATE.read_text())
+        self.assertEqual(state['tag'], 'v1.2.3')
+        self.assertTrue(state['asset_sizes'])
 
     def test_atomic_publish_retention_and_checksum_failure(self):
         self.install_responses(self.release())

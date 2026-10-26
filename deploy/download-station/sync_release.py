@@ -9,6 +9,8 @@ import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 from update_feed import prepare_feed
 
@@ -18,6 +20,8 @@ INCOMING = BASE / 'incoming'
 CURRENT = BASE / 'current'
 STATE = BASE / 'release-sync.json'
 API_URL = 'https://api.github.com/repos/simonyuann/aihubmix-switch/releases/latest'
+DOWNLOAD_PREFIX = 'https://github.com/simonyuann/aihubmix-switch/releases/download/'
+LATEST_MANIFEST_URL = 'https://github.com/simonyuann/aihubmix-switch/releases/latest/download/latest.json'
 MAX_ASSET_BYTES = 2 * 1024**3
 PLATFORM_SUFFIXES = {
     'Windows': ('.exe', '.msi', '.msix', '.msixbundle', '.zip'),
@@ -27,11 +31,13 @@ PLATFORM_SUFFIXES = {
 
 
 def request(url):
-    return Request(url, headers={
-        'Accept': 'application/vnd.github+json',
-        'User-Agent': 'csmy-release-mirror/1.0',
-        'X-GitHub-Api-Version': '2022-11-28',
-    })
+    headers = {'User-Agent': 'csmy-release-mirror/1.0'}
+    if url.startswith('https://api.github.com/'):
+        headers.update({
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+        })
+    return Request(url, headers=headers)
 
 
 def platform_for(name):
@@ -61,6 +67,69 @@ def parse_checksums(value):
     return result
 
 
+def sha256_value(raw):
+    value = str(raw.get('sha256', ''))
+    digest = str(raw.get('digest', ''))
+    if not value and digest.startswith('sha256:'):
+        value = digest.removeprefix('sha256:')
+    return value.lower() if re.fullmatch(r'[0-9a-fA-F]{64}', value) else None
+
+
+def fallback_release():
+    """Discover the latest stable release without using the rate-limited API."""
+    with urlopen(request(LATEST_MANIFEST_URL), timeout=30) as response:
+        manifest_bytes = response.read(1024 * 1024 + 1)
+    if len(manifest_bytes) > 1024 * 1024:
+        raise ValueError('updater manifest is too large')
+    manifest = json.loads(manifest_bytes)
+    version = str(manifest.get('version', ''))
+    if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?', version):
+        raise ValueError('updater manifest has an unsupported version')
+    tag = 'v' + version
+    base_url = DOWNLOAD_PREFIX + quote(tag, safe='') + '/'
+    checksum_url = base_url + 'SHA256SUMS.txt'
+    with urlopen(request(checksum_url), timeout=30) as response:
+        checksum_bytes = response.read(1024 * 1024 + 1)
+    if len(checksum_bytes) > 1024 * 1024:
+        raise ValueError('checksum file is too large')
+    checksums = parse_checksums(checksum_bytes.decode('utf-8'))
+    if checksums.get('latest.json') != hashlib.sha256(manifest_bytes).hexdigest():
+        raise ValueError('latest updater manifest failed checksum verification')
+    assets = []
+    for name, digest in checksums.items():
+        if name == 'latest.json' or platform_for(name.removesuffix('.sig')):
+            assets.append({
+                'id': 0,
+                'name': name,
+                'size': None,
+                'sha256': digest,
+                'browser_download_url': base_url + quote(name, safe=''),
+            })
+    assets.append({
+        'id': 0,
+        'name': 'SHA256SUMS.txt',
+        'size': None,
+        'sha256': hashlib.sha256(checksum_bytes).hexdigest(),
+        'browser_download_url': checksum_url,
+    })
+    return {
+        'tag_name': tag,
+        'draft': False,
+        'prerelease': False,
+        'published_at': None,
+        'assets': assets,
+    }
+
+
+def latest_release():
+    try:
+        with urlopen(request(API_URL), timeout=30) as response:
+            return json.load(response)
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        print(f'GitHub API unavailable ({type(exc).__name__}); using release files', flush=True)
+        return fallback_release()
+
+
 def release_assets(release):
     tag = str(release.get('tag_name', ''))
     if not re.fullmatch(r'v?[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?', tag):
@@ -72,13 +141,18 @@ def release_assets(release):
     platforms = set()
     for raw in release.get('assets', []):
         name = validate_name(str(raw.get('name', '')))
-        size = int(raw.get('size', -1))
+        raw_size = raw.get('size')
+        size = int(raw_size) if raw_size is not None else None
+        sha256 = sha256_value(raw)
         url = str(raw.get('browser_download_url', ''))
-        if not url.startswith('https://github.com/simonyuann/aihubmix-switch/releases/download/'):
+        if not url.startswith(DOWNLOAD_PREFIX):
             raise ValueError(f'unexpected asset URL for {name}')
-        if not 0 < size <= MAX_ASSET_BYTES:
+        if size is not None and not 0 < size <= MAX_ASSET_BYTES:
             raise ValueError(f'invalid asset size for {name}')
-        item = {'id': int(raw.get('id', 0)), 'name': name, 'size': size, 'url': url}
+        if size is None and sha256 is None:
+            raise ValueError(f'asset has neither size nor checksum: {name}')
+        item = {'id': int(raw.get('id', 0)), 'name': name, 'size': size,
+                'sha256': sha256, 'url': url}
         if name == 'SHA256SUMS.txt':
             checksum = item
             continue
@@ -107,19 +181,22 @@ def download(asset, destination):
             if not chunk:
                 break
             total += len(chunk)
-            if total > asset['size'] or total > MAX_ASSET_BYTES:
+            if total > MAX_ASSET_BYTES or (asset['size'] is not None and total > asset['size']):
                 raise ValueError(f'asset exceeded declared size: {asset["name"]}')
             output.write(chunk)
             digest.update(chunk)
         output.flush()
         os.fsync(output.fileno())
-    if total != asset['size']:
+    if asset['size'] is not None and total != asset['size']:
         raise ValueError(f'asset size mismatch: {asset["name"]}')
     return digest.hexdigest()
 
 
 def fingerprint(tag, assets, checksum):
-    values = [(item['id'], item['name'], item['size']) for item in [*assets, checksum]]
+    values = []
+    for item in [*assets, checksum]:
+        identity = item['sha256'] or f'{item["id"]}:{item["size"]}'
+        values.append((item['name'], identity))
     payload = json.dumps([tag, values], separators=(',', ':'), ensure_ascii=True).encode()
     return hashlib.sha256(payload).hexdigest()
 
@@ -140,13 +217,18 @@ def published_is_current(release_dir, assets, checksum, expected_fingerprint):
         return False
     if current_release() != release_dir.resolve() or state.get('fingerprint') != expected_fingerprint:
         return False
+    stored_sizes = state.get('asset_sizes', {})
     expected = [*assets, checksum]
     expected_paths = set()
     for item in expected:
         relative = Path(item.get('platform', '')) / item['name']
         expected_paths.add(relative.as_posix())
         path = release_dir / relative
-        if not path.is_file() or path.stat().st_size != item['size']:
+        expected_size = item['size']
+        if expected_size is None:
+            expected_size = stored_sizes.get(relative.as_posix())
+        if (not isinstance(expected_size, int) or expected_size <= 0
+                or not path.is_file() or path.stat().st_size != expected_size):
             return False
     actual_paths = {path.relative_to(release_dir).as_posix()
                     for path in release_dir.rglob('*') if path.is_file()}
@@ -179,8 +261,7 @@ def sync_once():
     for abandoned in INCOMING.glob('sync-*'):
         if abandoned.is_dir() and not abandoned.is_symlink():
             shutil.rmtree(abandoned)
-    with urlopen(request(API_URL), timeout=30) as response:
-        release = json.load(response)
+    release = latest_release()
     tag, assets, checksum_asset = release_assets(release)
     identity = fingerprint(tag, assets, checksum_asset)
     directory_name = f'{tag}-{identity[:12]}'
@@ -214,10 +295,15 @@ def sync_once():
         pointer = BASE / ('.current-' + secrets.token_hex(8))
         pointer.symlink_to(Path('releases') / directory_name)
         os.replace(pointer, CURRENT)
+        asset_sizes = {
+            path.relative_to(destination).as_posix(): path.stat().st_size
+            for path in destination.rglob('*') if path.is_file() and path.name != 'updater.json'
+        }
         atomic_json(STATE, {
             'tag': tag,
             'fingerprint': identity,
             'asset_count': len(assets),
+            'asset_sizes': asset_sizes,
             'published_at': release.get('published_at'),
             'synced_at': datetime.now(timezone.utc).isoformat(),
         })

@@ -6,4 +6,6 @@
 
 `/updates/aihubmix-switch/latest.json` 返回当前完整版本的清单；`/updates/aihubmix-switch/v<版本>/<文件名>` 返回相应签名包，均直接读取本地磁盘，不代理上游。旧版本目录保留 7 天，公开目录仍只展示当前版本。服务器启动后同步一次，以补齐已有 Release 的清单和签名；同步失败保持上一个完整版本。
 
+同步器默认读取 GitHub Release API；共享出口触发未认证 API 限流时，会自动从 Release 的公开 `latest.json` 和 `SHA256SUMS.txt` 发现同一稳定版本并继续同步，不需要在服务器保存 GitHub Token。
+
 本地回归：`python3 -m unittest discover -s deploy/download-station -p 'test_*.py'`。测试覆盖校验失败不切换、异常清单不切换、版本切换后旧包可下载、保留期限、目录限制及手工持久化文件保留。
