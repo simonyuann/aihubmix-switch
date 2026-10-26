@@ -79,6 +79,8 @@ Windows 安装版、macOS App、Linux AppImage / deb 支持对应格式的原生
 
 应用数据：macOS 为 `~/Library/Application Support/aihubmix-switch/`，Windows 为 `%APPDATA%/aihubmix-switch/`，Linux 为 `~/.local/share/aihubmix-switch/`。新版设置 `state-v2.json`、加密凭据 `vault-v2.bin`、备份 `backups-v2/`。
 
+Codex 导入使用 API Key，无需先登录 ChatGPT。导入时会将 `cli_auth_credentials_store` 设为 `"file"`，确保 CLI 读取写入的 `auth.json`；还原时恢复原设置。若启动后仍出现登录选择页，请确认终端与本应用使用相同的 `CODEX_HOME`，并通过 `codex login status` 检查凭据识别情况。
+
 从 Electron 升级时需要重新登录或粘贴 Key；旧 `state.json` 和 `backups/` 完整保留，已写入的智能体配置不会自动更改。旧备份需通过数据目录访问，不会自动导入新版还原记录。
 
 ## 开发

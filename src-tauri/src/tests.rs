@@ -49,6 +49,37 @@ fn apply(ctx: &Context, agent: &str, key: &str, previous: Option<&Applied>) -> A
 }
 
 #[test]
+fn codex_import_selects_file_credentials_and_restores_the_original_store() {
+    for store in [None, Some("keyring"), Some("auto"), Some("ephemeral")] {
+        let (_dir, ctx) = setup();
+        let paths = ctx.paths("codex").unwrap();
+        if let Some(store) = store {
+            atomic_write(
+                &paths[0],
+                format!("cli_auth_credentials_store = \"{store}\"\n").as_bytes(),
+            )
+            .unwrap();
+        }
+        let first = apply(&ctx, "codex", "first-key", None);
+        let record = apply(&ctx, "codex", "second-key", Some(&first));
+        let doc: Value = toml_edit::de::from_str(&fs::read_to_string(&paths[0]).unwrap()).unwrap();
+        assert_eq!(doc["cli_auth_credentials_store"], "file");
+        let auth = read(&paths[1]);
+        assert_eq!(auth["auth_mode"], "apikey");
+        assert_eq!(auth["OPENAI_API_KEY"], "second-key");
+        agents::restore(&ctx, "codex", &record).unwrap();
+        if let Some(store) = store {
+            let doc: Value =
+                toml_edit::de::from_str(&fs::read_to_string(&paths[0]).unwrap()).unwrap();
+            assert_eq!(doc["cli_auth_credentials_store"], store);
+        } else {
+            assert!(!paths[0].exists());
+        }
+        assert!(!paths[1].exists());
+    }
+}
+
+#[test]
 fn codex_preserves_comments_and_other_tables_and_restores_both_files() {
     let (_dir, ctx) = setup();
     let paths = ctx.paths("codex").unwrap();

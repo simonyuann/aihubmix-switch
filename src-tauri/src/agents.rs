@@ -405,6 +405,8 @@ fn changes(
             let mut config = vec![
                 (path(&["model_provider"]), json!("csmy")),
                 (path(&["model"]), json!(model)),
+                // The imported credential lives in auth.json, not the OS keyring.
+                (path(&["cli_auth_credentials_store"]), json!("file")),
                 (
                     path(&["model_providers", "csmy"]),
                     json!({"name":"AIHubMix", "base_url":gateway, "wire_api":options.codex_wire_api, "requires_openai_auth":true}),
