@@ -6,6 +6,10 @@ fn main() {
         println!("{}", cc_switch_lib::product::update_format());
         return;
     }
+    if std::env::args().nth(1).as_deref() == Some("--print-update-install-mode") {
+        println!("{}", cc_switch_lib::product::update_install_mode());
+        return;
+    }
     // 在 Linux 上设置 WebKit 环境变量以解决 DMA-BUF 渲染问题
     // 某些 Linux 系统（如 Debian 13.2、Nvidia GPU）上 WebKitGTK 的 DMA-BUF 渲染器可能导致白屏/黑屏
     // 参考: https://github.com/tauri-apps/tauri/issues/9394

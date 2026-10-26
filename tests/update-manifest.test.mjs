@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { formats, generateManifest } from '../scripts/generate-update-manifest.mjs'
+import { formats, generateManifest, manifestName } from '../scripts/generate-update-manifest.mjs'
 import { verifyUpdateSignature } from '../scripts/verify-update-signature.mjs'
 const folder = new URL('../src-tauri/fixtures/updater/', import.meta.url)
 const payload = await readFile(new URL('payload.bin', folder))
@@ -71,8 +71,15 @@ test('manifest binds all installation formats and every package has a valid sign
 test('production updater checks only the download station', async () => {
   const config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'))
   assert.deepEqual(config.plugins.updater.endpoints, [
-    'https://dl.csmy.fun:23457/updates/aihubmix-switch/latest.json'
+    'https://dl.csmy.fun:23457/updates/aihubmix-switch/latest-v2.json'
   ])
   assert.equal(config.plugins.updater.requireSignedVersion, true)
   assert.equal(config.plugins.updater.allowDowngrades, false)
+})
+
+test('macOS 12+ releases use a distinct feed from macOS 11 legacy clients', () => {
+  assert.equal(manifestName('1.0.2'), 'latest.json')
+  assert.equal(manifestName('2.0.0'), 'latest-v2.json')
+  assert.equal(manifestName('3.0.0'), 'latest-v2.json')
+  assert.throws(() => manifestName('2.0.0-rc.1'))
 })

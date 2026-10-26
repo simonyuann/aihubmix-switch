@@ -64,3 +64,7 @@
 - [ ] Review update URLs, product identity, independent data paths and absence of old parallel agent/proxy modules.
 - [ ] Inspect the account page and CC UI with browser/desktop tools as available; record actual verification and any platform-specific limitations.
 - [ ] Commit reviewed changes and document the final source baseline, development commands, migration behavior and validated artifacts.
+
+### Final review ruling (2026-10-26)
+
+Portable detection now follows native bundle type with `portable.ini` fallback, and Rust rejects portable/unsupported automatic installation before any update check or download. CI packaging checks the actual standalone executable without a marker and its manual installation mode. For the enforced macOS 11 boundary, the v2 client and manifest use the same service/key on `latest-v2.json`; legacy `latest.json` only serves the last validated 1.x snapshot, retained beyond routine cleanup, or 404 when unavailable. This justified feed-path transition preserves all six format contracts and requires manual initial 1.x→2.x installation on every platform. Deploy server routing before any v2 publication. Focused mirror/manifests verification is recorded in the backend report; full desktop/cross-platform verification remains separately recorded by the integration owner.

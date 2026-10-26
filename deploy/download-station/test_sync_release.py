@@ -9,7 +9,7 @@ import unittest
 import os
 import time
 from urllib.error import HTTPError
-from update_feed import FORMATS, ORIGIN, PREFIX, update_file
+from update_feed import FORMATS, ORIGIN, PREFIX, update_file, manifest_name
 
 
 class FakeResponse(io.BytesIO):
@@ -57,7 +57,8 @@ class SyncReleaseTests(unittest.TestCase):
             }
         for suffix in ('macos-arm64.dmg', 'macos-x64.dmg'):
             content[f'AIHubMix-Switch_{version}_{suffix}'] = suffix.encode()
-        content['latest.json'] = json.dumps({'version': version, 'platforms': platforms}).encode()
+        feed_name = manifest_name(tag)
+        content[feed_name] = json.dumps({'version': version, 'platforms': platforms}).encode()
         lines = []
         for name, value in content.items():
             digest = '0' * 64 if bad_checksum and 'windows' in name else hashlib.sha256(value).hexdigest()
@@ -76,7 +77,7 @@ class SyncReleaseTests(unittest.TestCase):
         responses = {}
         responses.update({item['browser_download_url']: content[item['name']] for item in assets})
         responses[base_url + 'SHA256SUMS.txt'] = content['SHA256SUMS.txt']
-        responses[base_url + 'latest.json'] = content['latest.json']
+        responses[base_url + feed_name] = content[feed_name]
         responses[self.module.RELEASES_LATEST_URL] = (self.tag_url(tag), b'')
         responses[self.module.RELEASES_ATOM_URL] = self.atom(tag)
         return responses
@@ -228,6 +229,44 @@ class SyncReleaseTests(unittest.TestCase):
         self.assertFalse(self.module.sync_once())
         retained = [path.resolve() for path in self.module.RELEASES.iterdir() if path.is_dir()]
         self.assertEqual(retained, [repaired])
+
+    def test_v2_feed_never_replaces_legacy_and_last_1x_survives_cleanup(self):
+        self.install_responses(self.release('v1.0.1'))
+        self.module.sync_once()
+        old = self.module.current_release()
+        self.install_responses(self.release('v1.0.2'))
+        self.module.sync_once()
+        compatible = self.module.current_release()
+        self.install_responses(self.release('v2.0.0'))
+        self.module.sync_once()
+        current = self.module.current_release()
+        for directory in (old, compatible):
+            os.utime(directory, (time.time() - 8 * 86400,) * 2)
+        self.module.remove_stale_releases(current)
+        self.assertFalse(old.exists())
+        self.assertTrue(compatible.exists())
+        self.assertEqual(json.loads(update_file(PREFIX + 'latest.json', self.module.BASE).read_text())['version'], '1.0.2')
+        self.assertEqual(json.loads(update_file(PREFIX + 'latest-v2.json', self.module.BASE).read_text())['version'], '2.0.0')
+        self.assertEqual(len(json.loads((current / 'updater.json').read_text())['platforms']), 6)
+        self.assertFalse((current / 'latest.json').exists())
+        self.assertTrue((current / 'latest-v2.json').exists())
+
+    def test_no_verified_1x_returns_safe_not_found_instead_of_v2(self):
+        self.install_responses(self.release('v2.0.0'))
+        self.module.sync_once()
+        # A raw manifest is insufficient: it did not pass prepare_feed.
+        unverified = self.module.RELEASES / 'v1.0.2-unverified'
+        unverified.mkdir()
+        (unverified / 'latest.json').write_text('{"version":"1.0.2"}')
+        with self.assertRaises(FileNotFoundError):
+            update_file(PREFIX + 'latest.json', self.module.BASE)
+        self.assertEqual(json.loads(update_file(PREFIX + 'latest-v2.json', self.module.BASE).read_text())['version'], '2.0.0')
+
+    def test_1x_is_not_served_to_the_v2_feed(self):
+        self.install_responses(self.release('v1.0.2'))
+        self.module.sync_once()
+        with self.assertRaises(FileNotFoundError):
+            update_file(PREFIX + 'latest-v2.json', self.module.BASE)
 
     def test_truncated_download_is_retried_before_publishing(self):
         responses = self.release('v1.2.4')

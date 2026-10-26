@@ -11,6 +11,11 @@ export const formats = {
   'linux-x86_64-appimage': 'linux-x64.AppImage',
   'linux-x86_64-deb': 'linux-x64.deb'
 }
+// macOS 11-capable 1.x clients must never consume the macOS 12+ payload.
+export function manifestName(version) {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Release requires a stable semantic version')
+  return Number(version.split('.')[0]) >= 2 ? 'latest-v2.json' : 'latest.json'
+}
 export async function generateManifest(
   directory,
   version,
@@ -39,7 +44,11 @@ export async function generateManifest(
     }
   }
   const manifest = { version, notes, pub_date: date, platforms }
-  await writeFile(join(directory, 'latest.json'), JSON.stringify(manifest, null, 2) + '\n')
+  const feedName = manifestName(version)
+  const incompatibleFeed = feedName === 'latest-v2.json' ? 'latest.json' : 'latest-v2.json'
+  if ((await readdir(directory)).includes(incompatibleFeed))
+    throw new Error('Release directory contains an incompatible updater feed')
+  await writeFile(join(directory, feedName), JSON.stringify(manifest, null, 2) + '\n')
   const names = (await readdir(directory)).filter((name) => name !== 'SHA256SUMS.txt').sort()
   const checks = []
   for (const name of names) {

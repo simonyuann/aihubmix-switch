@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+#[cfg(test)]
 pub const AGENTS: [&str; 13] = [
     "codex",
     "claude",

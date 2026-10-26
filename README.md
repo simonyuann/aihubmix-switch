@@ -39,7 +39,7 @@ pnpm build:desktop
 
 ## 构建与更新
 
-保留 AIHubMix 更新公钥和下载站 `https://dl.csmy.fun:23457/updates/aihubmix-switch/latest.json`，更新按 macOS App、Windows NSIS/便携版、Linux AppImage/deb 区分目标。更新器要求签名绑定版本并禁止降级。便携版从 AIHubMix 发布页下载覆盖。
+保留 AIHubMix 更新公钥和下载站 `https://dl.csmy.fun:23457/updates/aihubmix-switch/latest-v2.json`，更新按 macOS App、Windows NSIS/便携版、Linux AppImage/deb 区分目标。更新器要求签名绑定版本并禁止降级。便携版通过原生打包格式检测并从 AIHubMix 发布页下载覆盖，后端拒绝便携版自动安装。旧版 `latest.json` 仅提供已验证的最后一个 1.x 版本；没有兼容快照时返回 404，不向 macOS 11 旧客户端提供 2.x。macOS 12+ 用户首次升级至 2.x 需手动下载安装包；Windows/Linux 旧客户端也保留在 1.x 通道，首次跨大版本同样手动安装。
 
 内部 Rust crate 和可执行文件继续采用 CC 名称以减少上游差异，安装包和公开下载文件使用 AIHubMix Switch 品牌。现有发布脚本保留 `AIHubMix-Switch_<版本>_<平台>` 命名，支持下载站同步；只有带版本 tag 的 CI 才能发布。此次开发分支不自动发布更新。
 
