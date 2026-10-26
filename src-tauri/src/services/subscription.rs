@@ -1318,23 +1318,22 @@ fn parse_gemini_file_json(content: &str) -> GeminiCredentials {
 
 // ── Gemini Token 刷新 ──────────────────────────────────────
 
-/// Gemini OAuth Client 凭据（公开值，来自 Gemini CLI 源码 google-gemini/gemini-cli）
-const GEMINI_OAUTH_CLIENT_ID: &str =
-    "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com";
-const GEMINI_OAUTH_CLIENT_SECRET: &str = "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";
-
 /// 使用 refresh_token 刷新 Gemini access token
 ///
 /// Google OAuth access_token 仅有 ~1h 有效期，需要定期用 refresh_token 刷新。
 /// refresh_token 本身不过期（除非用户撤销授权）。
 async fn refresh_gemini_token(refresh_token: &str) -> Option<String> {
+    // Official-account OAuth credentials are supplied by the distributor, never
+    // embedded from another application's public OAuth client.
+    let client_id = option_env!("GEMINI_OAUTH_CLIENT_ID")?;
+    let client_secret = option_env!("GEMINI_OAUTH_CLIENT_SECRET")?;
     let client = crate::proxy::http_client::get();
 
     let resp = client
         .post("https://oauth2.googleapis.com/token")
         .form(&[
-            ("client_id", GEMINI_OAUTH_CLIENT_ID),
-            ("client_secret", GEMINI_OAUTH_CLIENT_SECRET),
+            ("client_id", client_id),
+            ("client_secret", client_secret),
             ("refresh_token", refresh_token),
             ("grant_type", "refresh_token"),
         ])
