@@ -35,6 +35,8 @@ Linux 安装：Debian / Ubuntu 优先使用 `sudo apt install ./AIHubMix-Switch_
 
 ## 在线更新
 
+从 **v0.3.3** 起，更新清单与更新包统一使用 `https://dl.csmy.fun:23457`，用户设备无需连接 GitHub。旧客户端在 GitHub 不可达时需从[下载站](https://dl.csmy.fun:23457/)手动覆盖安装一次新版。服务端每 15 分钟完整同步并校验 GitHub 正式 Release 后原子发布；上游不可达时继续提供已同步版本。下载站公开目录仅展示最新版本，旧更新包保留 7 天供已检查更新的客户端完成下载。下载站部署文件与测试见 `deploy/download-station/`。
+
 带更新入口的版本启动时后台检查新版本，也可在「设置 → 软件更新」手动检查。下载并通过签名校验后，确认「安装并重启」即可覆盖升级，API Key、登录信息和备份保留。重启会短暂中断本地 Claude 兼容服务。没有更新入口的旧版本需先手动覆盖安装一次最新版，无需卸载。
 
 Windows 安装版、macOS App、Linux AppImage / deb 支持对应格式的原生更新；deb 可能需要系统授权。Windows 免安装版检测到更新后直接下载对应免安装文件，不会自动安装安装版。更新包的独立签名与版本绑定均由官方 Tauri Updater 验证，禁止降级。

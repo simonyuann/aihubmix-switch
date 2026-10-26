@@ -54,9 +54,7 @@ test('manifest binds all installation formats and every package has a valid sign
     )
     for (const asset of Object.values(manifest.platforms))
       assert.ok(
-        asset.url.startsWith(
-          `https://github.com/simonyuann/aihubmix-switch/releases/download/v${version}/`
-        )
+        asset.url.startsWith(`https://dl.csmy.fun:23457/updates/aihubmix-switch/v${version}/`)
       )
     const checks = await readFile(join(directory, 'SHA256SUMS.txt'), 'utf8')
     assert.equal(checks.trim().split('\n').length, 15)
@@ -68,4 +66,13 @@ test('manifest binds all installation formats and every package has a valid sign
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+test('production updater checks only the download station', async () => {
+  const config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'))
+  assert.deepEqual(config.plugins.updater.endpoints, [
+    'https://dl.csmy.fun:23457/updates/aihubmix-switch/latest.json'
+  ])
+  assert.equal(config.plugins.updater.requireSignedVersion, true)
+  assert.equal(config.plugins.updater.allowDowngrades, false)
 })

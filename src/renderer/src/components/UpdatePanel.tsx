@@ -11,15 +11,11 @@ export function UpdatePanel({ update, version }: { update: UpdateController; ver
   const percent = status.total
     ? Math.min(100, Math.floor((status.downloaded / status.total) * 100))
     : null
-  async function openDownload(
-    url = 'https://github.com/simonyuann/aihubmix-switch/releases/latest'
-  ) {
+  async function openDownload(url = 'https://dl.csmy.fun:23457/') {
     try {
       await window.api.openExternal(url)
     } catch {
-      setLinkError(
-        '无法打开浏览器，请访问 github.com/simonyuann/aihubmix-switch/releases/latest 下载。'
-      )
+      setLinkError('无法打开浏览器，请访问 dl.csmy.fun:23457 下载。')
     }
   }
   return (

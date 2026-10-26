@@ -133,15 +133,26 @@ impl Updates {
     }
 }
 fn allowed_url(url: &url::Url, version: &str) -> bool {
+    let prefix = format!("/updates/aihubmix-switch/v{version}/AIHubMix-Switch_{version}_");
+    let suffix = url.path().strip_prefix(&prefix);
     url.scheme() == "https"
-        && url.host_str() == Some("github.com")
+        && url.host_str() == Some("dl.csmy.fun")
+        && url.port() == Some(23457)
         && url.username().is_empty()
         && url.password().is_none()
         && url.query().is_none()
         && url.fragment().is_none()
-        && url.path().starts_with(&format!(
-            "/simonyuann/aihubmix-switch/releases/download/v{version}/AIHubMix-Switch_{version}_"
-        ))
+        && suffix.is_some_and(|suffix| {
+            [
+                "macos-arm64.app.tar.gz",
+                "macos-x64.app.tar.gz",
+                "windows-x64-setup.exe",
+                "windows-x64-portable.exe",
+                "linux-x64.AppImage",
+                "linux-x64.deb",
+            ]
+            .contains(&suffix)
+        })
 }
 fn readable_error(error: impl std::fmt::Display) -> String {
     let text = error.to_string();
@@ -150,6 +161,8 @@ fn readable_error(error: impl std::fmt::Display) -> String {
         "更新包签名校验失败，未安装更新。请重新检查更新或使用官网发布包。".into()
     } else if lower.contains("timeout") || lower.contains("timed out") {
         "检查或下载更新超时，请稍后重试。".into()
+    } else if lower.contains("error sending request") || lower.contains("connect") {
+        "无法连接下载站，请检查网络后重试，或打开下载页手动下载。".into()
     } else if lower.contains("404") {
         "更新清单尚未发布，请稍后重试或打开下载页。".into()
     } else {
@@ -317,14 +330,19 @@ mod tests {
     use super::*;
     #[test]
     fn update_urls_are_bound_to_repo_version_and_https() {
-        let good="https://github.com/simonyuann/aihubmix-switch/releases/download/v0.2.3/AIHubMix-Switch_0.2.3_macos-arm64.app.tar.gz";
+        let good="https://dl.csmy.fun:23457/updates/aihubmix-switch/v0.2.3/AIHubMix-Switch_0.2.3_macos-arm64.app.tar.gz";
         assert!(allowed_url(&url::Url::parse(good).unwrap(), "0.2.3"));
         for bad in [
             good.replace("https:", "http:"),
-            good.replace("simonyuann/", "other/"),
+            good.replace("aihubmix-switch/", "other/"),
             good.replace("/v0.2.3/", "/v0.2.1/"),
             format!("{good}?redirect=other"),
-            good.replace("github.com/", "github.com.evil.example/"),
+            good.replace("dl.csmy.fun:", "dl.csmy.fun.evil.example:"),
+            good.replace(":23457/", ":443/"),
+            good.replace("dl.csmy.fun:23457", "github.com"),
+            format!("{good}.exe"),
+            format!("{good}/other"),
+            format!("{good}#other"),
         ] {
             assert!(!allowed_url(&url::Url::parse(&bad).unwrap(), "0.2.3"));
         }

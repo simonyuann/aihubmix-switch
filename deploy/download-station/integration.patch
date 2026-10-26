@@ -1,0 +1,18 @@
+--- a/server.py
++++ b/server.py
+@@ -14,0 +15 @@
++from update_feed import PREFIX as UPDATE_PREFIX, update_file
+@@ -135,0 +137,8 @@
++            if url.path.startswith(UPDATE_PREFIX):
++                try:
++                    target = update_file(url.path, BASE)
++                    if target is None or not target.is_file():
++                        return self.reply(404, {'error': '更新文件尚未就绪'})
++                    return self.send_file(target)
++                except (ValueError, OSError):
++                    return self.reply(404, {'error': '更新文件不存在'})
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -11 +11 @@
+-COPY sync_release.py /app/sync_release.py
++COPY sync_release.py update_feed.py /app/

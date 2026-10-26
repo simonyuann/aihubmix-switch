@@ -439,7 +439,7 @@ describe('signed application updates', () => {
         canInstall: false,
         format: 'portable',
         downloadUrl:
-          'https://github.com/simonyuann/aihubmix-switch/releases/download/v0.2.3/AIHubMix-Switch_0.2.3_windows-x64-portable.exe'
+          'https://dl.csmy.fun:23457/updates/aihubmix-switch/v0.2.3/AIHubMix-Switch_0.2.3_windows-x64-portable.exe'
       })
     )
     await ready()
@@ -448,7 +448,7 @@ describe('signed application updates', () => {
     fireEvent.click(await within(dialog).findByRole('button', { name: '下载覆盖版本' }))
     await waitFor(() =>
       expect(api.openExternal).toHaveBeenCalledWith(
-        'https://github.com/simonyuann/aihubmix-switch/releases/download/v0.2.3/AIHubMix-Switch_0.2.3_windows-x64-portable.exe'
+        'https://dl.csmy.fun:23457/updates/aihubmix-switch/v0.2.3/AIHubMix-Switch_0.2.3_windows-x64-portable.exe'
       )
     )
     expect(api.updates.download).not.toHaveBeenCalled()

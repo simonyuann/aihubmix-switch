@@ -34,7 +34,7 @@ export async function generateManifest(
       throw new Error(`Invalid updater signature ${target}`)
     verifyUpdateSignature(await readFile(join(directory, name)), signature, publicKey, version)
     platforms[target] = {
-      url: `https://github.com/simonyuann/aihubmix-switch/releases/download/v${version}/${name}`,
+      url: `https://dl.csmy.fun:23457/updates/aihubmix-switch/v${version}/${name}`,
       signature
     }
   }
