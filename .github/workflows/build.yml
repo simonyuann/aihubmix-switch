@@ -67,6 +67,9 @@ jobs:
             target: x86_64-pc-windows-msvc
             bundles: nsis
     runs-on: ${{ matrix.os }}
+    env:
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux desktop dependencies
@@ -93,6 +96,8 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo clean --manifest-path src-tauri/Cargo.toml --package cc-switch --release --target ${{ matrix.target }}
       - name: Build native desktop executable
+        # OAuth client values are injected only into release builds, keeping
+        # Gemini's upstream subscription refresh behavior available.
         run: pnpm tauri build --target ${{ matrix.target }} --no-bundle -- --locked
         env:
           CI: 'true'
