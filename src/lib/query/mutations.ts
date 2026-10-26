@@ -481,6 +481,7 @@ export const useSaveSettingsMutation = () => {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
+      await queryClient.invalidateQueries({ queryKey: ["providers"] });
       await queryClient.invalidateQueries({
         queryKey: ["opencode", "runtime-models"],
       });

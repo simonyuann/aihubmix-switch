@@ -31,7 +31,13 @@ interface ToolCards {
   currentProviderId: string | null;
   warning?: string;
 }
-export function ToolPage({ app }: { app: AppId }) {
+export function ToolPage({
+  app,
+  onOpenProviders,
+}: {
+  app: AppId;
+  onOpenProviders?: () => void;
+}) {
   const client = useQueryClient();
   const {
     data,
@@ -137,6 +143,11 @@ export function ToolPage({ app }: { app: AppId }) {
         actions={
           <>
             <BalanceDisplay />
+            {onOpenProviders && (
+              <Button variant="outline" onClick={onOpenProviders}>
+                其他供应商
+              </Button>
+            )}
             <Button
               variant="outline"
               disabled={busy || isPending || !!loadError}

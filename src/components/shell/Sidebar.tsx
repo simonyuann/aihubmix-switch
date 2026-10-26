@@ -6,6 +6,9 @@ import {
   ArrowLeft,
   BookOpen,
   Folder,
+  Database,
+  Globe,
+  KeyRound,
   Server,
   ChartColumn,
   ChevronsLeft,
@@ -218,8 +221,14 @@ function MainDirectory({
   const { moneyShort } = useMoneyFormat();
   const { data: settings } = useSettingsQuery();
   const { hasUpdate } = useUpdate();
-  const { appStatus, todayCost, todayTokens, todayRequests, todayHitRate } =
-    useSidebarStatus();
+  const {
+    appStatus,
+    todayCost,
+    todayTokens,
+    todayRequests,
+    todayHitRate,
+    authNeedsAttention,
+  } = useSidebarStatus();
   // 顺序跟应用页拖出来的一致
   const apps = orderAppIds(settings?.appOrder).filter(
     (app) => visibleApps[app],
@@ -269,6 +278,16 @@ function MainDirectory({
     { page: "skills", label: "Skills", icon: SkillsIcon },
     { page: "prompts", label: t("nav.prompts"), icon: BookOpen },
     { page: "sessions", label: t("nav.sessions"), icon: History },
+    ...(settings?.enableOtherProviders
+      ? [
+          {
+            page: "auth" as const,
+            label: t("nav.auth"),
+            icon: KeyRound,
+            alert: authNeedsAttention ? t("nav.authNeedsReauth") : undefined,
+          },
+        ]
+      : []),
     {
       page: "usage",
       label: t("nav.usage"),
@@ -691,6 +710,9 @@ function NavItem({
 const SETTINGS_ITEMS: { section: SettingsSection; icon: IconComponent }[] = [
   { section: "general", icon: SlidersHorizontal },
   { section: "appConfig", icon: Folder },
+  { section: "routing", icon: Route },
+  { section: "network", icon: Globe },
+  { section: "data", icon: Database },
   { section: "about", icon: Info },
 ];
 
@@ -701,6 +723,7 @@ function SettingsDirectory({
   onExitSettings,
 }: DirectoryProps) {
   const { t } = useTranslation();
+  const { data: settings } = useSettingsQuery();
   const { hasUpdate } = useUpdate();
   const { data: version } = useQuery({
     queryKey: ["app-version"],
@@ -738,7 +761,11 @@ function SettingsDirectory({
         aria-label={t("nav.settings")}
         className={cn("flex min-h-0 flex-1 flex-col", collapsed && "mt-2")}
       >
-        {SETTINGS_ITEMS.map(({ section, icon }) => (
+        {SETTINGS_ITEMS.filter(
+          ({ section }) =>
+            settings?.enableOtherProviders ||
+            ["general", "appConfig", "about"].includes(section),
+        ).map(({ section, icon }) => (
           <NavItem
             key={section}
             collapsed={collapsed}

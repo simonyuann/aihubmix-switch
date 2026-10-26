@@ -45,6 +45,22 @@ describe("GeneralSection tray style", () => {
     platform.linux = false;
   });
 
+  it("keeps other providers disabled by default and saves explicit opt-in", () => {
+    const onAutoSave = renderSection();
+    const toggle = screen.getByRole("switch", { name: "启用其他供应商" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(onAutoSave).toHaveBeenCalledWith({ enableOtherProviders: true });
+  });
+
+  it("can hide other providers again without deleting their configuration", () => {
+    const onAutoSave = renderSection({ enableOtherProviders: true });
+    const toggle = screen.getByRole("switch", { name: "启用其他供应商" });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(onAutoSave).toHaveBeenCalledWith({ enableOtherProviders: false });
+  });
+
   it("defaults to the panel and saves the native menu when Menu is picked", () => {
     const onAutoSave = renderSection();
     const group = screen.getByRole("group", {

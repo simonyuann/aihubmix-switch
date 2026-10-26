@@ -389,6 +389,8 @@ export interface UsageDisplaySettings {
 // 应用设置类型（用于设置对话框与 Tauri API）
 // 存储在本地 ~/.aihubmix-switch/settings.json，不随数据库同步
 export interface Settings {
+  /** 主动开启后显示 CC 完整供应商工作区，默认关闭。 */
+  enableOtherProviders?: boolean;
   // ===== 设备级 UI 设置 =====
   // 是否在系统托盘（macOS 菜单栏）显示图标
   showInTray: boolean;

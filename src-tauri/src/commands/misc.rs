@@ -6119,7 +6119,7 @@ fn escape_windows_batch_value(value: &str) -> String {
 }
 /// Windows: Run a start command with common error handling
 #[cfg(target_os = "windows")]
-fn run_windows_start_command(args: &[&str], terminal_name: &str) -> Result<(), String> {
+pub(crate) fn run_windows_start_command(args: &[&str], terminal_name: &str) -> Result<(), String> {
     run_windows_start_command_with_env(args, terminal_name, &[])
 }
 

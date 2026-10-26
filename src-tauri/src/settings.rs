@@ -405,6 +405,9 @@ pub struct UsageDisplaySettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    /// Explicit device-local opt-in to the complete CC provider workspace.
+    #[serde(default)]
+    pub enable_other_providers: bool,
     // ===== 设备级 UI 设置 =====
     #[serde(default = "default_show_in_tray")]
     pub show_in_tray: bool,
@@ -644,6 +647,7 @@ fn default_session_auto_sync_enabled() -> bool {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            enable_other_providers: false,
             show_in_tray: true,
             minimize_to_tray_on_close: true,
             use_app_window_controls: false,

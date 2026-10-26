@@ -158,11 +158,11 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: false
 
-      - name: Verify uploaded assets and publish atomically
+      # The operator promotes the same verified files to dl.csmy.fun before publishing this draft.
+      - name: Verify uploaded assets and retain draft for download-station promotion
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ steps.upload_draft.outputs.id }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > release-info.json
           node scripts/verify-release-assets.mjs artifacts release-info.json
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false -f make_latest=true --jq '.html_url'

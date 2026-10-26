@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
+  otherProviders: false,
   dispatch: vi.fn(),
   setDecorations: vi.fn().mockResolvedValue(undefined),
 }));
@@ -18,9 +19,16 @@ vi.mock("@/lib/modelsDevAutoSync", () => ({
   syncModelsDevPricingOnStartup: vi.fn().mockResolvedValue({ skipped: true }),
   MODELS_DEV_SYNC_CONFIG_QUERY_KEY: ["models-dev-sync-config"],
 }));
-vi.mock("@/lib/query", () => ({
+vi.mock("@/lib/query", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/query")>()),
   useSettingsQuery: () => ({
-    data: { visibleApps: { claude: true, codex: true, gemini: true } },
+    data: {
+      visibleApps: { claude: true, codex: true, gemini: true },
+      firstRunNoticeConfirmed: true,
+      enableOtherProviders: mocks.otherProviders,
+      newLayoutNoticeConfirmed: true,
+      whatsNewSeenVersion: "99.0.0",
+    },
   }),
 }));
 vi.mock("@/contexts/UpdateContext", () => ({
@@ -37,6 +45,11 @@ vi.mock("@/hooks/useSidebarStatus", () => ({
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ setDecorations: mocks.setDecorations }),
+}));
+vi.mock("@/components/JsonEditor", () => ({
+  default: ({ value }: { value: string }) => (
+    <textarea readOnly value={value} />
+  ),
 }));
 import App from "@/App";
 const account = {
@@ -119,10 +132,30 @@ async function login() {
 beforeEach(() => {
   vi.clearAllMocks();
   loggedIn = false;
+  mocks.otherProviders = false;
   localStorage.clear();
   mocks.dispatch.mockImplementation(response);
 });
 describe("dedicated client account boundary", () => {
+  it("restores the original CC provider workspace only after opting in", async () => {
+    loggedIn = true;
+    mocks.otherProviders = true;
+    mount();
+    await screen.findByRole("navigation");
+    const add = await screen.findByRole("button", {
+      name: /^(添加供应商|provider.addProvider)$/,
+    });
+    fireEvent.click(add);
+    expect(
+      await screen.findByRole("heading", {
+        name: /^(添加供应商|provider.addNewProvider)$/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "平台分组" }),
+    ).toBeInTheDocument();
+  });
+
   it("does not mount tools or fetch wallet/keys before verifying login, including StrictMode", async () => {
     mount();
     await screen.findByRole("heading", { name: "登录你的账户" });

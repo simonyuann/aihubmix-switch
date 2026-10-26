@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Download,
-  ExternalLink,
   Github,
   Globe,
   Info,
   Loader2,
   RefreshCw,
-  Sparkles,
   Star,
   X,
 } from "lucide-react";
@@ -18,8 +16,6 @@ import { getVersion } from "@tauri-apps/api/app";
 import { settingsApi } from "@/lib/api";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { Badge } from "@/components/ui/badge";
-import { WhatsNewDialog } from "@/components/WhatsNewDialog";
-import { WHATS_NEW_ENTRIES, entriesUpTo } from "@/lib/whatsNew";
 import ccswitchLogo from "@/assets/icons/logo.svg";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
@@ -54,15 +50,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     () => appVersionCache === null,
   );
   const [isDownloading, setIsDownloading] = useState(false);
-  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [starPromptDismissed, setStarPromptDismissed] = useState(
     readStarPromptDismissed,
   );
-  const recentEntries = useMemo(
-    () => (version ? entriesUpTo(WHATS_NEW_ENTRIES, version) : []),
-    [version],
-  );
-
   const { hasUpdate, updateInfo, checkUpdate, resetDismiss, isChecking } =
     useUpdate();
 
@@ -93,33 +83,10 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     };
   }, []);
 
-  const handleOpenReleaseNotes = useCallback(async () => {
-    try {
-      const targetVersion = updateInfo?.availableVersion ?? version ?? "";
-      const displayVersion = targetVersion.startsWith("v")
-        ? targetVersion
-        : targetVersion
-          ? `v${targetVersion}`
-          : "";
-
-      if (!displayVersion) {
-        await settingsApi.openExternal(
-          "https://github.com/simonyuann/aihubmix-switch/releases",
-        );
-        return;
-      }
-
-      await settingsApi.openExternal(
-        `https://github.com/simonyuann/aihubmix-switch/releases/tag/${displayVersion}`,
-      );
-    } catch (error) {
-      console.error("[AboutSection] Failed to open release notes", error);
-      toast.error(t("settings.openReleaseNotesFailed"));
-    }
-  }, [t, updateInfo?.availableVersion, version]);
-
   const handleOpenGithub = useCallback(() => {
-    void settingsApi.openExternal("https://github.com/simonyuann/aihubmix-switch");
+    void settingsApi.openExternal(
+      "https://github.com/simonyuann/aihubmix-switch",
+    );
   }, []);
 
   const handleDismissStarPrompt = useCallback(() => {
@@ -262,9 +229,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               version: updateInfo.availableVersion,
             })}
           </p>
-          {updateInfo.notes && (
-            <p className="line-clamp-3 text-fg-2">{updateInfo.notes}</p>
-          )}
           {isPortable && (
             <p className="text-fg-2">{t("settings.portableUpdateHint")}</p>
           )}
@@ -287,31 +251,11 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           type="button"
           variant="neutral"
           size="compact"
-          onClick={() => settingsApi.openExternal("https://dl.csmy.fun:23457")}
+          onClick={() => settingsApi.openExternal("https://csmy.fun:23457/")}
         >
           <Globe className="h-3.5 w-3.5" />
           {t("settings.officialWebsite")}
         </Button>
-        <Button
-          type="button"
-          variant="neutral"
-          size="compact"
-          onClick={handleOpenReleaseNotes}
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          {t("settings.releaseNotes")}
-        </Button>
-        {recentEntries.length > 0 && (
-          <Button
-            type="button"
-            variant="neutral"
-            size="compact"
-            onClick={() => setWhatsNewOpen(true)}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            {t("whatsNew.recentTitle")}
-          </Button>
-        )}
       </div>
 
       {/* 下载与更新都走 AIHubMix 下载站，用户不再经过仓库页，邀 Star 单独占一行；按钮即 GitHub 入口。
@@ -350,12 +294,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           </div>
         </div>
       )}
-
-      <WhatsNewDialog
-        open={whatsNewOpen}
-        onClose={() => setWhatsNewOpen(false)}
-        entries={recentEntries}
-      />
     </div>
   );
 }

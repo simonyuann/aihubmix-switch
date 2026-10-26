@@ -370,7 +370,7 @@ export function SettingsPage({
       case "general":
         return (
           <GeneralSection
-            dedicatedClient
+            dedicatedClient={!settings.enableOtherProviders}
             settings={settings}
             onAutoSave={handleAutoSave}
             onOpenApps={onOpenApps}

@@ -277,7 +277,7 @@ fn handle_deeplink_url(
     focus_main_window: bool,
     source: &str,
 ) -> bool {
-    if product_policy::active() {
+    if product_policy::restricted() {
         return false;
     }
     if !url_str.starts_with("ccswitch://") {
@@ -813,7 +813,7 @@ pub fn run() {
                 app_state.db.is_providers_empty().unwrap_or(false);
 
             for app_type in
-                crate::app_config::AppType::all().filter(|t| !t.is_additive_mode() && !product_policy::active())
+                crate::app_config::AppType::all().filter(|t| !t.is_additive_mode() && !product_policy::restricted())
             {
                 if !crate::services::provider::should_import_default_config_on_startup(
                     &app_state,
@@ -847,7 +847,7 @@ pub fn run() {
                 }
             }
 
-            match if product_policy::active() { Ok(0) } else { app_state.db.init_default_official_providers() } {
+            match if product_policy::restricted() { Ok(0) } else { app_state.db.init_default_official_providers() } {
                 Ok(count) if count > 0 => {
                     log::info!("✓ Seeded {count} official provider(s)");
                 }
@@ -942,7 +942,7 @@ pub fn run() {
                 log::info!("✓ First-run welcome notice pending");
             }
 
-            if !product_policy::active() {
+            if !product_policy::restricted() {
             // 1.6. 自动同步累加模式应用的原生 providers 到数据库
             //
             // additive 模式的 import 函数按 id 幂等——
@@ -1336,7 +1336,7 @@ pub fn run() {
                 let manager = ClaudeAccountManager::new(data_dir.clone());
                 app.manage(commands::ClaudeAccountState(Arc::new(manager)));
                 let db = app.state::<AppState>().db.clone();
-                if !product_policy::active() { std::thread::spawn(move || {
+                if !product_policy::restricted() { std::thread::spawn(move || {
                     // 上次切换登录时崩溃、断电：先补完（配置操作在前面已补完，指针已落定）
                     crate::services::provider::claude_official::recover_login_switch(&db);
                     // 默认目录的设置、MCP 可能在 AIHubMix Switch 没运行时改过
@@ -1380,7 +1380,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let state = app_handle.state::<AppState>();
 
-                if !product_policy::active() {
+                if !product_policy::restricted() {
                 // 必须排在 auto-extract 之前：先把历史泄漏进 Gemini 共享片段的凭据
                 // 清干净，否则紧接着的提取会基于被污染的 live 再写一遍。
                 if let Err(e) =
@@ -1396,7 +1396,7 @@ pub fn run() {
 
                 // 定下各应用的直连 / 代理模式（处理旧版遗留的接管状态），再把代理模式的
                 // 应用接上。要排在通用配置片段的自动提取之后：它读的是直连的 live。
-                if !product_policy::active() { crate::mode::controller::startup(&state).await; }
+                if !product_policy::restricted() { crate::mode::controller::startup(&state).await; }
                 // #8268 测试版给 agy 装过包装脚本、改过 shell 启动文件，撤掉带标记的部分。
                 if let Err(e) =
                     crate::services::provider::agy_direct::migrate_legacy_launcher(&state.db)

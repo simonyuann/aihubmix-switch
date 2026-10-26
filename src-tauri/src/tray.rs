@@ -1289,7 +1289,7 @@ fn collect_app_snapshot(
 
     let profiles = crate::services::profile::ProfileScope::for_app(app)
         .filter(|_| {
-            !crate::product_policy::active()
+            !crate::product_policy::restricted()
                 && settings.show_profile_switcher
                 && !profiles.is_empty()
         })
@@ -1889,7 +1889,7 @@ fn app_entry(
             format!(
                 "{} · {}",
                 app_display_name(&snapshot.app),
-                if crate::product_policy::active() {
+                if crate::product_policy::restricted() {
                     "配置平台 API"
                 } else {
                     texts.add_provider
@@ -2315,7 +2315,7 @@ pub(crate) fn collect_panel_model(app_state: &AppState) -> Result<PanelModel, Ap
             header,
             attention: snapshot.needs_attention.then_some(texts.needs_attention),
             quota,
-            add_id: (!crate::product_policy::active() && snapshot.providers.is_empty())
+            add_id: (!crate::product_policy::restricted() && snapshot.providers.is_empty())
                 .then(|| format!("nav:add:{app}")),
             add_text: texts.add_provider.to_string(),
             rows,
@@ -2817,7 +2817,7 @@ pub fn show_main_window(app: &tauri::AppHandle) {
 /// 应用时只作用于该分组）；`profile_none_<scope>` 表示某分组"不使用项目"
 /// （只清该分组标记，不动配置）。
 pub fn handle_profile_tray_event(app: &tauri::AppHandle, event_id: &str) -> bool {
-    if crate::product_policy::active() {
+    if crate::product_policy::restricted() {
         return event_id.starts_with("profile_");
     }
     let Some(suffix) = event_id.strip_prefix("profile_") else {
@@ -3123,7 +3123,7 @@ pub fn schedule_tray_refresh(app: &tauri::AppHandle) {
 pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
     use crate::commands::CopilotAuthState;
     use futures::future::join_all;
-    if crate::product_policy::active() {
+    if crate::product_policy::restricted() {
         return;
     }
 
@@ -3237,7 +3237,7 @@ static PANEL_SCRIPT_QUERIES: Lazy<Mutex<HashMap<(AppType, String), std::time::In
 /// 后台补查一次——和主界面供应商卡片是同一个查询，结果写进 `UsageCache` 后面板跟着刷新。
 /// 自动查询间隔为 0（关掉了）的不查；在用的那家由 `refresh_all_usage_in_tray` 负责。
 pub(crate) async fn refresh_panel_provider_usage(app: &tauri::AppHandle) {
-    if crate::product_policy::active() {
+    if crate::product_policy::restricted() {
         return;
     }
     use crate::commands::CopilotAuthState;

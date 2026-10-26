@@ -71,6 +71,13 @@ pub async fn save_settings(
 ) -> Result<bool, String> {
     let existing = crate::settings::get_settings();
     let merged = merge_settings_for_save(settings, &existing);
+    let providers_mode_changed = merged.enable_other_providers != existing.enable_other_providers;
+    if providers_mode_changed && merged.enable_other_providers {
+        state
+            .db
+            .init_default_official_providers()
+            .map_err(|e| e.to_string())?;
+    }
     let unify_codex_changed =
         merged.unify_codex_session_history != existing.unify_codex_session_history;
     let unify_codex_enabled = merged.unify_codex_session_history;
@@ -84,6 +91,9 @@ pub async fn save_settings(
         || merged.codex_stack_auto_review_model != existing.codex_stack_auto_review_model;
     let tray_style_changed = merged.native_tray_menu != existing.native_tray_menu;
     crate::settings::update_settings(merged).map_err(|e| e.to_string())?;
+    if providers_mode_changed {
+        crate::tray::refresh_tray_menu(&app);
+    }
 
     // 原生托盘菜单 / 托盘面板当场切换，不用重启。
     if tray_style_changed {

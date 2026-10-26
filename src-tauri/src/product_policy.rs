@@ -13,6 +13,10 @@ pub fn activate() {
 pub fn active() -> bool {
     ACTIVE.load(Ordering::SeqCst)
 }
+/// Authentication remains mandatory in both modes; only provider restrictions opt out.
+pub fn restricted() -> bool {
+    active() && !crate::settings::get_settings().enable_other_providers
+}
 pub fn set_session(expires_at: u64) {
     SESSION_UNTIL.store(expires_at, Ordering::SeqCst);
 }
@@ -47,7 +51,7 @@ pub fn own_url(raw: &str) -> bool {
         && url.password().is_none()
 }
 pub fn require_url(raw: &str) -> Result<(), String> {
-    if !active() || own_url(raw) {
+    if !restricted() || own_url(raw) {
         Ok(())
     } else {
         Err("仅支持本平台 API，服务地址不可更改".into())
@@ -110,7 +114,7 @@ pub fn official_provider(app: &AppType, p: &Provider) -> bool {
     })
 }
 pub fn visible_provider(app: &AppType, p: &Provider) -> bool {
-    own_provider(app, p) || official_provider(app, p)
+    !restricted() || own_provider(app, p) || official_provider(app, p)
 }
 pub fn require_provider(app: &AppType, p: &Provider) -> Result<(), AppError> {
     require_session().map_err(AppError::InvalidInput)?;
@@ -123,9 +127,9 @@ pub fn require_provider(app: &AppType, p: &Provider) -> Result<(), AppError> {
     }
 }
 pub fn ipc_allowed(command: &str) -> Result<(), String> {
-    command_allowed(command, authenticated())
+    command_allowed(command, authenticated(), !restricted())
 }
-fn command_allowed(command: &str, signed_in: bool) -> Result<(), String> {
+fn command_allowed(command: &str, signed_in: bool, other_providers: bool) -> Result<(), String> {
     // Only these read-only/bootstrap calls and the guarded account dispatcher are public.
     if matches!(
         command,
@@ -144,6 +148,9 @@ fn command_allowed(command: &str, signed_in: bool) -> Result<(), String> {
     }
     if !signed_in {
         return Err("AUTH_REQUIRED: 请先登录账号".into());
+    }
+    if other_providers {
+        return Ok(());
     }
     if command.contains("skill") || command.contains("mcp") || command.contains("prompt") {
         return Ok(());
@@ -193,6 +200,42 @@ fn command_allowed(command: &str, signed_in: bool) -> Result<(), String> {
 mod tests {
     use super::*;
     #[test]
+    fn other_providers_are_an_explicit_persisted_opt_in() {
+        let settings: crate::settings::AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(!settings.enable_other_providers);
+        let enabled: crate::settings::AppSettings =
+            serde_json::from_str(r#"{"enableOtherProviders":true}"#).unwrap();
+        assert!(enabled.enable_other_providers);
+        assert_eq!(
+            serde_json::to_value(enabled).unwrap()["enableOtherProviders"],
+            true
+        );
+    }
+
+    #[test]
+    fn opting_in_restores_all_cc_commands_but_keeps_the_login_boundary() {
+        for command in [
+            "add_provider",
+            "update_provider",
+            "delete_provider",
+            "import_config_from_file",
+            "get_provider_editor_view",
+            "start_codex_oauth",
+            "apply_profile",
+            "start_proxy_server",
+            "set_proxy_route",
+            "set_proxy_stack_member",
+            "webdav_sync",
+            "s3_sync",
+            "sync_universal_provider",
+            "get_sessions",
+            "launch_session_terminal",
+        ] {
+            assert!(command_allowed(command, true, true).is_ok(), "{command}");
+            assert!(command_allowed(command, false, true).is_err(), "{command}");
+        }
+    }
+    #[test]
     fn official_exception_accepts_only_cc_seeds() {
         for seed in crate::database::OFFICIAL_SEEDS {
             let mut p = Provider::with_id(
@@ -233,7 +276,7 @@ mod tests {
             "start_proxy_server",
             "get_sessions",
         ] {
-            assert!(command_allowed(command, false).is_err());
+            assert!(command_allowed(command, false, false).is_err());
         }
         for command in [
             "add_provider",
@@ -247,12 +290,12 @@ mod tests {
             "add_custom_endpoint",
             "apply_profile",
         ] {
-            assert!(command_allowed(command, true).is_err());
+            assert!(command_allowed(command, true, false).is_err());
         }
         for command in ["aihubmix_dispatch", "get_init_error", "get_settings"] {
-            assert!(command_allowed(command, false).is_ok());
+            assert!(command_allowed(command, false, false).is_ok());
         }
-        assert!(command_allowed("get_providers", true).is_ok());
+        assert!(command_allowed("get_providers", true, false).is_ok());
         for command in [
             "upsert_mcp_server",
             "install_skill",
@@ -261,8 +304,8 @@ mod tests {
             "list_sessions",
             "sync_session_usage",
         ] {
-            assert!(command_allowed(command, true).is_ok(), "{command}");
-            assert!(command_allowed(command, false).is_err(), "{command}");
+            assert!(command_allowed(command, true, false).is_ok(), "{command}");
+            assert!(command_allowed(command, false, false).is_err(), "{command}");
         }
     }
     #[test]

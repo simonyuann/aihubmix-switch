@@ -13,6 +13,9 @@ use super::utils::for_each_jsonl_value;
 use super::utils::{
     extract_text, parse_timestamp_to_ms, path_basename, truncate_summary, TITLE_MAX_CHARS,
 };
+#[cfg(windows)]
+use crate::session_manager::terminal::powershell_quote as shell_escape;
+#[cfg(not(windows))]
 use crate::session_manager::terminal::shell_escape;
 
 const PROVIDER_ID: &str = "pi";

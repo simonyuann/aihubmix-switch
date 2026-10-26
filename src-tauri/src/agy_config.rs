@@ -308,15 +308,20 @@ pub(crate) fn remove_link(link: &Path) -> Result<(), AppError> {
 /// 认出私有目录再补上。
 pub fn resume_command(gemini_dir: Option<&Path>, conversation: &str) -> String {
     match gemini_dir {
-        Some(dir) => format!(
-            "agy {} --conversation={conversation}",
-            shell_word(&format!("--gemini_dir={}", dir.to_string_lossy()))
-        ),
+        Some(dir) => {
+            let argument = format!("--gemini_dir={}", dir.to_string_lossy());
+            #[cfg(windows)]
+            let argument = crate::session_manager::terminal::powershell_quote(&argument);
+            #[cfg(not(windows))]
+            let argument = shell_word(&argument);
+            format!("agy {argument} --conversation={conversation}")
+        }
         None => format!("agy --conversation={conversation}"),
     }
 }
 
 /// shell 里的一个词：只含安全字符时原样写，否则加单引号。
+#[cfg(not(windows))]
 fn shell_word(value: &str) -> String {
     let plain = !value.is_empty()
         && value

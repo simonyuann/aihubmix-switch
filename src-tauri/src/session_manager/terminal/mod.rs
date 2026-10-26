@@ -1,3 +1,6 @@
+// The macOS launchers remain in this module for their shared quoting regression tests.
+#![cfg_attr(windows, allow(dead_code))]
+
 use std::process::Command;
 
 pub fn launch_terminal(
@@ -10,25 +13,74 @@ pub fn launch_terminal(
         return Err("Resume command is empty".to_string());
     }
 
-    if !cfg!(target_os = "macos") {
-        return Err("Terminal resume is only supported on macOS".to_string());
+    #[cfg(target_os = "windows")]
+    {
+        let _ = custom_config;
+        launch_windows_resume(target, command, cwd)
     }
 
-    match target {
-        "terminal" => launch_macos_terminal(command, cwd),
-        "iTerm" | "iterm" => launch_iterm(command, cwd),
-        "ghostty" => launch_ghostty(command, cwd),
-        "kitty" => launch_kitty(command, cwd),
-        #[cfg(target_os = "macos")]
-        "otty" => launch_otty(command, cwd),
-        "wezterm" => launch_wezterm(command, cwd),
-        "kaku" => launch_kaku(command, cwd),
-        "alacritty" => launch_alacritty(command, cwd),
-        #[cfg(unix)]
-        "warp" => launch_warp(command, cwd),
-        "custom" => launch_custom(command, cwd, custom_config),
-        _ => Err(format!("Unsupported terminal target: {target}")),
+    #[cfg(not(target_os = "windows"))]
+    {
+        if !cfg!(any(target_os = "macos", target_os = "windows")) {
+            return Err("Terminal resume is only supported on macOS and Windows".to_string());
+        }
+
+        match target {
+            "terminal" => launch_macos_terminal(command, cwd),
+            "iTerm" | "iterm" => launch_iterm(command, cwd),
+            "ghostty" => launch_ghostty(command, cwd),
+            "kitty" => launch_kitty(command, cwd),
+            #[cfg(target_os = "macos")]
+            "otty" => launch_otty(command, cwd),
+            "wezterm" => launch_wezterm(command, cwd),
+            "kaku" => launch_kaku(command, cwd),
+            "alacritty" => launch_alacritty(command, cwd),
+            #[cfg(unix)]
+            "warp" => launch_warp(command, cwd),
+            "custom" => launch_custom(command, cwd, custom_config),
+            _ => Err(format!("Unsupported terminal target: {target}")),
+        }
     }
+}
+
+/// Windows session providers produce PowerShell commands. Encode the whole script so
+/// cmd/start and Windows Terminal cannot reinterpret quotes, Unicode or metacharacters.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_resume_script(command: &str, cwd: Option<&str>) -> String {
+    let mut script = String::from("$ErrorActionPreference = 'Stop'; ");
+    if let Some(dir) = cwd.filter(|dir| !dir.trim().is_empty()) {
+        script.push_str(&format!(
+            "Set-Location -LiteralPath {}; ",
+            powershell_quote(dir)
+        ));
+    }
+    script.push_str(command);
+    script
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn powershell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(target_os = "windows")]
+fn launch_windows_resume(target: &str, command: &str, cwd: Option<&str>) -> Result<(), String> {
+    use base64::Engine;
+    let bytes: Vec<u8> = windows_resume_script(command, cwd)
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let powershell = ["powershell", "-NoExit", "-EncodedCommand", &encoded];
+    let mut args = Vec::new();
+    match target {
+        "wt" => args.push("wt"),
+        "powershell" => {}
+        "cmd" | "terminal" => args.extend(["cmd", "/K"]),
+        _ => return Err(format!("Unsupported terminal target: {target}")),
+    }
+    args.extend(powershell);
+    crate::commands::misc::run_windows_start_command(&args, target)
 }
 
 fn launch_macos_terminal(command: &str, cwd: Option<&str>) -> Result<(), String> {
@@ -445,6 +497,53 @@ fn escape_osascript(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_resume_uses_literal_cwd_and_preserves_provider_command() {
+        let command = "pi --session 'C:\\会话\\it''s $(test).jsonl'";
+        assert_eq!(
+            windows_resume_script(command, Some("C:\\项目\\it's [draft] $HOME")),
+            format!("$ErrorActionPreference = 'Stop'; Set-Location -LiteralPath 'C:\\项目\\it''s [draft] $HOME'; {command}")
+        );
+        assert_eq!(
+            windows_resume_script(command, Some("  ")),
+            windows_resume_script(command, None)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_resume_executes_unicode_paths_without_shell_expansion() {
+        use base64::Engine;
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("项目 it's [draft] $HOME");
+        std::fs::create_dir(&cwd).unwrap();
+        let source = "C:\\会话\\it's $(throw 'injected').jsonl";
+        let command = format!(
+            "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); function pi {{ [Console]::WriteLine($args[1]) }}; pi --session {}; [Console]::WriteLine((Get-Location).Path)",
+            powershell_quote(source)
+        );
+        let script = windows_resume_script(&command, cwd.to_str());
+        let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand"])
+            .arg(base64::engine::general_purpose::STANDARD.encode(bytes))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            stdout
+                .trim_start_matches('\u{feff}')
+                .lines()
+                .collect::<Vec<_>>(),
+            vec![source, cwd.to_str().unwrap()]
+        );
+    }
 
     #[test]
     fn build_shell_command_keeps_command_without_cwd_prefix_when_not_provided() {

@@ -18,7 +18,7 @@ import { setSessionFixtures, setSettings } from "../msw/state";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
-const platform = vi.hoisted(() => ({ mac: false }));
+const platform = vi.hoisted(() => ({ mac: false, windows: false }));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -29,7 +29,11 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/platform", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/platform")>();
-  return { ...actual, isMac: () => platform.mac };
+  return {
+    ...actual,
+    isMac: () => platform.mac,
+    isWindows: () => platform.windows,
+  };
 });
 
 // jsdom 没有布局，虚拟列表一条都不渲染；这里让它把全部条目都画出来
@@ -85,6 +89,7 @@ describe("SessionManagerPage", () => {
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
     platform.mac = false;
+    platform.windows = false;
     window.localStorage.clear();
     // 项目分组默认收起；其余用例要直接看到会话，先把模拟项目都记成已展开
     window.localStorage.setItem(
@@ -461,6 +466,58 @@ describe("SessionManagerPage", () => {
       }),
     );
     expect(toastSuccessMock).toHaveBeenCalled();
+    launch.mockRestore();
+  });
+
+  it.each([undefined, "cmd", "powershell", "wt"])(
+    "resumes Windows sessions from the list and reader (%s)",
+    async (terminal) => {
+      platform.windows = true;
+      setSettings({ preferredTerminal: terminal });
+      const launch = vi
+        .spyOn(sessionsApi, "launchTerminal")
+        .mockResolvedValue(true);
+      renderPage("codex");
+      await screen.findByText("Alpha Session");
+      fireEvent.click(
+        within(sessionList()).getByRole("button", {
+          name: /中恢复 Alpha Session$/,
+        }),
+      );
+      await waitFor(() =>
+        expect(launch).toHaveBeenCalledWith({
+          command: "codex resume codex-session-1",
+          cwd: "/mock/codex",
+        }),
+      );
+      openRow("Alpha Session");
+      fireEvent.click(await screen.findByRole("button", { name: /中恢复$/ }));
+      await waitFor(() => expect(launch).toHaveBeenCalledTimes(2));
+      launch.mockRestore();
+    },
+  );
+
+  it("copies the resume command and offers terminal settings if launching fails", async () => {
+    platform.windows = true;
+    const settings = vi.fn();
+    const launch = vi
+      .spyOn(sessionsApi, "launchTerminal")
+      .mockRejectedValue(new Error("Terminal unavailable"));
+    renderPage("codex", { onOpenTerminalSettings: settings });
+    await screen.findByText("Alpha Session");
+    openRow("Alpha Session");
+    fireEvent.click(await screen.findByRole("button", { name: /中恢复$/ }));
+    await waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        "codex resume codex-session-1",
+      ),
+    );
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining("Terminal unavailable"),
+      expect.objectContaining({
+        action: expect.objectContaining({ onClick: settings }),
+      }),
+    );
     launch.mockRestore();
   });
 

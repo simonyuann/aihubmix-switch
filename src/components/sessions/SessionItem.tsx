@@ -234,6 +234,28 @@ export function SessionItem({
         )}
       </div>
 
+      {!selectionMode && launchTerminal && hasCommand && (
+        <HoverTip
+          content={t("sessionManager.resumeIn", {
+            defaultValue: "在 {{terminal}} 中恢复",
+            terminal: launchTerminal,
+          })}
+        >
+          <button
+            type="button"
+            aria-label={t("sessionManager.resumeInFor", {
+              defaultValue: "在 {{terminal}} 中恢复 {{title}}",
+              terminal: launchTerminal,
+              title,
+            })}
+            onClick={onLaunch}
+            className={cn(rowIconButton, "shrink-0 self-center")}
+          >
+            <Play className="h-[15px] w-[15px]" strokeWidth={1.5} />
+          </button>
+        </HoverTip>
+      )}
+
       <div className="relative w-[92px] shrink-0 self-stretch">
         <span
           className={cn(
@@ -253,27 +275,6 @@ export function SessionItem({
               menuOpen && "opacity-100",
             )}
           >
-            {launchTerminal && hasCommand && (
-              <HoverTip
-                content={t("sessionManager.resumeIn", {
-                  defaultValue: "在 {{terminal}} 中恢复",
-                  terminal: launchTerminal,
-                })}
-              >
-                <button
-                  type="button"
-                  aria-label={t("sessionManager.resumeInFor", {
-                    defaultValue: "在 {{terminal}} 中恢复 {{title}}",
-                    terminal: launchTerminal,
-                    title,
-                  })}
-                  onClick={onLaunch}
-                  className={rowIconButton}
-                >
-                  <Play className="h-[15px] w-[15px]" strokeWidth={1.5} />
-                </button>
-              </HoverTip>
-            )}
             {hasCommand && (
               <HoverTip
                 content={t("sessionManager.copyResumeCommand", {

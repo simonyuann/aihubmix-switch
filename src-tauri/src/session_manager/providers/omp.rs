@@ -54,6 +54,9 @@ pub fn load_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
 }
 
 fn resume_command(source: &str) -> Result<String, String> {
+    #[cfg(windows)]
+    use crate::session_manager::terminal::powershell_quote as shell_escape;
+    #[cfg(not(windows))]
     use crate::session_manager::terminal::shell_escape;
     let agent = crate::omp_config::get_omp_agent_dir().map_err(|error| error.to_string())?;
     let native_agent =
@@ -64,15 +67,22 @@ fn resume_command(source: &str) -> Result<String, String> {
         None
     };
     let profile = profile.as_deref().unwrap_or("default");
+    let assignment = |name: &str, value: &str| {
+        #[cfg(windows)]
+        {
+            format!("$env:{name} = {};", shell_escape(value))
+        }
+        #[cfg(not(windows))]
+        {
+            format!("{name}={}", shell_escape(value))
+        }
+    };
     let mut assignments = vec![
-        format!("OMP_PROFILE={}", shell_escape(profile)),
-        format!("PI_PROFILE={}", shell_escape(profile)),
-        format!(
-            "PI_CODING_AGENT_DIR={}",
-            shell_escape(&agent.to_string_lossy())
-        ),
+        assignment("OMP_PROFILE", profile),
+        assignment("PI_PROFILE", profile),
+        assignment("PI_CODING_AGENT_DIR", &agent.to_string_lossy()),
     ];
-    // Terminal launch is POSIX/macOS. Clear GUI-unset directory variables too:
+    // Clear GUI-unset directory variables too:
     // inheriting the terminal's profile/XDG paths would select different native state.
     for variable in [
         "PI_CONFIG_DIR",
@@ -82,7 +92,7 @@ fn resume_command(source: &str) -> Result<String, String> {
         "XDG_CACHE_HOME",
     ] {
         let value = std::env::var(variable).unwrap_or_default();
-        assignments.push(format!("{variable}={}", shell_escape(&value)));
+        assignments.push(assignment(variable, &value));
     }
     Ok(format!(
         "{} omp --resume {}",

@@ -48,6 +48,18 @@ export function GeneralSection({
 
   return (
     <>
+      <SettingsBlock title="供应商功能">
+        <SettingsCard>
+          <SettingsSwitchRow
+            label="启用其他供应商"
+            description="显示 CC 原有的供应商管理、授权和高级配置功能。关闭后隐藏入口，保留已保存的供应商配置。"
+            checked={settings.enableOtherProviders ?? false}
+            onCheckedChange={(enableOtherProviders) =>
+              void onAutoSave({ enableOtherProviders })
+            }
+          />
+        </SettingsCard>
+      </SettingsBlock>
       <SettingsBlock title={t("settings.general.appearance")}>
         <SettingsCard>
           <SettingsRow

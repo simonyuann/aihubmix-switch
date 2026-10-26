@@ -111,7 +111,7 @@ fn keep_common_config_for_old_versions(provider: &mut Provider) {
     provider
         .meta
         .get_or_insert_with(Default::default)
-        .common_config_enabled = Some(!crate::product_policy::active());
+        .common_config_enabled = Some(!crate::product_policy::restricted());
 }
 
 /// 编辑器保存的是新增的供应商，还是已有的。
@@ -5461,7 +5461,7 @@ impl ProviderService {
         state: &AppState,
         app_type: AppType,
     ) -> Result<IndexMap<String, Provider>, AppError> {
-        if crate::product_policy::active() {
+        if crate::product_policy::restricted() {
             crate::product_policy::require_session().map_err(AppError::InvalidInput)?;
             let mut rows = state.db.get_all_providers(app_type.as_str())?;
             rows.retain(|_, p| crate::product_policy::visible_provider(&app_type, p));
@@ -6752,7 +6752,7 @@ impl ProviderService {
     /// - 直连模式：切换式应用只替换客户端文件里的关键字段（不回填），文件和指针在同一个
     ///   操作里提交；累加式应用按各自的规则写入。
     pub fn switch(state: &AppState, app_type: AppType, id: &str) -> Result<SwitchResult, AppError> {
-        if crate::product_policy::active() {
+        if crate::product_policy::restricted() {
             let provider = state
                 .db
                 .get_provider_by_id(id, app_type.as_str())?
