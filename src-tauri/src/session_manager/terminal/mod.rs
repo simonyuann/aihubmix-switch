@@ -80,7 +80,7 @@ fn launch_windows_resume(target: &str, command: &str, cwd: Option<&str>) -> Resu
         _ => return Err(format!("Unsupported terminal target: {target}")),
     }
     args.extend(powershell);
-    crate::commands::misc::run_windows_start_command(&args, target)
+    crate::commands::run_windows_start_command(&args, target)
 }
 
 fn launch_macos_terminal(command: &str, cwd: Option<&str>) -> Result<(), String> {
