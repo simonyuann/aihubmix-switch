@@ -125,8 +125,32 @@ impl Backend {
     }
     pub fn state(&self) -> Result<Value> {
         let s = &self.store.settings;
+        let legacy_mappings: Vec<Value> = s
+            .agent_models
+            .iter()
+            .filter_map(|(app, model)| {
+                let label = match app.as_str() {
+                    "claude" => "Claude Code",
+                    "claude-desktop" => "Claude Desktop",
+                    "codex" => "Codex",
+                    "gemini" => "Gemini",
+                    "grokbuild" => "Grok Build",
+                    "opencode" => "OpenCode",
+                    "openclaw" => "OpenClaw",
+                    "hermes" => "Hermes",
+                    "pi" => "Pi",
+                    "mcode" => "MiniMax Code",
+                    "kimi" => "Kimi",
+                    "agy" => "Antigravity",
+                    "omp" => "Oh My Pi",
+                    _ => return None,
+                };
+                (!model.trim().is_empty())
+                    .then(|| json!({"app":app,"appLabel":label,"model":model}))
+            })
+            .collect();
         Ok(
-            json!({"relayBaseUrl":s.relay_base_url,"account":{"loggedIn":s.account.logged_in,"email":s.account.email,"userId":s.account.user_id},"localKeys":s.local_keys,"legacyData":super::legacy_dir().join("state-v2.json").exists() && !self.store.dir.join("legacy-imported").exists(),"storageError":self.store.secure_error}),
+            json!({"relayBaseUrl":s.relay_base_url,"account":{"loggedIn":s.account.logged_in,"email":s.account.email,"userId":s.account.user_id},"localKeys":s.local_keys,"legacyMappings":legacy_mappings,"legacyData":super::legacy_dir().join("state-v2.json").exists() && !self.store.dir.join("legacy-imported").exists(),"storageError":self.store.secure_error}),
         )
     }
     pub async fn payment_session(&mut self) -> Result<super::payments::Session> {
@@ -277,8 +301,12 @@ impl Backend {
         if id < 0 {
             format!("local:{id}")
         } else {
+            // v1.0.2 names (<email>:key:<id>) have no origin and are deliberately
+            // never read. Imported remote keys are fetched again from their server.
             format!(
-                "{}:key:{id}",
+                "remote:{}:{}:{}:key:{id}",
+                normalize(&self.store.settings.relay_base_url).unwrap_or_default(),
+                self.store.settings.account.user_id.unwrap_or_default(),
                 self.store
                     .settings
                     .account
@@ -562,10 +590,17 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let mut old = Store::for_test(source.path().into());
         old.settings.relay_base_url = "https://legacy.example".into();
+        old.settings
+            .agent_models
+            .insert("codex".into(), "legacy-model".into());
         old.save().unwrap();
         let original = std::fs::read(source.path().join("state-v2.json")).unwrap();
         let mut backend = Backend::new(Store::for_test(root.path().join("platform"))).unwrap();
         backend.import_legacy_from(source.path()).unwrap();
+        assert_eq!(
+            backend.state().unwrap()["legacyMappings"],
+            json!([{"app":"codex","appLabel":"Codex","model":"legacy-model"}])
+        );
         assert_eq!(
             backend.store.settings.relay_base_url,
             "https://legacy.example"
@@ -597,5 +632,54 @@ mod tests {
                 .unwrap_err()
                 .contains("private")
         );
+    }
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::*;
+    #[tokio::test]
+    async fn same_account_and_key_id_on_another_origin_never_reuses_cached_or_legacy_key() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let router = axum::Router::new().route(
+            "/api/v1/keys/1",
+            axum::routing::get(|| async {
+                axum::Json(json!({"code":0,"data":{"key":"server-b-key"}}))
+            }),
+        );
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(temp.path().into())).unwrap();
+        backend.client = Client::builder().no_proxy().build().unwrap();
+        backend.store.settings.relay_base_url = "https://server-a.example".into();
+        backend.store.settings.account = Account {
+            logged_in: true,
+            email: Some("same@example.com".into()),
+            user_id: Some(1),
+            expires_at: now() + 3600,
+        };
+        let scoped = backend.secret_name(1);
+        backend.store.memory_secret(&scoped, "server-a-key");
+        backend
+            .store
+            .memory_secret("same@example.com:key:1", "legacy-server-a-key");
+        backend
+            .ephemeral_keys
+            .insert(1, "ephemeral-server-a-key".into());
+        backend
+            .dispatch("set-base", json!({"baseUrl":base}))
+            .await
+            .unwrap();
+        backend.store.settings.account = Account {
+            logged_in: true,
+            email: Some("same@example.com".into()),
+            user_id: Some(1),
+            expires_at: now() + 3600,
+        };
+        backend.store.memory_secret("access", "server-b-token");
+        assert_ne!(backend.secret_name(1), scoped);
+        assert_eq!(backend.key(1).await.unwrap(), "server-b-key");
+        task.abort();
     }
 }

@@ -180,7 +180,7 @@ impl Session {
                     .collect();
                 Ok(json!({
                     "enabled": config["enabled"].as_bool().or_else(|| config["payment_enabled"].as_bool()).unwrap_or(false) && !checkout["balance_disabled"].as_bool().unwrap_or(false),
-                    "email": user["email"], "balance": user["balance"], "currency": "CNY",
+                    "email": user["email"], "balance": user["balance"], "currency": wallet_currency(&user),
                     "minAmount": number(&config, "min_amount"), "maxAmount": number(&config, "max_amount"),
                     "methods": methods(&checkout), "orders": history
                 }))
@@ -192,7 +192,7 @@ impl Session {
                     return Err("充值账号不匹配，请重新登录".into());
                 }
                 Ok(json!({
-                    "email": user["email"], "balance": user["balance"], "currency": "CNY"
+                    "email": user["email"], "balance": user["balance"], "currency": wallet_currency(&user)
                 }))
             }
             "payment-create" => {
@@ -288,6 +288,15 @@ impl Session {
     }
 }
 
+// Wallet denomination is independent of the currently supported CNY checkout.
+fn wallet_currency(user: &Value) -> &str {
+    user["currency"]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("CNY")
+}
+
 fn number(value: &Value, key: &str) -> f64 {
     value[key]
         .as_f64()
@@ -371,6 +380,7 @@ mod tests {
     use tokio::sync::Notify;
 
     struct Mock {
+        wallet_usd: AtomicBool,
         enabled: AtomicBool,
         pending: AtomicBool,
         fail: AtomicBool,
@@ -386,6 +396,7 @@ mod tests {
     impl Default for Mock {
         fn default() -> Self {
             Self {
+                wallet_usd: AtomicBool::new(false),
                 enabled: AtomicBool::new(true),
                 pending: AtomicBool::new(false),
                 fail: AtomicBool::new(false),
@@ -412,9 +423,9 @@ mod tests {
         let router = Router::new()
             .route("/api/v1/payment/config",get(|State(s):State<Arc<Mock>>| async move { Json(json!({"code":0,"data":{"enabled":s.enabled.load(Ordering::SeqCst),"min_amount":1,"max_amount":500}})) }))
             .route("/api/v1/payment/checkout-info",get(|| async { Json(json!({"code":0,"data":{"balance_disabled":false,"recharge_fee_rate":0,"methods":{"wxpay":{"currency":"CNY","single_min":0,"single_max":0},"stripe":{"currency":"USD"}}}})) }))
-            .route("/api/v1/auth/me",get(|headers:HeaderMap| async move {
+            .route("/api/v1/auth/me",get(|State(s):State<Arc<Mock>>,headers:HeaderMap| async move {
                 assert_eq!(headers.get("authorization").unwrap(), "Bearer mock-bearer");
-                Json(json!({"code":0,"data":{"id":42,"email":"fixture@example.com","balance":3.21,"secret":"must-not-reach-renderer"}}))
+                Json(json!({"code":0,"data":{"id":42,"email":"fixture@example.com","balance":3.21,"currency":if s.wallet_usd.load(Ordering::SeqCst){"USD"}else{"CNY"},"secret":"must-not-reach-renderer"}}))
             }))
             .route("/api/v1/payment/orders/my",get(|State(s):State<Arc<Mock>>,Query(q):Query<HashMap<String,String>>|async move {
                 assert_eq!(q.get("order_type").map(String::as_str),Some("balance"));
@@ -516,6 +527,22 @@ mod tests {
         assert!(!result.to_string().contains("secret"));
         assert_eq!(state.posts.load(Ordering::SeqCst), 0);
         assert_eq!(state.checks.load(Ordering::SeqCst), 0);
+        task.abort();
+    }
+    #[tokio::test]
+    async fn usd_wallet_does_not_change_cny_checkout_or_orders() {
+        let (session, state, task) = server().await;
+        state.wallet_usd.store(true, Ordering::SeqCst);
+        let balance = session.run("payment-balance", &Value::Null).await.unwrap();
+        assert_eq!(balance["currency"], "USD");
+        let overview = session.run("payment-overview", &Value::Null).await.unwrap();
+        assert_eq!(overview["currency"], "USD");
+        assert_eq!(overview["methods"][0]["id"], "wxpay");
+        let order = session
+            .run("payment-order", &json!({"id":7}))
+            .await
+            .unwrap();
+        assert_eq!(order["currency"], "CNY");
         task.abort();
     }
     #[tokio::test]
@@ -700,5 +727,15 @@ mod tests {
         state.release.notify_one();
         assert!(first.await.unwrap().unwrap_err().contains("账号已切换"));
         task.abort();
+    }
+}
+
+#[cfg(test)]
+mod currency_tests {
+    use super::*;
+    #[test]
+    fn preserves_wallet_denomination_and_falls_back_only_when_absent() {
+        assert_eq!(wallet_currency(&json!({"currency":"USD"})), "USD");
+        assert_eq!(wallet_currency(&json!({})), "CNY");
     }
 }
