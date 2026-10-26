@@ -1,3 +1,4 @@
+import { AccountPage } from "@/components/aihubmix/AccountPage";
 import {
   useCallback,
   useEffect,
@@ -908,7 +909,7 @@ function App() {
 
   // 侧栏、⌘K 进用量统计看全部应用；只有应用页 ⋯ 进来时带应用筛选
   const openPageFromNav = (page: GlobalPage | "settings") => {
-    // 「设置」上的绿点说的是 CC Switch 有新版本，点进去直接到「关于」里的更新按钮
+    // 「设置」上的绿点说的是 AIHubMix Switch 有新版本，点进去直接到「关于」里的更新按钮
     if (page === "settings" && hasUpdate) {
       openSettings("about");
       return;
@@ -1647,6 +1648,8 @@ function App() {
             onOpenRoutingSettings={() => openSettings("routing")}
           />
         );
+      case "aihubmix":
+        return <AccountPage />;
       case "auth":
         return (
           <>
@@ -1857,7 +1860,7 @@ function App() {
             : t("confirm.deleteProvider")
         }
         message={confirmActionMessage}
-        // 「移除」只是从应用配置里拿掉、CC Switch 里还留着，可以再加回去，不用红色
+        // 「移除」只是从应用配置里拿掉、AIHubMix Switch 里还留着，可以再加回去，不用红色
         variant={confirmAction?.action === "remove" ? "info" : "destructive"}
         onConfirm={() => void handleConfirmAction()}
         onCancel={() => setConfirmAction(null)}
