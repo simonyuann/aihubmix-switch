@@ -1,6 +1,6 @@
 {
   "name": "aihubmix-switch",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "description": "AIHubMix 接入助手 · Rust 驱动的轻量 API 与智能体配置工具",
   "author": "AIHubMix",

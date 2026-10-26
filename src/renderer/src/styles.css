@@ -844,54 +844,18 @@ code,
   padding: 11px 23px;
   background: #fdfdfe;
 }
-.workflow-hint {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 24px 6px;
-}
-.hint-icon {
-  width: 42px;
-  height: 42px;
-  background: #edf0f5;
-  border: 1px solid #e5e9f0;
-  color: #9ca9bc;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-}
-.workflow-hint strong {
-  font-size: 11px;
-  font-weight: 550;
-  color: #758194;
-}
-.workflow-hint p {
-  font-size: 10px;
-  color: #a0a8b4;
-  margin-top: 4px;
-}
-.hint-arrow {
-  margin-left: auto;
-  margin-right: 6px;
-  color: #bec7d5;
-  font-size: 22px;
-}
 .app-footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 16px;
   padding: 15px 36px 19px;
   font-size: 9px;
   color: #9ba4b1;
 }
-.app-footer > span,
 .app-footer > div {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-.app-footer > div {
   gap: 14px;
 }
 .app-footer .link-btn {
@@ -1840,12 +1804,6 @@ code,
     flex-direction: column;
     padding: 12px 20px 22px;
     gap: 9px;
-  }
-  .workflow-hint {
-    padding-top: 20px;
-  }
-  .workflow-hint p {
-    font-size: 9px;
   }
   .modal-overlay {
     padding: 14px;

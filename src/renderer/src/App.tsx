@@ -27,7 +27,6 @@ import {
   PlusIcon,
   RefreshIcon,
   SettingsIcon,
-  ShieldIcon,
   SparkIcon,
   TerminalIcon,
   UserIcon
@@ -397,35 +396,21 @@ export default function App() {
           </div>
         )}
         {page === 'keys' ? (
-          <>
-            <ApiList
-              items={keys}
-              loading={loading}
-              error={error}
-              onRefresh={() => void load()}
-              onCreate={create}
-              onAdd={() => setPanel('add')}
-              onDetails={(key) => {
-                setItem(key)
-                setPanel('details')
-              }}
-              onCopy={(id) => void copy(id)}
-              onImport={startImport}
-              onDelete={confirmDelete}
-            />
-            <div className="workflow-hint">
-              <div className="hint-icon">
-                <TerminalIcon size={21} />
-              </div>
-              <div>
-                <strong>选好 Key，下一步就能开始编程</strong>
-                <p>点击「导入」，选择你的智能体。配置自动完成，原设置自动备份。</p>
-              </div>
-              <span className="hint-arrow" aria-hidden="true">
-                ↗
-              </span>
-            </div>
-          </>
+          <ApiList
+            items={keys}
+            loading={loading}
+            error={error}
+            onRefresh={() => void load()}
+            onCreate={create}
+            onAdd={() => setPanel('add')}
+            onDetails={(key) => {
+              setItem(key)
+              setPanel('details')
+            }}
+            onCopy={(id) => void copy(id)}
+            onImport={startImport}
+            onDelete={confirmDelete}
+          />
         ) : page === 'sessions' ? (
           <SessionPage key={sessionSource} initialSource={sessionSource} onNotify={notify} />
         ) : (
@@ -564,10 +549,6 @@ export default function App() {
         )}
       </main>
       <footer className="app-footer">
-        <span>
-          <ShieldIcon size={13} />
-          配置保存在本机 · 导入前自动备份
-        </span>
         <div>
           <button className="link-btn subtle" onClick={() => void openPath('backups')}>
             备份目录
