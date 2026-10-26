@@ -9,7 +9,7 @@ import unittest
 import os
 import time
 from urllib.error import HTTPError
-from update_feed import FORMATS, ORIGIN, PREFIX, update_file, manifest_name
+from update_feed import FORMATS, ORIGIN, PREFIX, update_file, manifest_name, formats_for_version
 
 
 class FakeResponse(io.BytesIO):
@@ -43,11 +43,11 @@ class SyncReleaseTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def release(self, tag='v1.2.3', bad_checksum=False):
+    def release(self, tag='v1.0.3', bad_checksum=False):
         version = tag[1:]
         content = {}
         platforms = {}
-        for target, (_, suffix) in FORMATS.items():
+        for target, (_, suffix) in formats_for_version(tag).items():
             name = f'AIHubMix-Switch_{version}_{suffix}'
             content[name] = suffix.encode()
             content[name + '.sig'] = b'c2lnbmF0dXJl'
@@ -67,7 +67,7 @@ class SyncReleaseTests(unittest.TestCase):
         assets = []
         for index, (name, value) in enumerate(content.items(), 1):
             assets.append({
-                'id': index + (100 if tag != 'v1.2.3' else 0),
+                'id': index + (100 if tag != 'v1.0.3' else 0),
                 'name': name,
                 'size': len(value),
                 'browser_download_url':
@@ -129,8 +129,8 @@ class SyncReleaseTests(unittest.TestCase):
                          'https://github.com/simonyuann/aihubmix-switch/releases/latest')
         self.assertEqual(self.module.RELEASES_ATOM_URL,
                          'https://github.com/simonyuann/aihubmix-switch/releases.atom')
-        self.assertEqual(self.module.checked_tag('1.2.3'), 'v1.2.3')
-        self.assertEqual(self.module.checked_tag('v1.2.3-beta.1'), 'v1.2.3-beta.1')
+        self.assertEqual(self.module.checked_tag('1.0.3'), 'v1.0.3')
+        self.assertEqual(self.module.checked_tag('v1.0.3-beta.1'), 'v1.0.3-beta.1')
         with self.assertRaises(ValueError):
             self.module.checked_tag('../../../etc/passwd')
         self.assertEqual(self.module.platform_for('AIHubMix-Switch_1.0_windows-x64-setup.exe'), 'Windows')
@@ -143,48 +143,48 @@ class SyncReleaseTests(unittest.TestCase):
             self.module.validate_name('../app.exe')
 
     def test_discovery_needs_no_api_quota(self):
-        responses = self.release('v1.2.4')
+        responses = self.release('v1.0.4')
         responses[self.module.API_URL] = HTTPError(
             self.module.API_URL, 403, 'rate limit exceeded', {}, None)
         self.install_responses(responses)
         self.assertTrue(self.module.sync_once())
-        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.4')
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.0.4')
         self.assertNotIn(self.module.API_URL, self.calls)
 
     def test_api_still_works_as_last_resort(self):
-        responses = self.release('v1.2.3')
+        responses = self.release('v1.0.3')
         del responses[self.module.RELEASES_LATEST_URL]
         del responses[self.module.RELEASES_ATOM_URL]
         responses[self.module.API_URL] = json.dumps(
-            self.release_json(responses, 'v1.2.3')).encode()
+            self.release_json(responses, 'v1.0.3')).encode()
         self.install_responses(responses)
         self.assertTrue(self.module.sync_once())
-        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.3')
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.0.3')
         self.assertIn(self.module.API_URL, self.calls)
 
     def test_atom_feed_covers_stale_redirect(self):
-        responses = self.release('v1.2.4')
+        responses = self.release('v1.0.4')
         # The /releases/latest edge cache can still point at the previous tag.
         responses[self.module.RELEASES_LATEST_URL] = (self.tag_url('v9.9.9'), b'')
         self.install_responses(responses)
         self.assertTrue(self.module.sync_once())
-        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.4')
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.0.4')
 
     def test_prerelease_tag_in_feed_is_skipped(self):
-        responses = self.release('v1.2.3')
+        responses = self.release('v1.0.3')
         del responses[self.module.RELEASES_LATEST_URL]
-        responses[self.module.RELEASES_ATOM_URL] = self.atom('v1.3.0-beta.1', 'v1.2.3')
+        responses[self.module.RELEASES_ATOM_URL] = self.atom('v1.3.0-beta.1', 'v1.0.3')
         self.install_responses(responses)
         self.assertTrue(self.module.sync_once())
-        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.3')
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.0.3')
 
     def test_half_uploaded_release_keeps_previous(self):
         self.install_responses(self.release())
         self.assertTrue(self.module.sync_once())
         first = self.module.current_release()
-        responses = self.release('v1.2.4')
+        responses = self.release('v1.0.4')
         # Assets are still uploading, so the checksum file is not published yet.
-        del responses[self.module.DOWNLOAD_PREFIX + 'v1.2.4/SHA256SUMS.txt']
+        del responses[self.module.DOWNLOAD_PREFIX + 'v1.0.4/SHA256SUMS.txt']
         responses[self.module.API_URL] = HTTPError(
             self.module.API_URL, 404, 'Not Found', {}, None)
         self.install_responses(responses)
@@ -199,16 +199,16 @@ class SyncReleaseTests(unittest.TestCase):
         self.assertIsNotNone(first)
         self.assertEqual(len(list(first.glob('Windows/*'))), 4)
         state = json.loads(self.module.STATE.read_text())
-        self.assertEqual(state['tag'], 'v1.2.3')
+        self.assertEqual(state['tag'], 'v1.0.3')
         self.assertTrue(state['asset_sizes'])
         self.assertFalse(self.module.sync_once())
 
-        self.install_responses(self.release('v1.2.4', bad_checksum=True))
+        self.install_responses(self.release('v1.0.4', bad_checksum=True))
         with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
             self.module.sync_once()
         self.assertEqual(self.module.current_release(), first)
 
-        self.install_responses(self.release('v1.2.4'))
+        self.install_responses(self.release('v1.0.4'))
         self.assertTrue(self.module.sync_once())
         second = self.module.current_release()
         self.assertNotEqual(second, first)
@@ -218,8 +218,8 @@ class SyncReleaseTests(unittest.TestCase):
         self.assertNotEqual(repaired, second)
         self.assertFalse(self.module.sync_once())
         # Cached manifests still resolve after a switch, even without upstream.
-        name = 'AIHubMix-Switch_1.2.3_windows-x64-setup.exe'
-        self.assertEqual(update_file(PREFIX + 'v1.2.3/' + name, self.module.BASE).read_bytes(),
+        name = 'AIHubMix-Switch_1.0.3_windows-x64-setup.exe'
+        self.assertEqual(update_file(PREFIX + 'v1.0.3/' + name, self.module.BASE).read_bytes(),
                          b'windows-x64-setup.exe')
         self.assertEqual(update_file(PREFIX + 'latest.json', self.module.BASE),
                          repaired / 'updater.json')
@@ -230,14 +230,14 @@ class SyncReleaseTests(unittest.TestCase):
         retained = [path.resolve() for path in self.module.RELEASES.iterdir() if path.is_dir()]
         self.assertEqual(retained, [repaired])
 
-    def test_v2_feed_never_replaces_legacy_and_last_1x_survives_cleanup(self):
+    def test_cc_feed_never_replaces_legacy_and_last_1_0_survives_cleanup(self):
         self.install_responses(self.release('v1.0.1'))
         self.module.sync_once()
         old = self.module.current_release()
         self.install_responses(self.release('v1.0.2'))
         self.module.sync_once()
         compatible = self.module.current_release()
-        self.install_responses(self.release('v2.0.0'))
+        self.install_responses(self.release('v1.1.0'))
         self.module.sync_once()
         current = self.module.current_release()
         for directory in (old, compatible):
@@ -246,13 +246,14 @@ class SyncReleaseTests(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertTrue(compatible.exists())
         self.assertEqual(json.loads(update_file(PREFIX + 'latest.json', self.module.BASE).read_text())['version'], '1.0.2')
-        self.assertEqual(json.loads(update_file(PREFIX + 'latest-v2.json', self.module.BASE).read_text())['version'], '2.0.0')
-        self.assertEqual(len(json.loads((current / 'updater.json').read_text())['platforms']), 6)
+        self.assertEqual(json.loads(update_file(PREFIX + 'latest-v2.json', self.module.BASE).read_text())['version'], '1.1.0')
+        self.assertEqual(len(json.loads((current / 'updater.json').read_text())['platforms']), 4)
+        self.assertFalse((current / 'Linux').exists())
         self.assertFalse((current / 'latest.json').exists())
         self.assertTrue((current / 'latest-v2.json').exists())
 
-    def test_no_verified_1x_returns_safe_not_found_instead_of_v2(self):
-        self.install_responses(self.release('v2.0.0'))
+    def test_no_verified_legacy_returns_safe_not_found_instead_of_cc(self):
+        self.install_responses(self.release('v1.1.0'))
         self.module.sync_once()
         # A raw manifest is insufficient: it did not pass prepare_feed.
         unverified = self.module.RELEASES / 'v1.0.2-unverified'
@@ -260,18 +261,36 @@ class SyncReleaseTests(unittest.TestCase):
         (unverified / 'latest.json').write_text('{"version":"1.0.2"}')
         with self.assertRaises(FileNotFoundError):
             update_file(PREFIX + 'latest.json', self.module.BASE)
-        self.assertEqual(json.loads(update_file(PREFIX + 'latest-v2.json', self.module.BASE).read_text())['version'], '2.0.0')
+        self.assertEqual(json.loads(update_file(PREFIX + 'latest-v2.json', self.module.BASE).read_text())['version'], '1.1.0')
 
-    def test_1x_is_not_served_to_the_v2_feed(self):
+    def test_cc_missing_windows_package_or_signature_keeps_previous_release(self):
+        self.install_responses(self.release('v1.0.1'))
+        self.module.sync_once()
+        previous = self.module.current_release()
+        for suffix in ('windows-x64-portable.exe', 'windows-x64-portable.exe.sig'):
+            with self.subTest(missing=suffix):
+                responses = self.release('v1.1.0')
+                checksum_url = self.module.DOWNLOAD_PREFIX + 'v1.1.0/SHA256SUMS.txt'
+                name = 'AIHubMix-Switch_1.1.0_' + suffix
+                responses[checksum_url] = b'\n'.join(
+                    line for line in responses[checksum_url].splitlines()
+                    if not line.endswith(name.encode())) + b'\n'
+                self.install_responses(responses)
+                with self.assertRaises((OSError, ValueError)):
+                    self.module.sync_once()
+                self.assertEqual(self.module.current_release(), previous)
+                self.assertEqual(json.loads(update_file(PREFIX + 'latest.json', self.module.BASE).read_text())['version'], '1.0.1')
+
+    def test_1_0_is_not_served_to_the_cc_feed(self):
         self.install_responses(self.release('v1.0.2'))
         self.module.sync_once()
         with self.assertRaises(FileNotFoundError):
             update_file(PREFIX + 'latest-v2.json', self.module.BASE)
 
     def test_truncated_download_is_retried_before_publishing(self):
-        responses = self.release('v1.2.4')
+        responses = self.release('v1.0.4')
         url = (self.module.DOWNLOAD_PREFIX
-               + 'v1.2.4/AIHubMix-Switch_1.2.4_windows-x64-setup.exe')
+               + 'v1.0.4/AIHubMix-Switch_1.0.4_windows-x64-setup.exe')
         good = responses[url]
         responses[url] = [
             FakeResponse(b'cut', url, {'Content-Length': str(len(good))}),
@@ -279,18 +298,18 @@ class SyncReleaseTests(unittest.TestCase):
         ]
         self.install_responses(responses)
         self.assertTrue(self.module.sync_once())
-        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.4')
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.0.4')
         self.assertEqual(
             (self.module.current_release() / 'Windows'
-             / 'AIHubMix-Switch_1.2.4_windows-x64-setup.exe').read_bytes(), good)
+             / 'AIHubMix-Switch_1.0.4_windows-x64-setup.exe').read_bytes(), good)
 
     def test_persistently_corrupted_download_never_replaces_current(self):
         self.install_responses(self.release())
         self.assertTrue(self.module.sync_once())
         first = self.module.current_release()
-        responses = self.release('v1.2.4')
+        responses = self.release('v1.0.4')
         url = (self.module.DOWNLOAD_PREFIX
-               + 'v1.2.4/AIHubMix-Switch_1.2.4_linux-x64.deb')
+               + 'v1.0.4/AIHubMix-Switch_1.0.4_linux-x64.deb')
         bad = b'x' * len(responses[url])
         responses[url] = [bad, bad, bad]
         self.install_responses(responses)
@@ -302,8 +321,8 @@ class SyncReleaseTests(unittest.TestCase):
         self.install_responses(self.release())
         self.module.sync_once()
         first = self.module.current_release()
-        responses = self.release('v1.2.4')
-        base_url = self.module.DOWNLOAD_PREFIX + 'v1.2.4/'
+        responses = self.release('v1.0.4')
+        base_url = self.module.DOWNLOAD_PREFIX + 'v1.0.4/'
         manifest_url = base_url + 'latest.json'
         checksum_url = base_url + 'SHA256SUMS.txt'
         manifest = json.loads(responses[manifest_url])
@@ -317,8 +336,8 @@ class SyncReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unexpected updater package URL'):
             self.module.sync_once()
         self.assertEqual(self.module.current_release(), first)
-        for path in ('../latest.json', 'v1.2.3/../latest.json',
-                     'v1.2.3/AIHubMix-Switch_1.2.3_windows-x64-setup.exe.exe'):
+        for path in ('../latest.json', 'v1.0.3/../latest.json',
+                     'v1.0.3/AIHubMix-Switch_1.0.3_windows-x64-setup.exe.exe'):
             with self.assertRaises((ValueError, FileNotFoundError)):
                 update_file(PREFIX + path, self.module.BASE)
 
@@ -332,7 +351,7 @@ class SyncReleaseTests(unittest.TestCase):
         legacy = self.module.current_release()
         (legacy / 'swq').mkdir()
         (legacy / 'swq' / 'legacy.msi').write_bytes(b'legacy software')
-        self.install_responses(self.release('v1.2.4'))
+        self.install_responses(self.release('v1.0.4'))
         self.module.sync_once()
         self.module.sync_once()
         self.assertEqual(protected.read_bytes(), b'user software')

@@ -18,11 +18,17 @@ def manifest_name(tag):
     version = tag.removeprefix('v')
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
         raise ValueError('feed requires a stable semantic version')
-    return 'latest-v2.json' if int(version.split('.')[0]) >= 2 else 'latest.json'
+    return 'latest-v2.json' if tuple(map(int, version.split('.'))) >= (1, 1, 0) else 'latest.json'
+
+
+def formats_for_version(tag):
+    # CC rebuild releases currently ship macOS and Windows only.
+    return {target: value for target, value in FORMATS.items()
+            if manifest_name(tag) == 'latest.json' or not target.startswith('linux-')}
 
 
 def legacy_release(releases):
-    """Keep only an already validated 1.x snapshot on the old macOS-11 feed.
+    """Keep only an already validated 1.0.x snapshot on the old macOS-11 feed.
 
     updater.json is written by prepare_feed only after the complete release
     passes checksum, URL, format and signature-file consistency checks.
@@ -38,7 +44,7 @@ def legacy_release(releases):
                 continue
             manifest = json.loads(feed.read_text())
             version = manifest.get('version', '')
-            if not re.fullmatch(r'1\.\d+\.\d+', version):
+            if not re.fullmatch(r'1\.0\.\d+', version):
                 continue
             if set(manifest.get('platforms', {})) != set(FORMATS):
                 continue
@@ -57,9 +63,10 @@ def prepare_feed(directory, tag):
     """Called only after every upstream file passed its SHA256 check."""
     manifest = json.loads((directory / manifest_name(tag)).read_text())
     version = tag.removeprefix('v')
-    if manifest.get('version') != version or set(manifest.get('platforms', {})) != set(FORMATS):
+    formats = formats_for_version(tag)
+    if manifest.get('version') != version or set(manifest.get('platforms', {})) != set(formats):
         raise ValueError('updater manifest version or formats do not match release')
-    for target, (platform, suffix) in FORMATS.items():
+    for target, (platform, suffix) in formats.items():
         name = f'AIHubMix-Switch_{version}_{suffix}'
         asset = manifest['platforms'][target]
         mirror = f'{ORIGIN}{PREFIX}v{version}/{name}'
@@ -87,13 +94,13 @@ def update_file(path, base):
     if relative == 'latest.json':
         legacy = legacy_release(releases)
         if legacy is None:
-            raise FileNotFoundError('no verified compatible 1.x release')
+            raise FileNotFoundError('no verified compatible 1.0.x release')
         return legacy / 'updater.json'
     if relative == 'latest-v2.json':
         feed = current / 'updater.json'
         manifest = json.loads(feed.read_text())
         if manifest_name(str(manifest.get('version', ''))) != 'latest-v2.json':
-            raise FileNotFoundError('no verified v2 release')
+            raise FileNotFoundError('no verified CC rebuild release')
         return feed
     match = re.fullmatch(r'v(\d+\.\d+\.\d+)/(AIHubMix-Switch_[A-Za-z0-9._-]+)', relative)
     if not match:

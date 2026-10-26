@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { formats, generateManifest, manifestName } from '../scripts/generate-update-manifest.mjs'
+import { formats, formatsForVersion, generateManifest, manifestName } from '../scripts/generate-update-manifest.mjs'
 import { verifyUpdateSignature } from '../scripts/verify-update-signature.mjs'
 const folder = new URL('../src-tauri/fixtures/updater/', import.meta.url)
 const payload = await readFile(new URL('payload.bin', folder))
@@ -79,7 +79,18 @@ test('production updater checks only the download station', async () => {
 
 test('macOS 12+ releases use a distinct feed from macOS 11 legacy clients', () => {
   assert.equal(manifestName('1.0.2'), 'latest.json')
+  assert.equal(manifestName('1.0.99'), 'latest.json')
+  assert.equal(manifestName('1.1.0'), 'latest-v2.json')
+  assert.equal(manifestName('1.2.0'), 'latest-v2.json')
   assert.equal(manifestName('2.0.0'), 'latest-v2.json')
   assert.equal(manifestName('3.0.0'), 'latest-v2.json')
   assert.throws(() => manifestName('2.0.0-rc.1'))
+})
+
+test('CC rebuild releases require macOS and Windows without waiting for Linux', () => {
+  assert.deepEqual(Object.keys(formatsForVersion('1.1.0')), [
+    'darwin-aarch64-app', 'darwin-x86_64-app',
+    'windows-x86_64-nsis', 'windows-x86_64-portable'
+  ])
+  assert.deepEqual(formatsForVersion('1.0.2'), formats)
 })

@@ -11,10 +11,17 @@ export const formats = {
   'linux-x86_64-appimage': 'linux-x64.AppImage',
   'linux-x86_64-deb': 'linux-x64.deb'
 }
-// macOS 11-capable 1.x clients must never consume the macOS 12+ payload.
+// The CC rebuild starts at 1.1.0 and requires macOS 12+.
+// Keep the existing isolated feed path and leave 1.0.x clients on latest.json.
 export function manifestName(version) {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Release requires a stable semantic version')
-  return Number(version.split('.')[0]) >= 2 ? 'latest-v2.json' : 'latest.json'
+  const [major, minor] = version.split('.').map(Number)
+  return major > 1 || (major === 1 && minor >= 1) ? 'latest-v2.json' : 'latest.json'
+}
+export function formatsForVersion(version) {
+  return Object.fromEntries(Object.entries(formats).filter(([target]) =>
+    manifestName(version) === 'latest.json' || !target.startsWith('linux-')
+  ))
 }
 export async function generateManifest(
   directory,
@@ -31,7 +38,7 @@ export async function generateManifest(
   for (const suffix of ['macos-arm64.dmg', 'macos-x64.dmg'])
     await stat(join(directory, `AIHubMix-Switch_${version}_${suffix}`))
   const platforms = {}
-  for (const [target, suffix] of Object.entries(formats)) {
+  for (const [target, suffix] of Object.entries(formatsForVersion(version))) {
     const name = `AIHubMix-Switch_${version}_${suffix}`
     if (!(await stat(join(directory, name))).isFile()) throw new Error(`Missing updater ${target}`)
     const signature = (await readFile(join(directory, `${name}.sig`), 'utf8')).trim()
@@ -70,5 +77,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     version,
     await readFile(`docs/releases/v${version}.md`, 'utf8')
   )
-  console.log('Generated six-format updater manifest and complete SHA256 checksums')
+  console.log('Generated updater manifest and complete SHA256 checksums')
 }

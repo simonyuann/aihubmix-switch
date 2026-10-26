@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote
 from urllib.request import Request, urlopen
-from update_feed import prepare_feed, manifest_name, legacy_release
+from update_feed import prepare_feed, manifest_name, legacy_release, formats_for_version
 
 BASE = Path(os.environ.get('DATA_DIR', '/data'))
 RELEASES = BASE / 'releases'
@@ -220,7 +220,8 @@ def release_assets(release):
             item['platform'] = platform
             selected.append(item)
             platforms.add(platform)
-    if checksum is None or platforms != set(PLATFORM_SUFFIXES):
+    required_platforms = {platform for platform, _ in formats_for_version(tag).values()}
+    if checksum is None or not required_platforms.issubset(platforms):
         raise ValueError('release is missing checksums or a supported platform')
     if not any(item['name'] == feed_name for item in selected):
         raise ValueError('release contains no updater manifest')
