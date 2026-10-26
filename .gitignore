@@ -29,3 +29,10 @@ copilot-api
 .history
 CODEBUDDY.md
 mainWindow.js
+
+# AIHubMix product build and verification outputs
+artifacts/
+src-tauri/target/
+src-tauri/gen/
+__pycache__/
+*.pyc

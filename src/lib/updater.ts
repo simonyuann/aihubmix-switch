@@ -1,4 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 
 export type UpdateChannel = "stable" | "beta";
 
@@ -31,7 +32,8 @@ export async function checkForUpdate(
   const { check } = await import("@tauri-apps/plugin-updater");
 
   const currentVersion = await getCurrentVersion();
-  const update = await check({ timeout: opts.timeout ?? 30000 } as any);
+  const target = await invoke<string>("product_update_target");
+  const update = await check({ timeout: opts.timeout ?? 30000, target });
 
   if (!update) {
     return { status: "up-to-date" };
