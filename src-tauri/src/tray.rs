@@ -1241,7 +1241,12 @@ fn collect_app_snapshot(
     service_running: Option<bool>,
     profiles: &[crate::database::Profile],
 ) -> Result<AppSnapshot, AppError> {
-    let rows = app_state.db.get_all_providers(app.as_str())?;
+    let mut rows = app_state.db.get_all_providers(app.as_str())?;
+    if crate::product_policy::active() {
+        rows.retain(|_, p| {
+            crate::product_policy::authenticated() && crate::product_policy::own_provider(app, p)
+        });
+    }
     let providers: Vec<ProviderEntry> = sort_providers(&rows)
         .into_iter()
         .map(|(_, provider)| provider_entry(app, provider))
@@ -1282,7 +1287,11 @@ fn collect_app_snapshot(
     });
 
     let profiles = crate::services::profile::ProfileScope::for_app(app)
-        .filter(|_| settings.show_profile_switcher && !profiles.is_empty())
+        .filter(|_| {
+            !crate::product_policy::active()
+                && settings.show_profile_switcher
+                && !profiles.is_empty()
+        })
         .map(|scope| -> Result<ProfileSection, AppError> {
             Ok(ProfileSection {
                 scope: scope.as_str(),
@@ -1879,7 +1888,11 @@ fn app_entry(
             format!(
                 "{} · {}",
                 app_display_name(&snapshot.app),
-                texts.add_provider
+                if crate::product_policy::active() {
+                    "配置平台 API"
+                } else {
+                    texts.add_provider
+                }
             ),
         );
     }
@@ -1969,6 +1982,9 @@ fn collect_snapshots(
     app_state: &AppState,
     texts: &TrayTexts,
 ) -> Result<(Vec<AppSnapshot>, Vec<TrayProblem>), AppError> {
+    if crate::product_policy::active() && !crate::product_policy::authenticated() {
+        return Ok((Vec::new(), Vec::new()));
+    }
     let settings = crate::settings::get_settings();
     let visible_apps = settings.visible_apps.clone().unwrap_or_default();
     let running = service_running(app_state);
@@ -2298,9 +2314,7 @@ pub(crate) fn collect_panel_model(app_state: &AppState) -> Result<PanelModel, Ap
             header,
             attention: snapshot.needs_attention.then_some(texts.needs_attention),
             quota,
-            add_id: snapshot
-                .providers
-                .is_empty()
+            add_id: (!crate::product_policy::active() && snapshot.providers.is_empty())
                 .then(|| format!("nav:add:{app}")),
             add_text: texts.add_provider.to_string(),
             rows,
@@ -2802,6 +2816,9 @@ pub fn show_main_window(app: &tauri::AppHandle) {
 /// 应用时只作用于该分组）；`profile_none_<scope>` 表示某分组"不使用项目"
 /// （只清该分组标记，不动配置）。
 pub fn handle_profile_tray_event(app: &tauri::AppHandle, event_id: &str) -> bool {
+    if crate::product_policy::active() {
+        return event_id.starts_with("profile_");
+    }
     let Some(suffix) = event_id.strip_prefix("profile_") else {
         return false;
     };
@@ -3105,6 +3122,9 @@ pub fn schedule_tray_refresh(app: &tauri::AppHandle) {
 pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
     use crate::commands::CopilotAuthState;
     use futures::future::join_all;
+    if crate::product_policy::active() {
+        return;
+    }
 
     {
         let mut guard = lock(&LAST_TRAY_USAGE_REFRESH);
@@ -3216,6 +3236,9 @@ static PANEL_SCRIPT_QUERIES: Lazy<Mutex<HashMap<(AppType, String), std::time::In
 /// 后台补查一次——和主界面供应商卡片是同一个查询，结果写进 `UsageCache` 后面板跟着刷新。
 /// 自动查询间隔为 0（关掉了）的不查；在用的那家由 `refresh_all_usage_in_tray` 负责。
 pub(crate) async fn refresh_panel_provider_usage(app: &tauri::AppHandle) {
+    if crate::product_policy::active() {
+        return;
+    }
     use crate::commands::CopilotAuthState;
     use futures::future::join_all;
 

@@ -113,11 +113,20 @@ fn key_info(value: &Value) -> KeyInfo {
     }
 }
 impl Backend {
-    pub fn new(store: Store) -> Result<Self> {
+    pub fn new(mut store: Store) -> Result<Self> {
+        if crate::product_policy::active() && store.settings.relay_base_url != DEFAULT_BASE {
+            // Never send a stored session from a different origin to the product service.
+            store.set_secrets(&[("access", ""), ("refresh", "")])?;
+            store.settings.account = Account::default();
+            store.settings.relay_base_url = DEFAULT_BASE.into();
+            store.settings.selected_key = None;
+            store.save()?;
+        }
         Ok(Self {
             store,
             client: Client::builder()
                 .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(|_| "无法初始化网络服务")?,
             ephemeral_keys: BTreeMap::new(),
@@ -194,6 +203,7 @@ impl Backend {
             normalize(&self.store.settings.relay_base_url)?,
             path
         );
+        crate::product_policy::require_url(&url)?;
         let mut request = self.client.request(method, url);
         if path.contains("client_version=") || path == "/v1/usage" || path == "/v1/sub2api/billing"
         {
@@ -219,6 +229,26 @@ impl Backend {
         let value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         Ok((status, value))
     }
+    pub async fn verify_session(&mut self) -> Result<()> {
+        if !self.store.settings.account.logged_in {
+            crate::product_policy::set_session(0);
+            return Err("AUTH_REQUIRED: 请先登录账号".into());
+        }
+        let user = match self.request(Method::GET, "/api/v1/auth/me", None).await {
+            Ok(user) => user,
+            Err(e) => {
+                crate::product_policy::set_session(0);
+                return Err(e);
+            }
+        };
+        if user["id"].as_i64() != self.store.settings.account.user_id {
+            crate::product_policy::set_session(0);
+            return Err("AUTH_REQUIRED: 登录信息已变更，请重新登录".into());
+        }
+        crate::product_policy::set_account(self.store.settings.account.user_id.unwrap_or_default());
+        crate::product_policy::set_session(self.store.settings.account.expires_at);
+        Ok(())
+    }
     async fn refresh_access(&mut self) -> Result<()> {
         let token = self.store.secret("refresh");
         if token.is_empty() {
@@ -234,6 +264,7 @@ impl Backend {
             .await?;
         if status == 401 || status == 403 {
             self.store.settings.account.logged_in = false;
+            crate::product_policy::set_session(0);
             self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
             self.store.save()?;
         }
@@ -242,9 +273,7 @@ impl Backend {
     }
     fn save_auth(&mut self, value: Value, email: Option<&str>) -> Result<()> {
         if value["requires_2fa"].as_bool() == Some(true) {
-            return Err(
-                "此账号启用了两步验证，请通过网页后台管理 Key，再用「已有 API Key」接入".into(),
-            );
+            return Err("此账号启用了两步验证，当前客户端暂不支持，请联系平台管理员".into());
         }
         let access = string(&value, "access_token");
         if access.is_empty() {
@@ -267,7 +296,10 @@ impl Backend {
             user_id: value["user"]["id"].as_i64().or(old.user_id),
             expires_at: now() + value["expires_in"].as_u64().unwrap_or(3600),
         };
-        self.store.save()
+        self.store.save()?;
+        crate::product_policy::set_account(self.store.settings.account.user_id.unwrap_or_default());
+        crate::product_policy::set_session(self.store.settings.account.expires_at);
+        Ok(())
     }
     async fn request(&mut self, method: Method, path: &str, body: Option<Value>) -> Result<Value> {
         if !self.store.settings.account.logged_in {
@@ -289,6 +321,7 @@ impl Backend {
             }
             if status == 401 {
                 self.store.settings.account.logged_in = false;
+                crate::product_policy::set_session(0);
                 self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
                 self.store.save()?;
             }
@@ -317,6 +350,9 @@ impl Backend {
         }
     }
     async fn key(&mut self, id: i64) -> Result<String> {
+        if crate::product_policy::active() && id <= 0 {
+            return Err("请选择当前账号的平台 Key".into());
+        }
         if id > 0 && !self.store.settings.account.logged_in {
             return Err("请先登录账号".into());
         }
@@ -344,7 +380,57 @@ impl Backend {
         Ok(key)
     }
     pub async fn dispatch(&mut self, command: &str, input: Value) -> Result<Value> {
+        if crate::product_policy::active()
+            && matches!(
+                command,
+                "set-base"
+                    | "save-key"
+                    | "remove-local-key"
+                    | "legacy-import"
+                    | "open-legacy-backups"
+            )
+        {
+            return Err("本客户端固定使用平台 API，请通过「申请 API」获取 Key".into());
+        }
         match command {
+            "session" => {
+                self.verify_session().await?;
+                self.state()
+            }
+            "auth-settings" => {
+                let (status, value) = self
+                    .raw(Method::GET, "/api/v1/settings/public", None, None)
+                    .await?;
+                let value = unwrap_response(status, value)?;
+                Ok(
+                    json!({"registrationEnabled":value["registration_enabled"].as_bool().unwrap_or(false),"emailVerifyEnabled":value["email_verify_enabled"].as_bool().unwrap_or(false),"passwordResetEnabled":value["password_reset_enabled"].as_bool().unwrap_or(false),"invitationCodeEnabled":value["invitation_code_enabled"].as_bool().unwrap_or(false),"captchaRequired": (["turnstile_enabled", "tencent_captcha_enabled", "aliyun_captcha_enabled"].iter().any(|k|value[*k].as_bool()==Some(true)))}),
+                )
+            }
+            "send-code" | "forgot-password" => {
+                let email = string(&input, "email").trim().to_string();
+                if email.is_empty() || !email.contains('@') {
+                    return Err("请填写有效邮箱".into());
+                }
+                let path = if command == "send-code" {
+                    "/api/v1/auth/send-verify-code"
+                } else {
+                    "/api/v1/auth/forgot-password"
+                };
+                let (status, value) = self
+                    .raw(Method::POST, path, Some(json!({"email":email})), None)
+                    .await?;
+                unwrap_response(status, value)?;
+                Ok(json!({"sent":true}))
+            }
+            "open-account-page" => {
+                let path = match string(&input, "page").as_str() {
+                    "register" => "/register",
+                    "forgot-password" => "/forgot-password",
+                    _ => "/login",
+                };
+                open::that(format!("{DEFAULT_BASE}{path}")).map_err(|_| "无法打开平台官网")?;
+                Ok(Value::Null)
+            }
             "state" => self.state(),
             "refresh" => self.state(),
             "login" | "register" => {
@@ -353,7 +439,7 @@ impl Backend {
                 if email.is_empty() || password.is_empty() {
                     return Err("请填写邮箱和密码".into());
                 }
-                let body = json!({"email":email,"password":password,"invitation_code":input["invitationCode"]});
+                let body = json!({"email":email,"password":password,"invitation_code":input["invitationCode"],"verify_code":input["emailCode"]});
                 let (status, value) = self
                     .raw(
                         Method::POST,
@@ -377,6 +463,7 @@ impl Backend {
                     .request(Method::POST, "/api/v1/auth/logout", None)
                     .await;
                 self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
+                crate::product_policy::set_session(0);
                 self.store.settings.account = Account::default();
                 if self.store.settings.selected_key.is_some_and(|id| id > 0) {
                     self.store.settings.selected_key = None;
@@ -680,6 +767,109 @@ mod origin_tests {
         backend.store.memory_secret("access", "server-b-token");
         assert_ne!(backend.secret_name(1), scoped);
         assert_eq!(backend.key(1).await.unwrap(), "server-b-key");
+        task.abort();
+    }
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::*;
+    use axum::{
+        extract::State,
+        routing::{get, post},
+        Json, Router,
+    };
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    #[tokio::test]
+    async fn auth_reuses_verified_mail_protocol_and_never_trusts_local_login_alone() {
+        let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let app = Router::new()
+            .route("/api/v1/auth/me",get(||async{Json(json!({"code":0,"data":{"id":8,"email":"test@example.test"}}))}))
+            .route("/api/v1/auth/register",post(|State(seen):State<Arc<Mutex<Vec<Value>>>>,Json(body):Json<Value>|async move{
+                seen.lock().await.push(body);
+                Json(json!({"code":0,"data":{"access_token":"fixture-access","refresh_token":"fixture-refresh","expires_in":3600,"user":{"id":8,"email":"test@example.test"}}}))
+            }))
+            .route("/api/v1/auth/send-verify-code",post(|State(seen):State<Arc<Mutex<Vec<Value>>>>,Json(body):Json<Value>|async move{seen.lock().await.push(body);Json(json!({"code":0,"data":{}}))}))
+            .route("/api/v1/auth/forgot-password",post(|State(seen):State<Arc<Mutex<Vec<Value>>>>,Json(body):Json<Value>|async move{seen.lock().await.push(body);Json(json!({"code":0,"data":{}}))}))
+            .with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(dir.path().into())).unwrap();
+        backend.store.settings.relay_base_url = base;
+        assert!(backend.dispatch("session", Value::Null).await.is_err());
+        backend
+            .dispatch("send-code", json!({"email":"test@example.test"}))
+            .await
+            .unwrap();
+        backend
+            .dispatch("forgot-password", json!({"email":"test@example.test"}))
+            .await
+            .unwrap();
+        backend
+            .dispatch(
+                "register",
+                json!({"email":"test@example.test","password":"fixture-pass","emailCode":"123456"}),
+            )
+            .await
+            .unwrap();
+        assert!(
+            backend.dispatch("session", Value::Null).await.unwrap()["account"]["loggedIn"]
+                .as_bool()
+                .unwrap()
+        );
+        let requests = seen.lock().await;
+        assert_eq!(requests[0], json!({"email":"test@example.test"}));
+        assert_eq!(requests[1], json!({"email":"test@example.test"}));
+        assert_eq!(requests[2]["verify_code"], "123456");
+        assert_eq!(requests[2]["password"], "fixture-pass");
+        backend.store.settings.account.user_id = Some(9);
+        assert!(backend
+            .verify_session()
+            .await
+            .unwrap_err()
+            .contains("AUTH_REQUIRED"));
+        assert!(!backend
+            .state()
+            .unwrap()
+            .to_string()
+            .contains("fixture-access"));
+        task.abort();
+    }
+    #[tokio::test]
+    async fn auth_client_never_follows_an_external_redirect() {
+        let escaped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hit = escaped.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let location = format!("{base}/escape");
+        let app = Router::new()
+            .route(
+                "/api/v1/auth/forgot-password",
+                post(move || async move { axum::response::Redirect::temporary(&location) }),
+            )
+            .route(
+                "/escape",
+                get(move || async move {
+                    hit.store(true, std::sync::atomic::Ordering::SeqCst);
+                    Json(json!({}))
+                }),
+            );
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(dir.path().into())).unwrap();
+        backend.store.settings.relay_base_url = base;
+        assert!(backend
+            .dispatch("forgot-password", json!({"email":"test@example.test"}))
+            .await
+            .is_err());
+        assert!(!escaped.load(std::sync::atomic::Ordering::SeqCst));
         task.abort();
     }
 }

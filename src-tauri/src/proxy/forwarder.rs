@@ -1383,6 +1383,8 @@ impl RequestForwarder {
         adapter: &dyn ProviderAdapter,
         codex_upstream_format_out: &mut Option<CodexUpstreamFormat>,
     ) -> Result<(ProxyResponse, Option<String>, Option<String>), ProxyError> {
+        crate::product_policy::require_provider(app_type, provider)
+            .map_err(|e| ProxyError::AuthError(e.to_string()))?;
         *codex_upstream_format_out = None;
         // 使用适配器提取 base_url
         let mut base_url = adapter.extract_base_url(provider)?;
@@ -2693,6 +2695,8 @@ impl RequestForwarder {
         }
 
         reject_proxy_placeholder_for_managed_account_upstream(&url, &ordered_headers)?;
+
+        crate::product_policy::require_url(&url).map_err(ProxyError::ConfigError)?;
 
         // 日志目标 URL 的脱敏分两种情形：
         // - 有已知密钥(log_secrets 非空)：记录脱敏后的完整 URL，剥 userinfo/query

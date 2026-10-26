@@ -111,7 +111,7 @@ fn keep_common_config_for_old_versions(provider: &mut Provider) {
     provider
         .meta
         .get_or_insert_with(Default::default)
-        .common_config_enabled = Some(true);
+        .common_config_enabled = Some(!crate::product_policy::active());
 }
 
 /// 编辑器保存的是新增的供应商，还是已有的。
@@ -5461,6 +5461,12 @@ impl ProviderService {
         state: &AppState,
         app_type: AppType,
     ) -> Result<IndexMap<String, Provider>, AppError> {
+        if crate::product_policy::active() {
+            crate::product_policy::require_session().map_err(AppError::InvalidInput)?;
+            let mut rows = state.db.get_all_providers(app_type.as_str())?;
+            rows.retain(|_, p| crate::product_policy::own_provider(&app_type, p));
+            return Ok(rows);
+        }
         if app_type == AppType::Pi {
             return pi::list(state);
         }
@@ -5597,6 +5603,7 @@ impl ProviderService {
         app_type: AppType,
         provider: Provider,
     ) -> Result<bool, AppError> {
+        crate::product_policy::require_provider(&app_type, &provider)?;
         if app_type.is_additive_mode() {
             return Self::add(state, app_type, provider, false);
         }
@@ -5615,6 +5622,7 @@ impl ProviderService {
         provider: Provider,
         add_to_live: bool,
     ) -> Result<bool, AppError> {
+        crate::product_policy::require_provider(&app_type, &provider)?;
         if app_type == AppType::Kimi
             && crate::kimi_config::is_official_provider(&provider.settings_config)
         {
@@ -5875,6 +5883,7 @@ impl ProviderService {
         add_to_live: bool,
         editor: Option<EditorSave>,
     ) -> Result<bool, AppError> {
+        crate::product_policy::require_provider(&app_type, &provider)?;
         match (app_type, editor) {
             (AppType::Claude, Some(editor)) => {
                 Self::add_claude_from_editor(state, provider, editor)
@@ -5904,6 +5913,7 @@ impl ProviderService {
         provider: Provider,
         editor: Option<EditorSave>,
     ) -> Result<bool, AppError> {
+        crate::product_policy::require_provider(&app_type, &provider)?;
         match (app_type, editor) {
             (AppType::Claude, Some(editor))
                 if original_id.is_none_or(|original| original == provider.id) =>
@@ -6190,6 +6200,7 @@ impl ProviderService {
         original_id: Option<&str>,
         provider: Provider,
     ) -> Result<bool, AppError> {
+        crate::product_policy::require_provider(&app_type, &provider)?;
         let mut provider = provider;
         if app_type == AppType::Kimi {
             // Official cards come from signing in. Their models, name and notes are
@@ -6741,6 +6752,13 @@ impl ProviderService {
     /// - 直连模式：切换式应用只替换客户端文件里的关键字段（不回填），文件和指针在同一个
     ///   操作里提交；累加式应用按各自的规则写入。
     pub fn switch(state: &AppState, app_type: AppType, id: &str) -> Result<SwitchResult, AppError> {
+        if crate::product_policy::active() {
+            let provider = state
+                .db
+                .get_provider_by_id(id, app_type.as_str())?
+                .ok_or_else(|| AppError::InvalidInput("请先配置本平台 API".into()))?;
+            crate::product_policy::require_provider(&app_type, &provider)?;
+        }
         let app = app_type.as_str().to_string();
         let result = Self::switch_inner(state, app_type, id);
         match &result {

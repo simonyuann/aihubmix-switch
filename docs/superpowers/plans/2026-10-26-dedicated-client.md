@@ -16,7 +16,7 @@
 
 ## Tasks
 
-- [ ] Native policy: runtime-only activation, verified session state, authenticated IPC boundary, fixed origin/no redirects, own provider generation, block generic edits/imports, no official seed/live import/startup proxy before login; tests.
-- [ ] Session UI: shared account context, boot verification, login, email-code registration, forgot-password email, logout/session invalidation; tests.
-- [ ] Navigation: remove requested four pages and persisted entry access; sidebar wallet, recharge, apply API; dedicated Key/account page and one fixed tool configuration per app; tests.
-- [ ] Verify typecheck, scoped and full frontend tests, native fmt/check/tests, production/native build, desktop isolated login gate. Document limitations and commit clean result.
+- [x] Native policy: runtime-only activation, verified session state, authenticated IPC boundary, fixed origin/no redirects, own provider generation, block generic edits/imports, no official seed/live import/startup proxy before login; tests.
+- [x] Session UI: shared account context, boot verification, login, email-code registration, forgot-password email, logout/session invalidation; tests.
+- [x] Navigation: remove requested four pages and persisted entry access; sidebar wallet, recharge, apply API; dedicated Key/account page and one fixed tool configuration per app; tests.
+- [x] Verify typecheck, scoped and full frontend tests, native fmt/check/tests, production/native build, desktop isolated login gate. Document limitations and commit clean result.

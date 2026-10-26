@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Provider } from "@/types";
 export interface KeyInfo {
   id: number;
   name: string;
@@ -25,11 +24,27 @@ export interface AccountState {
   legacyData: boolean;
   storageError: string | null;
 }
-export const dispatch = <T>(command: string, payload?: unknown): Promise<T> =>
-  invoke("aihubmix_dispatch", { command, payload: payload ?? null });
+export async function dispatch<T>(
+  command: string,
+  payload?: unknown,
+): Promise<T> {
+  try {
+    return await invoke("aihubmix_dispatch", {
+      command,
+      payload: payload ?? null,
+    });
+  } catch (error) {
+    if (
+      !["login", "register", "session", "state"].includes(command) &&
+      /AUTH_REQUIRED|登录已过期|请重新登录|请先登录/.test(String(error))
+    ) {
+      window.dispatchEvent(new Event("aihubmix:session-expired"));
+    }
+    throw error;
+  }
+}
 export const aihubmixApi = {
   state: () => dispatch<AccountState>("state"),
-  draft: (payload: unknown) => dispatch<Provider>("provider", payload),
 };
 export interface GroupInfo {
   id: number;

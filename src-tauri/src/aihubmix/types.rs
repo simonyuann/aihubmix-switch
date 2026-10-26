@@ -65,6 +65,13 @@ pub struct Account {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolSelection {
+    pub key_id: i64,
+    pub model: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub relay_base_url: String,
@@ -72,6 +79,7 @@ pub struct Settings {
     pub local_keys: Vec<KeyInfo>,
     pub selected_key: Option<i64>,
     pub agent_models: BTreeMap<String, String>,
+    pub tool_selections: BTreeMap<String, ToolSelection>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -81,6 +89,7 @@ impl Default for Settings {
             local_keys: vec![],
             selected_key: None,
             agent_models: BTreeMap::new(),
+            tool_selections: BTreeMap::new(),
         }
     }
 }

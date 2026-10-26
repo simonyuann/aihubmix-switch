@@ -1,24 +1,24 @@
 # AIHubMix Switch
 
-基于 [my-cc](https://github.com/simonyuann/my-cc) 的 AIHubMix 桌面客户端。界面、供应商管理、配置、代理、协议转换、官方授权、会话、MCP、Skills、提示词和用量功能直接采用 CC Switch；独立增加 AIHubMix 平台账户、Key、钱包与充值。
+基于 [my-cc](https://github.com/simonyuann/my-cc) 的专属 API 桌面客户端。沿用 CC 界面、十三种工具的本机配置、代理、协议转换、会话与用量服务，增加平台账户、API Key、余额和充值。
 
 本次重构版本为 **2.0.0**，源码基线为 my-cc `42ef63471f0ed879913f8de0d0c7e3e580293193`。保留上游 MIT 许可，见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ## 使用
 
-沿用 CC 的侧栏与工具页面，支持其全部 13 种工具。新增的「AIHubMix 账户」入口用于登录、管理平台 Key 和本机 Key、查看钱包、充值，以及将 Key 保存为 CC 供应商。
+启动后先登录；支持邮箱验证码注册与找回密码。程序会向平台验证已保存的会话，登录失效后返回账户首页。找回密码通过平台邮件中的链接完成。
 
-添加供应商时选择目标工具、模型和适用的推理强度。保存后在对应工具页面切换或应用配置；配置文件、代理和启动由 CC 原有服务处理。AIHubMix 平台登录与侧栏「授权中心」中的工具官方登录相互独立。
+登录后，在左侧选择工具，再选择当前账户的 Key 和可用模型，点击「应用配置」。本机配置写入、代理和协议转换继续由 CC 原有服务处理。Claude Desktop 使用 CC 路由模式。
 
-服务地址可配置，默认 `https://csmy.fun:23457`。钱包余额按账户接口返回显示，不能将 API Key 配额视为钱包余额。充值只在明确提交后创建订单；结果不明时先刷新订单记录再操作。
+服务固定为 `https://csmy.fun:23457`，仅支持本平台 API。没有添加、编辑、导入第三方供应商或官方账户授权入口；MCP、Skills、提示词和授权中心已从产品导航移除。原 CC 模块保留在源码中，便于跟进上游。
 
-## 从旧版升级
+左下角提供账户余额、充值和「申请 API」。申请 API 在确认后创建平台 Key，不会自动创建或收费；充值在明确提交后创建订单。结果不明时先刷新记录再操作。钱包按账户接口返回的币种与余额显示，API Key 配额单独显示。
 
-应用标识继续使用 `fun.csmy.aihubmix-switch`。新配置库位于 `~/.aihubmix-switch/`，沿用 CC 的数据库结构；不读取或覆盖独立安装的 CC Switch 数据库。
+## 数据与升级
 
-旧版账户、Key、设置与备份位于系统应用数据目录的 `aihubmix-switch/`。在「AIHubMix 账户」选择导入旧版数据后，程序先验证加密存储，再建立独立快照；原始 `state-v2.json`、`vault-v2.bin` 和 `backups-v2/` 保留。已导入时不会重复覆盖。钥匙串锁定或 vault 损坏时保留原文件并显示错误。
+应用标识继续使用 `fun.csmy.aihubmix-switch`。配置库位于 `~/.aihubmix-switch/`，沿用 CC 的数据库结构；不读取或覆盖独立安装的 CC Switch 数据库。
 
-导入平台快照不会自动修改工具配置或会话。旧工具/模型元数据随快照保留，供应商通过新界面选择并保存。旧备份有单独的打开入口，不冒充 CC 的原生还原记录。
+旧版系统应用数据目录中的 `aihubmix-switch/` 及原始备份保留。专属客户端不提供旧版供应商和本机 Key 的导入入口，请登录平台账户重新选择 Key 与模型。已在重构版保存的其他供应商不会出现在列表或托盘中，也不能切换使用；程序不会删除用户原有工具配置文件。
 
 ## 开发
 
@@ -45,4 +45,4 @@ pnpm build:desktop
 
 ## 源码维护
 
-产品适配集中于 `src-tauri/src/aihubmix/`、`src/components/aihubmix/`、`src/lib/api/aihubmix.ts`、少量导航/品牌/目录/更新配置和发布脚本。供应商配置、代理和工具功能均复用 CC；数据库文件名、schema 和内部模块名保留，方便与上游比对更新。
+产品适配集中于 `src-tauri/src/aihubmix/`、`src/components/aihubmix/`、`src/lib/api/aihubmix.ts`、`src/contexts/AccountContext.tsx`、`src-tauri/src/product_policy.rs`、少量导航/品牌/目录/更新配置和发布脚本。供应商配置、代理和工具功能均复用 CC；数据库文件名、schema 和内部模块名保留，方便与上游比对更新。

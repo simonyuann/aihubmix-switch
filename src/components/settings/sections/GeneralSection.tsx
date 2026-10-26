@@ -31,6 +31,7 @@ const LANGUAGES: { value: Language; labelKey: string }[] = [
 ];
 
 interface GeneralSectionProps {
+  dedicatedClient?: boolean;
   settings: SettingsFormState;
   onAutoSave: (updates: Partial<SettingsFormState>) => Promise<boolean>;
   onOpenApps: () => void;
@@ -40,6 +41,7 @@ export function GeneralSection({
   settings,
   onAutoSave,
   onOpenApps,
+  dedicatedClient = false,
 }: GeneralSectionProps) {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
@@ -101,33 +103,35 @@ export function GeneralSection({
               />
             }
           />
-          <SettingsRow
-            label={t("settings.general.quotaDisplay")}
-            help={{
-              title: t("settings.general.quotaDisplay"),
-              body: t("settings.general.quotaDisplayHelp"),
-            }}
-            control={
-              <SegmentedControl
-                size="sm"
-                aria-label={t("settings.general.quotaDisplay")}
-                value={settings.quotaDisplay ?? "left"}
-                onValueChange={(value) =>
-                  void onAutoSave({ quotaDisplay: value })
-                }
-                items={[
-                  {
-                    value: "left",
-                    label: t("settings.general.quotaDisplayLeft"),
-                  },
-                  {
-                    value: "used",
-                    label: t("settings.general.quotaDisplayUsed"),
-                  },
-                ]}
-              />
-            }
-          />
+          {!dedicatedClient && (
+            <SettingsRow
+              label={t("settings.general.quotaDisplay")}
+              help={{
+                title: t("settings.general.quotaDisplay"),
+                body: t("settings.general.quotaDisplayHelp"),
+              }}
+              control={
+                <SegmentedControl
+                  size="sm"
+                  aria-label={t("settings.general.quotaDisplay")}
+                  value={settings.quotaDisplay ?? "left"}
+                  onValueChange={(value) =>
+                    void onAutoSave({ quotaDisplay: value })
+                  }
+                  items={[
+                    {
+                      value: "left",
+                      label: t("settings.general.quotaDisplayLeft"),
+                    },
+                    {
+                      value: "used",
+                      label: t("settings.general.quotaDisplayUsed"),
+                    },
+                  ]}
+                />
+              }
+            />
+          )}
         </SettingsCard>
       </SettingsBlock>
 
@@ -142,28 +146,36 @@ export function GeneralSection({
               </Button>
             }
           />
-          <SettingsSwitchRow
-            label={t("settings.appVisibility.showProfileSwitcher")}
-            help={{
-              title: t("settings.appVisibility.showProfileSwitcher"),
-              body: t("settings.appVisibility.showProfileSwitcherDescription"),
-            }}
-            checked={settings.showProfileSwitcher ?? false}
-            onCheckedChange={(value) =>
-              void onAutoSave({ showProfileSwitcher: value })
-            }
-          />
-          <SettingsSwitchRow
-            label={t("settings.appVisibility.showProviderSearch")}
-            help={{
-              title: t("settings.appVisibility.showProviderSearch"),
-              body: t("settings.appVisibility.showProviderSearchDescription"),
-            }}
-            checked={settings.showProviderSearch ?? true}
-            onCheckedChange={(value) =>
-              void onAutoSave({ showProviderSearch: value })
-            }
-          />
+          {!dedicatedClient && (
+            <>
+              <SettingsSwitchRow
+                label={t("settings.appVisibility.showProfileSwitcher")}
+                help={{
+                  title: t("settings.appVisibility.showProfileSwitcher"),
+                  body: t(
+                    "settings.appVisibility.showProfileSwitcherDescription",
+                  ),
+                }}
+                checked={settings.showProfileSwitcher ?? false}
+                onCheckedChange={(value) =>
+                  void onAutoSave({ showProfileSwitcher: value })
+                }
+              />
+              <SettingsSwitchRow
+                label={t("settings.appVisibility.showProviderSearch")}
+                help={{
+                  title: t("settings.appVisibility.showProviderSearch"),
+                  body: t(
+                    "settings.appVisibility.showProviderSearchDescription",
+                  ),
+                }}
+                checked={settings.showProviderSearch ?? true}
+                onCheckedChange={(value) =>
+                  void onAutoSave({ showProviderSearch: value })
+                }
+              />
+            </>
+          )}
         </SettingsCard>
       </SettingsBlock>
 
@@ -263,7 +275,9 @@ export function GeneralSection({
             label={t("settings.terminal.title")}
             help={{
               title: t("settings.terminal.title"),
-              body: t("settings.general.terminalHelp"),
+              body: dedicatedClient
+                ? "恢复工具会话时使用的终端。"
+                : t("settings.general.terminalHelp"),
             }}
             control={
               <TerminalSelect

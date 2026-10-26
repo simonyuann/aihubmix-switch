@@ -282,6 +282,11 @@ pub fn is_proxy_enabled() -> bool {
 /// 两种客户端共用的参数
 fn base_builder() -> reqwest::ClientBuilder {
     Client::builder()
+        .redirect(if crate::product_policy::active() {
+            reqwest::redirect::Policy::none()
+        } else {
+            reqwest::redirect::Policy::default()
+        })
         .timeout(Duration::from_secs(600))
         .connect_timeout(Duration::from_secs(30))
         .pool_max_idle_per_host(10)

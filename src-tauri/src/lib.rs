@@ -39,6 +39,7 @@ mod opencode_config;
 mod panic_hook;
 mod pi_config;
 pub mod product;
+pub(crate) mod product_policy;
 mod prompt;
 mod prompt_files;
 mod provider;
@@ -276,6 +277,9 @@ fn handle_deeplink_url(
     focus_main_window: bool,
     source: &str,
 ) -> bool {
+    if product_policy::active() {
+        return false;
+    }
     if !url_str.starts_with("ccswitch://") {
         return false;
     }
@@ -399,6 +403,7 @@ fn raise_open_file_limit() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    product_policy::activate();
     // 设置 panic hook，在应用崩溃时记录日志到 <app_config_dir>/crash.log（默认 ~/.aihubmix-switch/crash.log）
     panic_hook::setup_panic_hook();
 
@@ -742,6 +747,7 @@ pub fn run() {
             // 按表独立判断的导入逻辑（各类数据独立检查，互不影响）
             // ============================================================
 
+            if !product_policy::active() {
             // 1. 初始化默认 Skills 仓库（已有内置检查：表非空则跳过）
             match app_state.db.init_default_skill_repos() {
                 Ok(count) if count > 0 => {
@@ -792,6 +798,8 @@ pub fn run() {
                 Err(e) => log::warn!("✗ Failed to read skills migration flag: {e}"),
             }
 
+            }
+
             // 1.5. 自动导入 live 配置 + seed 官方预设供应商（Claude / Codex / Gemini）
             //
             // 先 import 后 seed 是有意为之：先把用户手动配置的 settings.json / auth.json / .env
@@ -807,7 +815,7 @@ pub fn run() {
                 app_state.db.is_providers_empty().unwrap_or(false);
 
             for app_type in
-                crate::app_config::AppType::all().filter(|t| !t.is_additive_mode())
+                crate::app_config::AppType::all().filter(|t| !t.is_additive_mode() && !product_policy::active())
             {
                 if !crate::services::provider::should_import_default_config_on_startup(
                     &app_state,
@@ -841,7 +849,7 @@ pub fn run() {
                 }
             }
 
-            match app_state.db.init_default_official_providers() {
+            match if product_policy::active() { Ok(0) } else { app_state.db.init_default_official_providers() } {
                 Ok(count) if count > 0 => {
                     log::info!("✓ Seeded {count} official provider(s)");
                 }
@@ -936,6 +944,7 @@ pub fn run() {
                 log::info!("✓ First-run welcome notice pending");
             }
 
+            if !product_policy::active() {
             // 1.6. 自动同步累加模式应用的原生 providers 到数据库
             //
             // additive 模式的 import 函数按 id 幂等——
@@ -1033,8 +1042,9 @@ pub fn run() {
                 }
             }
 
+            }
             // 3. 导入 MCP 服务器配置（表空时触发）
-            if app_state.db.is_mcp_table_empty().unwrap_or(false) {
+            if !product_policy::active() && app_state.db.is_mcp_table_empty().unwrap_or(false) {
                 log::info!("MCP table empty, importing from live configurations...");
 
                 match crate::services::mcp::McpService::import_from_claude(&app_state) {
@@ -1328,12 +1338,12 @@ pub fn run() {
                 let manager = ClaudeAccountManager::new(data_dir.clone());
                 app.manage(commands::ClaudeAccountState(Arc::new(manager)));
                 let db = app.state::<AppState>().db.clone();
-                std::thread::spawn(move || {
+                if !product_policy::active() { std::thread::spawn(move || {
                     // 上次切换登录时崩溃、断电：先补完（配置操作在前面已补完，指针已落定）
                     crate::services::provider::claude_official::recover_login_switch(&db);
                     // 默认目录的设置、MCP 可能在 AIHubMix Switch 没运行时改过
                     crate::services::claude_account::sync_all_shared(&data_dir)
-                });
+                }); }
             }
 
             // 初始化全局出站代理 HTTP 客户端
@@ -1372,6 +1382,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let state = app_handle.state::<AppState>();
 
+                if !product_policy::active() {
                 // 必须排在 auto-extract 之前：先把历史泄漏进 Gemini 共享片段的凭据
                 // 清干净，否则紧接着的提取会基于被污染的 live 再写一遍。
                 if let Err(e) =
@@ -1387,7 +1398,7 @@ pub fn run() {
 
                 // 定下各应用的直连 / 代理模式（处理旧版遗留的接管状态），再把代理模式的
                 // 应用接上。要排在通用配置片段的自动提取之后：它读的是直连的 live。
-                crate::mode::controller::startup(&state).await;
+                if !product_policy::active() { crate::mode::controller::startup(&state).await; }
                 // #8268 测试版给 agy 装过包装脚本、改过 shell 启动文件，撤掉带标记的部分。
                 if let Err(e) =
                     crate::services::provider::agy_direct::migrate_legacy_launcher(&state.db)
@@ -1401,6 +1412,7 @@ pub fn run() {
                     state.inner().clone(),
                 );
 
+                }
                 // Periodic backup check (on startup)
                 if let Err(e) = state.db.periodic_backup_if_needed() {
                     log::warn!("Periodic backup failed on startup: {e}");
@@ -1541,7 +1553,8 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({
+            let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
             aihubmix::aihubmix_dispatch,
             product::product_update_target,
             commands::get_providers,
@@ -1954,7 +1967,14 @@ pub fn run() {
             commands::enter_lightweight_mode,
             commands::exit_lightweight_mode,
             commands::is_lightweight_mode,
-        ]);
+        ];
+            move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+                if let Err(error) = product_policy::ipc_allowed(invoke.message.command()) {
+                    invoke.resolver.reject(error);
+                    true
+                } else { handler(invoke) }
+            }
+        });
 
     let app = builder
         .build(tauri::generate_context!())

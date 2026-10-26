@@ -4,21 +4,16 @@ import { useQuery } from "@tanstack/react-query";
 import { getVersion } from "@tauri-apps/api/app";
 import {
   ArrowLeft,
-  BookOpen,
   ChartColumn,
   ChevronsLeft,
   ChevronsRight,
-  Database,
-  Folder,
   Globe,
   History,
   Info,
-  KeyRound,
   Layers,
   LayoutGrid,
-  Route,
-  Server,
   Settings,
+  Route,
   SlidersHorizontal,
 } from "lucide-react";
 import type { AppId } from "@/lib/api";
@@ -26,7 +21,7 @@ import type { VisibleApps } from "@/types";
 import { orderAppIds } from "@/config/appConfig";
 import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage } from "@/lib/navigation";
-import { SkillsIcon } from "@/components/BrandIcons";
+import { WalletPanel } from "@/components/aihubmix/WalletPanel";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
 import { useMoneyFormat } from "@/hooks/useMoneyFormat";
@@ -220,14 +215,8 @@ function MainDirectory({
   const { moneyShort } = useMoneyFormat();
   const { data: settings } = useSettingsQuery();
   const { hasUpdate } = useUpdate();
-  const {
-    appStatus,
-    todayCost,
-    todayTokens,
-    todayRequests,
-    todayHitRate,
-    authNeedsAttention,
-  } = useSidebarStatus();
+  const { appStatus, todayCost, todayTokens, todayRequests, todayHitRate } =
+    useSidebarStatus();
   // 顺序跟应用页拖出来的一致
   const apps = orderAppIds(settings?.appOrder).filter(
     (app) => visibleApps[app],
@@ -273,17 +262,8 @@ function MainDirectory({
     trailingLabel?: string;
     alert?: string;
   }[] = [
-    { page: "aihubmix", label: "AIHubMix 账户", icon: Globe },
-    { page: "mcp", label: "MCP", icon: Server },
-    { page: "skills", label: "Skills", icon: SkillsIcon },
-    { page: "prompts", label: t("nav.prompts"), icon: BookOpen },
+    { page: "aihubmix", label: "我的账户", icon: Globe },
     { page: "sessions", label: t("nav.sessions"), icon: History },
-    {
-      page: "auth",
-      label: t("nav.auth"),
-      icon: KeyRound,
-      alert: authNeedsAttention ? t("nav.authNeedsReauth") : undefined,
-    },
     {
       page: "usage",
       label: t("nav.usage"),
@@ -330,6 +310,10 @@ function MainDirectory({
         )}
       />
 
+      <WalletPanel
+        collapsed={collapsed}
+        onOpenAccount={() => onSelectPage("aihubmix")}
+      />
       <div className="flex shrink-0 flex-col">
         {globals.map((item) => (
           <NavItem
@@ -695,10 +679,6 @@ function NavItem({
 
 const SETTINGS_ITEMS: { section: SettingsSection; icon: IconComponent }[] = [
   { section: "general", icon: SlidersHorizontal },
-  { section: "appConfig", icon: Folder },
-  { section: "routing", icon: Route },
-  { section: "network", icon: Globe },
-  { section: "data", icon: Database },
   { section: "about", icon: Info },
 ];
 
