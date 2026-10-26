@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Work only in `feat/cc-rebuild`, `/Users/simon/aihubmix-switch-cc-rebuild`.
-- Preserve application identifier `fun.csmy.aihubmix-switch` and the existing updater public key and AIHubMix download endpoint.
+- Preserve application identifier `fun.csmy.aihubmix-switch`, the existing updater public key and AIHubMix download service; use the major-version feed transition documented below.
 - Use a separate `.aihubmix-switch` data directory; never fall back to the installed CC application's database.
 - Keep CC internal crate names, schema and module boundaries. Keep upstream MIT attribution.
 - Minimum macOS version is 12.0. Do not publish or create real payment orders during verification.
@@ -24,11 +24,11 @@
 
 **Interfaces:** Preserve CC's original `providersApi`, Tauri command names, `AppState`, `ProviderService` and all 13 `AppId` values.
 
-- [ ] Replace legacy source, tests and build configuration with the exact CC baseline, retaining target repository history, release documentation and download-station deployment.
-- [ ] Set package/product version to `2.0.0`, product name to `AIHubMix Switch`, identifier to `fun.csmy.aihubmix-switch`.
-- [ ] Change product configuration paths and corresponding fixtures from `.cc-switch` to `.aihubmix-switch`; preserve database filename and schema.
-- [ ] Replace user-facing product branding and update/download destinations; retain upstream attribution separately.
-- [ ] Install pnpm dependencies, run typecheck and frontend production build, then commit the foundation.
+- [x] Replace legacy source, tests and build configuration with the exact CC baseline, retaining target repository history, release documentation and download-station deployment.
+- [x] Set package/product version to `2.0.0`, product name to `AIHubMix Switch`, identifier to `fun.csmy.aihubmix-switch`.
+- [x] Change product configuration paths and corresponding fixtures from `.cc-switch` to `.aihubmix-switch`; preserve database filename and schema.
+- [x] Replace user-facing product branding and update/download destinations; retain upstream attribution separately.
+- [x] Install pnpm dependencies, run typecheck and frontend production build, then commit the foundation.
 
 ## Task 2: Isolated platform backend
 
@@ -36,11 +36,11 @@
 
 **Interfaces:** `aihubmix_dispatch(command: String, payload: Option<Value>) -> Result<Value, String>`; platform state has `relayBaseUrl`, `account`, `localKeys`, `legacyData`, `storageError`. Support `state`, `login`, `register`, `logout`, `set-base`, `keys`, `groups`, `create-key`, `delete-key`, `get-key`, `save-key`, `remove-local-key`, `models`, `provider`, `legacy-import`, `open-legacy-backups`, and the existing `payment-*` operations. `provider` returns a CC `Provider` draft without writing native tool files.
 
-- [ ] Extract encrypted vault and platform account operations from v1.0.2, retaining keyring identity and response contracts, without importing legacy agent/proxy implementations.
-- [ ] Reuse the existing payment protocol and amount/order checks; keep platform operations independent from the CC proxy lock.
-- [ ] Import legacy settings and vault only on explicit request; preserve originals, reject unreadable vaults and make imports idempotent.
-- [ ] Build provider drafts compatible with CC's editor for selected app, key, model and effort; native writes remain CC's responsibility.
-- [ ] Test account refresh, credential redaction, exact payment amounts, duplicate submission, foreign orders, provider drafts and legacy import using temporary files and a mock HTTP server.
+- [x] Extract encrypted vault and platform account operations from v1.0.2, retaining keyring identity and response contracts, without importing legacy agent/proxy implementations.
+- [x] Reuse the existing payment protocol and amount/order checks; keep platform operations independent from the CC proxy lock.
+- [x] Import legacy settings and vault only on explicit request; preserve originals, reject unreadable vaults and make imports idempotent.
+- [x] Build provider drafts compatible with CC's editor for selected app, key, model and effort; native writes remain CC's responsibility.
+- [x] Test account refresh, credential redaction, exact payment amounts, duplicate submission, foreign orders, provider drafts and legacy import using temporary files and a mock HTTP server.
 
 ## Task 3: CC-native account page
 
@@ -48,22 +48,22 @@
 
 **Interfaces:** A typed `aihubmixApi` wrapper for Task 2 and a single global navigation view `aihubmix`. Use `providersApi.add` for reviewed provider drafts and query invalidation after changes.
 
-- [ ] Add one AIHubMix account navigation entry, preserving CC's existing layout, theme, pages and tool authorization center.
-- [ ] Implement platform login/register/logout, configurable service URL, wallet balance, Key/group CRUD and existing local Key access with CC UI controls.
-- [ ] Add a provider draft dialog with app/model/effort choice and explicit save, using CC's provider API for persistence.
-- [ ] Port recharge behavior into CC dialogs, including QR code, status, history, order verification/cancellation and uncertain submission handling.
-- [ ] Add legacy import and backup-directory access, with distinct loading/empty/error states and stale response protection.
-- [ ] Test account switching, request errors, explicit provider save and payment uncertainty with mocked APIs.
+- [x] Add one AIHubMix account navigation entry, preserving CC's existing layout, theme, pages and tool authorization center.
+- [x] Implement platform login/register/logout, configurable service URL, wallet balance, Key/group CRUD and existing local Key access with CC UI controls.
+- [x] Add a provider draft dialog with app/model/effort choice and explicit save, using CC's provider API for persistence.
+- [x] Port recharge behavior into CC dialogs, including QR code, status, history, order verification/cancellation and uncertain submission handling.
+- [x] Add legacy import and backup-directory access, with distinct loading/empty/error states and stale response protection.
+- [x] Test account switching, request errors, explicit provider save and payment uncertainty with mocked APIs.
 
 ## Task 4: Build and integration verification
 
 **Files:** `.github/workflows/`, `scripts/`, `src-tauri` tests, product documentation.
 
-- [ ] Adapt CI to pnpm/CC build and tests, retain AIHubMix signed release artifact naming and mirror deployment contracts.
-- [ ] Run TypeScript checks, production frontend build, relevant frontend integration tests, Rust format/check/test and a native desktop build.
-- [ ] Review update URLs, product identity, independent data paths and absence of old parallel agent/proxy modules.
-- [ ] Inspect the account page and CC UI with browser/desktop tools as available; record actual verification and any platform-specific limitations.
-- [ ] Commit reviewed changes and document the final source baseline, development commands, migration behavior and validated artifacts.
+- [x] Adapt CI to pnpm/CC build and tests, retain AIHubMix signed release artifact naming and mirror deployment contracts.
+- [x] Run TypeScript checks, production frontend build, relevant frontend integration tests, Rust format/check/test and a native desktop build.
+- [x] Review update URLs, product identity, independent data paths and absence of old parallel agent/proxy modules.
+- [x] Inspect the account page and CC UI with browser/desktop tools as available; record actual verification and any platform-specific limitations.
+- [x] Commit reviewed changes and document the final source baseline, development commands, migration behavior and validated artifacts.
 
 ### Final review ruling (2026-10-26)
 
