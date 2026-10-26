@@ -15,8 +15,14 @@ use std::{
 };
 use toml_edit::{DocumentMut, Item, Table};
 const BUCKET: &str = "csmy";
-const MAX_FILES: usize = 4000;
-const MAX_BYTES: u64 = 256 * 1024 * 1024;
+/// Guards a pathological history tree, not a real one.
+const MAX_SCAN_FILES: usize = 200_000;
+/// One session file; oversized files are reported by name instead of failing the scan.
+const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
+/// Per-run work limits. Files are rewritten one at a time, so these bound time and
+/// backup disk usage only; they never bound memory.
+const MAX_MIGRATE_FILES: usize = 100_000;
+const MAX_MIGRATE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct Ledger {
@@ -74,6 +80,37 @@ fn safe(path: &Path) -> Result<()> {
             _ => {}
         }
         current = p.parent();
+    }
+    Ok(())
+}
+fn human(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit + 1 < UNITS.len() {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+/// Only sessions that actually need rewriting are counted, so a large history of
+/// other providers never blocks the migration of the official ones.
+fn guard_migration(files: usize, bytes: u64) -> Result<()> {
+    if files > MAX_MIGRATE_FILES {
+        return Err(format!(
+            "需要迁移的会话有 {files} 个，超过单次上限 {MAX_MIGRATE_FILES} 个，未迁移；请先归档或删除部分会话后重试"
+        ));
+    }
+    if bytes > MAX_MIGRATE_BYTES {
+        return Err(format!(
+            "需要迁移的会话合计 {}，超过单次上限 {}，未迁移；请先归档或删除部分会话后重试",
+            human(bytes),
+            human(MAX_MIGRATE_BYTES)
+        ));
     }
     Ok(())
 }
@@ -219,7 +256,7 @@ fn revert_overlay(edit: &ConfigEdit) -> Result<String> {
     }
     Ok(live.to_string())
 }
-fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>, bytes: &mut u64) -> Result<()> {
+fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Result<()> {
     safe(dir)?;
     if !dir.exists() {
         return Ok(());
@@ -231,13 +268,14 @@ fn walk(dir: &Path, depth: usize, out: &mut Vec<PathBuf>, bytes: &mut u64) -> Re
     for entry in entries {
         let path = entry.map_err(|_| "读取历史目录失败")?.path();
         safe(&path)?;
-        let meta = fs::metadata(&path).map_err(|_| "读取历史文件信息失败")?;
-        if meta.is_dir() {
-            walk(&path, depth + 1, out, bytes)?;
+        let info = fs::metadata(&path).map_err(|_| "读取历史文件信息失败")?;
+        if info.is_dir() {
+            walk(&path, depth + 1, out)?;
         } else if path.extension().is_some_and(|e| e == "jsonl") {
-            *bytes += meta.len();
-            if out.len() >= MAX_FILES || *bytes > MAX_BYTES || meta.len() > 32 * 1024 * 1024 {
-                return Err("历史扫描超过安全上限，未迁移；请先整理历史".into());
+            if out.len() >= MAX_SCAN_FILES {
+                return Err(format!(
+                    "历史会话数量异常（已扫描到 {MAX_SCAN_FILES} 个会话文件），未迁移；请检查 Codex 历史目录"
+                ));
             }
             out.push(path);
         }
@@ -329,20 +367,28 @@ fn db(path: &Path) -> Result<Connection> {
 }
 fn plan(ctx: &Context, backup: &Path) -> Result<Batch> {
     let mut files = Vec::new();
-    let mut bytes = 0;
-    walk(&root(ctx).join("sessions"), 0, &mut files, &mut bytes)?;
-    walk(
-        &root(ctx).join("archived_sessions"),
-        0,
-        &mut files,
-        &mut bytes,
-    )?;
+    walk(&root(ctx).join("sessions"), 0, &mut files)?;
+    walk(&root(ctx).join("archived_sessions"), 0, &mut files)?;
     files.sort();
     let mut batch = Batch::default();
+    let mut bytes = 0u64;
     for path in files {
+        let size = fs::metadata(&path)
+            .map_err(|_| "读取历史文件信息失败")?
+            .len();
+        if size > MAX_FILE_BYTES {
+            return Err(format!(
+                "单个会话文件 {} 超出上限 {}（{}），未迁移；请先归档或删除该会话",
+                human(size),
+                human(MAX_FILE_BYTES),
+                path.display()
+            ));
+        }
         let raw = text(&path)?;
         let (v, _) = meta(&raw)?;
         if v["payload"]["model_provider"] == "openai" {
+            bytes = bytes.saturating_add(raw.len() as u64);
+            guard_migration(batch.files.len() + 1, bytes)?;
             atomic_write(
                 &backup.join(format!("{}.jsonl", batch.files.len())),
                 raw.as_bytes(),
@@ -481,28 +527,40 @@ fn execute(pending: &Pending, strict: bool) -> Result<(usize, usize)> {
         }
         connections.push(c);
     }
-    let mut writes = Vec::new();
+    // Validate the config first: a changed file must never leave a half-applied
+    // batch behind, and the config is written last.
+    let config = match &pending.config {
+        Some(edit) => {
+            let raw = text(&edit.path)?;
+            if raw != edit.before {
+                return Err("Codex 配置已变化，未覆盖，请重试".into());
+            }
+            Some((edit.path.clone(), raw, edit.after.clone()))
+        }
+        None => None,
+    };
+    // Rewrite one session at a time. Holding every history file (and its rewritten
+    // copy) in memory is what used to force the small scan limits.
+    let mut count = 0;
     for entry in &pending.batch.files {
         let raw = text(&entry.path)?;
-        if let Some(output) = rewrite(&raw, entry)? {
-            writes.push((entry.path.clone(), raw, output));
-        } else if strict {
-            return Err("历史文件已变化，迁移取消；请关闭 Codex 后重试".into());
-        }
-    }
-    if let Some(edit) = &pending.config {
-        let raw = text(&edit.path)?;
-        if raw != edit.before {
-            return Err("Codex 配置已变化，未覆盖，请重试".into());
-        }
-        writes.push((edit.path.clone(), raw, edit.after.clone()));
-    }
-    let count = writes.len() - usize::from(pending.config.is_some());
-    for (path, before, after) in &writes {
-        if text(path)? != *before {
+        let Some(after) = rewrite(&raw, entry)? else {
+            if strict {
+                return Err("历史文件已变化，迁移取消；请关闭 Codex 后重试".into());
+            }
+            continue;
+        };
+        if text(&entry.path)? != raw {
             return Err("写入前发现配置或会话变化，请关闭 Codex 后重试".into());
         }
-        atomic_write(path, after.as_bytes())?;
+        atomic_write(&entry.path, after.as_bytes())?;
+        count += 1;
+    }
+    if let Some((path, before, after)) = config {
+        if text(&path)? != before {
+            return Err("写入前发现配置或会话变化，请关闭 Codex 后重试".into());
+        }
+        atomic_write(&path, after.as_bytes())?;
     }
     let mut rows = 0;
     for c in connections {
@@ -777,6 +835,93 @@ mod tests {
         assert_eq!(provider(&file), "openai");
         assert_eq!(row(&database, "thread-a"), "openai");
         assert_eq!(status(&ctx)["recoveryRequired"], false);
+    }
+    #[test]
+    fn many_sessions_migrate_in_one_pass_with_full_backups() {
+        let (_dir, ctx, file, _database) = setup();
+        let filler = "x".repeat(4096);
+        for i in 0..200 {
+            let path = root(&ctx).join(format!("sessions/2026/08/rollout-{i:03}.jsonl"));
+            let body = format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"thread-{i}\",\"model_provider\":\"openai\"}}}}\n{{\"type\":\"response_item\",\"payload\":{{\"text\":\"{filler}\"}}}}\n"
+            );
+            atomic_write(&path, body.as_bytes()).unwrap();
+        }
+        change(&ctx, true, true, false).unwrap();
+        assert_eq!(provider(&file), BUCKET);
+        let ledger_dir = ledger_path(&ctx).parent().unwrap().to_path_buf();
+        let backup = fs::read_dir(&ledger_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| p.is_dir())
+            .expect("migration created a backup generation");
+        assert_eq!(fs::read_dir(&backup).unwrap().count(), 201);
+        assert!(text(&backup.join("0.jsonl"))
+            .unwrap()
+            .contains("\"openai\""));
+        change(&ctx, false, false, true).unwrap();
+        assert_eq!(provider(&file), "openai");
+        for i in 0..200 {
+            let path = root(&ctx).join(format!("sessions/2026/08/rollout-{i:03}.jsonl"));
+            assert_eq!(provider(&path), "openai");
+        }
+    }
+    #[test]
+    fn migration_limits_count_only_touched_sessions() {
+        let (_dir, ctx, file, _database) = setup();
+        let other = root(&ctx).join("sessions/2026/rollout-claude.jsonl");
+        atomic_write(
+            &other,
+            b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"thread-c\",\"model_provider\":\"anthropic\"}}\n",
+        )
+        .unwrap();
+        let backup = ctx.data.join("test-backup");
+        let batch = plan(&ctx, &backup).unwrap();
+        assert_eq!(batch.files.len(), 1);
+        assert_eq!(batch.files[0].path, file);
+        assert_eq!(fs::read_dir(&backup).unwrap().count(), 1);
+        assert!(guard_migration(MAX_MIGRATE_FILES, MAX_MIGRATE_BYTES).is_ok());
+        let too_many = guard_migration(MAX_MIGRATE_FILES + 1, 0).unwrap_err();
+        assert!(too_many.contains(&(MAX_MIGRATE_FILES + 1).to_string()));
+        let too_large = guard_migration(1, MAX_MIGRATE_BYTES + 1).unwrap_err();
+        assert!(too_large.contains("8.0 GiB") && too_large.contains("未迁移"));
+        assert_eq!(human(1024), "1.0 KiB");
+        assert_eq!(human(1536), "1.5 KiB");
+        assert_eq!(human(512), "512 B");
+    }
+    #[test]
+    fn streamed_writes_roll_back_when_a_later_session_changed() {
+        let (_dir, ctx, file, _database) = setup();
+        for i in 0..3 {
+            let path = root(&ctx).join(format!("sessions/2026/rollout-b{i}.jsonl"));
+            atomic_write(
+                &path,
+                b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"thread-b\",\"model_provider\":\"openai\"}}\n{\"type\":\"response_item\"}\n",
+            )
+            .unwrap();
+        }
+        let batch = plan(&ctx, &ctx.data.join("test-backup")).unwrap();
+        assert_eq!(batch.files.len(), 4);
+        let op = Pending {
+            config: official_overlay(ctx.paths("codex").unwrap()[0].clone()).unwrap(),
+            batch,
+        };
+        // The last session switches provider between planning and writing; earlier
+        // sessions are already rewritten at that point and must be restored.
+        let last = op.batch.files.last().unwrap().path.clone();
+        atomic_write(
+            &last,
+            text(&last)
+                .unwrap()
+                .replace("\"openai\"", "\"other\"")
+                .as_bytes(),
+        )
+        .unwrap();
+        assert!(execute(&op, true).unwrap_err().contains("历史文件已变化"));
+        rollback(&op).unwrap();
+        assert_eq!(provider(&file), "openai");
+        assert_eq!(provider(&last), "other");
     }
     #[test]
     fn official_route_preserves_destination_comments_and_later_user_changes() {

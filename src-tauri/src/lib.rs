@@ -114,6 +114,9 @@ pub fn run() {
                 .ok_or("无法定位应用数据目录")?
                 .join("aihubmix-switch");
             let mut backend = Backend::new(store::Store::load(dir)?)?;
+            // Codex 官方重新登录或其他工具会重写 config.toml，丢失统一分组的镜像；
+            // 启动时按账本补回（未开启统一历史时什么也不做），否则 /resume 会再次分裂。
+            let _ = codex_history::reconcile(&backend.context);
             let listener = backend.bind_bridge();
             app.manage(Background(backend.compatibility_active.clone()));
             let backend = Arc::new(Mutex::new(backend));

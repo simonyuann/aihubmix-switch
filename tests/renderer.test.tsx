@@ -528,6 +528,28 @@ describe('Codex unified resume history', () => {
     )
     expect(await screen.findByRole('button', { name: '关闭统一历史' })).toBeTruthy()
   })
+  it('offers importing remaining sessions while unification is already enabled', async () => {
+    state.codexHistory = {
+      enabled: true,
+      backupAvailable: false,
+      recoveryRequired: false,
+      directory: 'fixture',
+      error: null
+    }
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '迁入既有会话' }))
+    expect(api.codexHistory.change).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '确认并应用' }))
+    await waitFor(() =>
+      expect(api.codexHistory.change).toHaveBeenCalledWith({
+        enabled: true,
+        migrate: true,
+        restore: false
+      })
+    )
+    expect(api.codexHistory.change).toHaveBeenCalledTimes(1)
+  })
   it('offers exact-ledger restore only when a backup exists and displays failure', async () => {
     state.codexHistory = {
       enabled: true,

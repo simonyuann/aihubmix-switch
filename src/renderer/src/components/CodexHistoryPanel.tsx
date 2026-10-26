@@ -11,7 +11,7 @@ export function CodexHistoryPanel({
   notify: (message: string, kind?: 'success' | 'error' | 'info') => void
 }) {
   const history = state.codexHistory
-  const [confirm, setConfirm] = useState<'enable' | 'disable' | null>(null)
+  const [confirm, setConfirm] = useState<'enable' | 'migrate' | 'disable' | null>(null)
   const [migrate, setMigrate] = useState(false)
   const [restore, setRestore] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -19,17 +19,27 @@ export function CodexHistoryPanel({
   async function save() {
     setBusy(true)
     setError('')
+    const enabling = confirm !== 'disable'
     try {
       const result = await window.api.codexHistory.change({
-        enabled: confirm === 'enable',
-        migrate: confirm === 'enable' && migrate,
+        enabled: enabling,
+        migrate: enabling && migrate,
         restore: confirm === 'disable' && restore
       })
       onStateChange({ ...state, codexHistory: result.history })
+      const changed = result.files || result.rows
+      if (confirm === 'migrate') {
+        notify(
+          changed
+            ? `已迁入 ${result.files} 个会话文件、${result.rows} 条索引；重启 Codex CLI 后可在 /resume 看到。`
+            : '没有找到需要迁入的会话，历史已统一。'
+        )
+      } else {
+        notify(
+          `历史设置已生效${changed ? `，更新 ${result.files} 个会话文件、${result.rows} 条索引` : ''}。请重新启动 Codex CLI。`
+        )
+      }
       setConfirm(null)
-      notify(
-        `历史设置已生效${result.files || result.rows ? `，更新 ${result.files} 个会话文件、${result.rows} 条索引` : ''}。请重新启动 Codex CLI。`
-      )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -69,14 +79,39 @@ export function CodexHistoryPanel({
         >
           {history?.enabled ? '关闭统一历史' : '开启统一历史'}
         </button>
+        {history?.enabled && !history?.recoveryRequired && (
+          <button
+            className="btn sm"
+            disabled={busy}
+            onClick={() => {
+              setConfirm('migrate')
+              setMigrate(true)
+              setRestore(false)
+              setError('')
+            }}
+          >
+            迁入既有会话
+          </button>
+        )}
       </div>
       {confirm && (
         <div className="history-confirm">
-          <strong>{confirm === 'enable' ? '开启统一续聊历史' : '关闭统一续聊历史'}</strong>
+          <strong>
+            {confirm === 'disable'
+              ? '关闭统一续聊历史'
+              : confirm === 'migrate'
+                ? '迁入既有 Codex 会话'
+                : '开启统一续聊历史'}
+          </strong>
           <p className="fine-print">
             请先关闭所有 Codex CLI 和 App 窗口。操作仅影响当前 Codex 目录，备份保存在本机。
           </p>
-          {confirm === 'enable' ? (
+          {confirm === 'migrate' ? (
+            <p className="fine-print">
+              把仍在官方分组的既有会话和索引改到统一分组；已迁入的会话不会重复处理，官方与中转站会共用同一个
+              /resume 列表。
+            </p>
+          ) : confirm === 'enable' ? (
             <label className="history-checkbox">
               <input
                 type="checkbox"
