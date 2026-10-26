@@ -156,6 +156,126 @@ describe("AIHubMix account integration", () => {
     await Promise.resolve();
     expect(mocks.add).not.toHaveBeenCalled();
   });
+  it("restores a pending checkout after viewing another order", async () => {
+    const pending = {
+      id: 1,
+      amount: 50,
+      payAmount: 50,
+      bonusAmount: 0,
+      currency: "CNY",
+      method: "alipay",
+      status: "PENDING",
+      createdAt: "",
+      expiresAt: new Date(Date.now() + 600000).toISOString(),
+      tradeNo: "a",
+    };
+    const historical = { ...pending, id: 2, status: "FAILED" };
+    mocks.dispatch.mockImplementation(
+      (command: string, payload?: { id?: number }) => {
+        if (command === "payment-overview")
+          return Promise.resolve({ ...overview, orders: [historical] });
+        if (command === "payment-create")
+          return Promise.resolve({
+            ...pending,
+            qrCode: "checkout-a",
+            payUrl: "https://pay.example.test/a",
+          });
+        return Promise.resolve(payload?.id === 2 ? historical : pending);
+      },
+    );
+    render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
+    const create = await screen.findByRole("button", { name: "创建充值订单" });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    await screen.findByAltText("订单付款二维码");
+    fireEvent.click(screen.getByRole("button", { name: /#2 ·/ }));
+    await waitFor(() =>
+      expect(screen.queryByAltText("订单付款二维码")).not.toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /#1 ·/ }));
+    expect(await screen.findByAltText("订单付款二维码")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "打开支付页面" }),
+    ).toBeInTheDocument();
+  });
+  it("uses service wallet denomination separately from checkout currency", async () => {
+    mocks.dispatch.mockResolvedValue({
+      ...overview,
+      currency: "USD",
+      balance: 12.34,
+    });
+    render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
+    expect(await screen.findByText(/钱包余额：USD 12.34/)).toBeInTheDocument();
+    cleanup();
+    mocks.dispatch.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "state"
+          ? {
+              relayBaseUrl: "https://example.test",
+              account: { loggedIn: true, email: "a@test" },
+              localKeys: [],
+              legacyData: false,
+              storageError: null,
+            }
+          : command === "payment-balance"
+            ? { email: "a@test", balance: 12.34, currency: "USD" }
+            : [],
+      ),
+    );
+    wrap(<AccountPage />);
+    expect(await screen.findByText(/钱包余额：USD 12.34/)).toBeInTheDocument();
+  });
+  it("reviews imported mappings and prefills an explicitly saved provider", async () => {
+    mocks.dispatch.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "state"
+          ? {
+              relayBaseUrl: "https://example.test",
+              account: { loggedIn: false },
+              localKeys: [item],
+              legacyData: false,
+              legacyMappings: [
+                {
+                  app: "claude",
+                  appLabel: "Claude Code",
+                  model: "legacy-model",
+                },
+              ],
+              storageError: null,
+            }
+          : command === "models"
+            ? [{ id: "other-model", name: "Other" }]
+            : [],
+      ),
+    );
+    mocks.draft.mockResolvedValue({ id: "legacy-provider" });
+    mocks.add.mockResolvedValue(true);
+    wrap(<AccountPage />);
+    await screen.findByText("已导入的工具与模型映射");
+    fireEvent.click(
+      screen.getByRole("button", { name: "预填 Claude Code 供应商" }),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("legacy-model");
+    expect(mocks.add).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "添加供应商" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("模型")).toHaveValue("legacy-model"),
+    );
+    expect(screen.getByLabelText("目标应用")).toHaveValue("claude");
+    fireEvent.click(screen.getByRole("button", { name: "保存供应商" }));
+    await waitFor(() =>
+      expect(mocks.draft).toHaveBeenCalledWith({
+        keyId: 1,
+        app: "claude",
+        model: "legacy-model",
+      }),
+    );
+    expect(mocks.add).toHaveBeenCalledWith(
+      { id: "legacy-provider" },
+      "claude",
+      false,
+    );
+  });
   it("loads the account inside CC StrictMode", async () => {
     mocks.dispatch.mockResolvedValue({
       relayBaseUrl: "https://example.test",

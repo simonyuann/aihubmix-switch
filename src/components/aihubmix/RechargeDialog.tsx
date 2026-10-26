@@ -48,6 +48,22 @@ export function RechargeDialog({
     revision = useRef(0),
     paid = useRef(new Set<number>()),
     paidCallback = useRef(onPaid);
+  const paymentLinks = useRef(
+    new Map<number, Pick<RechargeOrder, "qrCode" | "payUrl">>(),
+  );
+  const preservePaymentLinks = useCallback(
+    (next: RechargeOrder): RechargeOrder => {
+      const previous = paymentLinks.current.get(next.id);
+      const links = {
+        qrCode: next.qrCode || previous?.qrCode,
+        payUrl: next.payUrl || previous?.payUrl,
+      };
+      if (links.qrCode || links.payUrl)
+        paymentLinks.current.set(next.id, links);
+      return { ...next, ...links };
+    },
+    [],
+  );
   paidCallback.current = onPaid;
   useEffect(() => {
     mounted.current = true;
@@ -61,7 +77,7 @@ export function RechargeDialog({
     try {
       const next = await dispatch<RechargeOverview>("payment-overview");
       if (!mounted.current) return;
-      setOverview(next);
+      setOverview({ ...next, orders: next.orders.map(preservePaymentLinks) });
       setMethod((current) =>
         next.methods.some((m) => m.id === current)
           ? current
@@ -79,22 +95,15 @@ export function RechargeDialog({
     } finally {
       if (mounted.current) setLoading(false);
     }
-  }, []);
+  }, [preservePaymentLinks]);
   useEffect(() => {
     if (open) void refresh();
   }, [open, refresh]);
   const apply = useCallback(
     (next: RechargeOrder) => {
       if (!mounted.current) return;
-      setOrder((previous) => ({
-        ...next,
-        qrCode:
-          next.qrCode ||
-          (previous?.id === next.id ? previous.qrCode : undefined),
-        payUrl:
-          next.payUrl ||
-          (previous?.id === next.id ? previous.payUrl : undefined),
-      }));
+      next = preservePaymentLinks(next);
+      setOrder(next);
       setOverview((current) =>
         current
           ? {
@@ -110,7 +119,7 @@ export function RechargeDialog({
         paidCallback.current();
       }
     },
-    [refresh],
+    [refresh, preservePaymentLinks],
   );
   useEffect(() => {
     if (!open || !order || !pending(order)) return;

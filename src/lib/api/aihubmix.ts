@@ -12,7 +12,13 @@ export interface KeyInfo {
   createdAt: string;
   local: boolean;
 }
+export interface LegacyMapping {
+  app: string;
+  appLabel: string;
+  model: string;
+}
 export interface AccountState {
+  legacyMappings?: LegacyMapping[];
   relayBaseUrl: string;
   account: { loggedIn: boolean; email?: string; userId?: string | number };
   localKeys: KeyInfo[];

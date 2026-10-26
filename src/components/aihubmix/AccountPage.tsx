@@ -8,6 +8,7 @@ import {
   type AccountState,
   type KeyInfo,
   type GroupInfo,
+  type LegacyMapping,
   type WalletBalance,
 } from "@/lib/api/aihubmix";
 import { ProviderDialog } from "./ProviderDialog";
@@ -29,6 +30,9 @@ export function AccountPage() {
     [groupId, setGroup] = useState("");
   const [provider, setProvider] = useState<KeyInfo | null>(null),
     [recharge, setRecharge] = useState(false);
+  const [legacyMapping, setLegacyMapping] = useState<
+    LegacyMapping | undefined
+  >();
   const revision = useRef(0),
     gate = useRef(false);
   async function loadDetails(next: AccountState, rev: number) {
@@ -61,6 +65,7 @@ export function AccountPage() {
     setGroups([]);
     setWallet(null);
     setProvider(null);
+    setLegacyMapping(undefined);
     setRecharge(false);
     try {
       const next = await dispatch<AccountState>(command, payload);
@@ -344,6 +349,34 @@ export function AccountPage() {
               导入旧服务地址、可用登录和本机 Key。旧文件与备份保留，工具配置由
               CC 显式应用。
             </p>
+            {!!state?.legacyMappings?.length && (
+              <div className="space-y-2">
+                <h3 className="font-medium">已导入的工具与模型映射</h3>
+                {state.legacyMappings.map((mapping) => (
+                  <div
+                    key={mapping.app}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-border p-2"
+                  >
+                    <span>
+                      {mapping.appLabel} · <code>{mapping.model}</code>
+                    </span>
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setLegacyMapping(mapping)}
+                    >
+                      预填 {mapping.appLabel} 供应商
+                    </Button>
+                  </div>
+                ))}
+                {legacyMapping && (
+                  <p role="status">
+                    已选择 {legacyMapping.appLabel} · {legacyMapping.model}
+                    。请在上方选择 Key 并点击“添加供应商”，审核后保存。
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex gap-2">
               {state?.legacyData && (
                 <Button
@@ -371,7 +404,11 @@ export function AccountPage() {
         </div>
       </main>
       {provider && (
-        <ProviderDialog item={provider} onClose={() => setProvider(null)} />
+        <ProviderDialog
+          item={provider}
+          initialMapping={legacyMapping}
+          onClose={() => setProvider(null)}
+        />
       )}
       {state?.account.loggedIn && (
         <RechargeDialog

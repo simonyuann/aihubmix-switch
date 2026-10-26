@@ -15,9 +15,11 @@ import { aihubmixApi, dispatch, type KeyInfo } from "@/lib/api/aihubmix";
 import { APP_DISPLAY_NAME } from "@/components/shell/AppGlyph";
 export function ProviderDialog({
   item,
+  initialMapping,
   onClose,
 }: {
   item: KeyInfo;
+  initialMapping?: { app: string; model: string };
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -29,9 +31,13 @@ export function ProviderDialog({
       active.current = false;
     };
   }, []);
-  const [app, setApp] = useState<AppId>("codex");
+  const [app, setApp] = useState<AppId>(
+    initialMapping && initialMapping.app in APP_DISPLAY_NAME
+      ? (initialMapping.app as AppId)
+      : "codex",
+  );
   const [models, setModels] = useState<{ id: string; name: string }[]>([]);
-  const [model, setModel] = useState("");
+  const [model, setModel] = useState(initialMapping?.model ?? "");
   const [effort, setEffort] = useState("auto");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,7 +47,7 @@ export function ProviderDialog({
       .then((value) => {
         if (active) {
           setModels(value);
-          setModel(value[0]?.id ?? "");
+          setModel((current) => current || value[0]?.id || "");
         }
       })
       .catch((e) => {
