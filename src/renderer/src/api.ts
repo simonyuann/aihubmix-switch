@@ -43,6 +43,13 @@ async function updateRequest(
 }
 
 export const api: RendererApi = {
+  payments: {
+    overview: () => request('payment-overview'),
+    create: (input) => request('payment-create', input),
+    order: (id) => request('payment-order', { id }),
+    verify: (id) => request('payment-verify', { id }),
+    cancel: (id) => request('payment-cancel', { id })
+  },
   diagnoseAgent: (agent) => request('diagnose', { agent }),
   codexHistory: {
     change: (input) => request('codex-history', input),

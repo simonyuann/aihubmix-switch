@@ -14,6 +14,7 @@ import {
 import { ImportModal } from './components/ImportModal'
 import { SessionPage } from './components/SessionPage'
 import { DiagnosticsModal } from './components/DiagnosticsModal'
+import { RechargeModal } from './components/RechargeModal'
 import { SettingsModal } from './components/SettingsModal'
 import { Modal } from './components/Modal'
 import { Toast, type ToastKind, type ToastState } from './components/Toast'
@@ -67,7 +68,7 @@ export default function App() {
   const [toast, setToast] = useState<ToastState | null>(null)
   const toastId = useRef(0)
   const loadId = useRef(0)
-  const afterAuth = useRef<'create' | null>(null)
+  const afterAuth = useRef<'create' | 'charge' | null>(null)
   const notify = useCallback((message: string, kind: ToastKind = 'success') => {
     setToast({ id: ++toastId.current, message, kind })
   }, [])
@@ -258,7 +259,7 @@ export default function App() {
         </div>
         <div className="top-actions">
           <button className="btn charge-btn sm" onClick={() => setPanel('charge')}>
-            <span aria-hidden="true">＋</span>充值<span className="coming-soon">即将开放</span>
+            <span aria-hidden="true">＋</span>充值
           </button>
           <span className="top-divider" />
           <button
@@ -576,7 +577,7 @@ export default function App() {
           onSuccess={(next) => {
             setState(next)
             setKeys((current) => current.filter((key) => key.local))
-            setPanel(afterAuth.current === 'create' ? 'create' : null)
+            setPanel(afterAuth.current)
             afterAuth.current = null
             notify('登录成功')
             void load()
@@ -699,23 +700,17 @@ export default function App() {
         onStateChange={setState}
         notify={notify}
       />
-      {panel === 'charge' && (
-        <Modal open title="充值" subtitle="给接下来的灵感，留足空间。" onClose={close} width={420}>
-          <div className="charge-placeholder">
-            <div className="charge-symbol">＋</div>
-            <span className="badge">即将开放</span>
-            <h3>充值功能正在准备中</h3>
-            <p>
-              上线后，你可以在这里充值和查看账户余额。
-              <br />
-              目前暂不支持发起付款。
-            </p>
-          </div>
-          <button className="btn block" onClick={close}>
-            知道了
-          </button>
-        </Modal>
-      )}
+      <RechargeModal
+        key={`${state.account.userId || 'guest'}:${state.relayBaseUrl}:${state.account.loggedIn}`}
+        open={panel === 'charge'}
+        state={state}
+        onClose={close}
+        onLogin={() => {
+          afterAuth.current = 'charge'
+          setPanel('login')
+        }}
+        onPaid={() => void load()}
+      />
       {panel === 'account' && (
         <Modal open title="我的账户" onClose={close} width={420} busy={busy}>
           <div className="account-identity">

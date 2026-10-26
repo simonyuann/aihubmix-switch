@@ -204,7 +204,47 @@ export interface ImportInput {
   agyModelName?: string
 }
 
+export interface RechargeMethod {
+  id: string
+  name: string
+  minAmount: number
+  maxAmount: number
+  feeRate: number
+}
+export interface RechargeOrder {
+  id: number
+  amount: number | null
+  payAmount: number | null
+  bonusAmount: number | null
+  currency: string
+  method: string
+  status: string
+  createdAt: string
+  expiresAt: string
+  tradeNo: string
+  qrCode?: string
+  payUrl?: string
+}
+export interface RechargeOverview {
+  enabled: boolean
+  email: string
+  balance: number | null
+  currency: string
+  minAmount: number
+  maxAmount: number
+  methods: RechargeMethod[]
+  orders: RechargeOrder[]
+}
+export interface PaymentsApi {
+  overview(): Promise<RechargeOverview>
+  create(input: { amount: string; method: string }): Promise<RechargeOrder>
+  order(id: number): Promise<RechargeOrder>
+  verify(id: number): Promise<RechargeOrder>
+  cancel(id: number): Promise<RechargeOrder>
+}
+
 export interface RendererApi {
+  payments: PaymentsApi
   diagnoseAgent(agent: AgentId): Promise<ConnectionReport>
   codexHistory: {
     change(input: {

@@ -162,6 +162,36 @@ impl Backend {
         })
     }
 
+    pub async fn payment_session(&mut self) -> Result<crate::payments::Session> {
+        if !self.store.settings.account.logged_in {
+            return Err("请先登录充值账号".into());
+        }
+        if self.store.settings.account.expires_at <= now() + 60
+            && !self.store.secret("refresh").is_empty()
+        {
+            self.refresh_access().await?;
+        }
+        let token = self.store.secret("access");
+        if token.is_empty() {
+            return Err("请重新登录充值账号".into());
+        }
+        Ok(crate::payments::Session {
+            client: self.client.clone(),
+            base: normalize(&self.store.settings.relay_base_url)?,
+            user_id: self
+                .store
+                .settings
+                .account
+                .user_id
+                .ok_or("请重新登录充值账号")?,
+            token,
+        })
+    }
+    pub async fn refresh_payment_session(&mut self) -> Result<crate::payments::Session> {
+        self.refresh_access().await?;
+        self.payment_session().await
+    }
+
     pub async fn prepare_diagnostic(&mut self, agent: &str) -> Result<crate::diagnostics::Task> {
         if !AGENTS.contains(&agent) {
             return Err("未知智能体".into());

@@ -13,6 +13,22 @@ let api: RendererApi
 beforeEach(() => {
   state = structuredClone(previewState)
   api = {
+    payments: {
+      overview: vi.fn(async () => ({
+        enabled: true,
+        email: 'simon@example.com',
+        balance: 128.5,
+        currency: 'CNY',
+        minAmount: 1,
+        maxAmount: 1000,
+        methods: [{ id: 'wxpay', name: '微信支付', minAmount: 1, maxAmount: 1000, feeRate: 0 }],
+        orders: []
+      })),
+      create: vi.fn(),
+      order: vi.fn(),
+      verify: vi.fn(),
+      cancel: vi.fn()
+    },
     diagnoseAgent: vi.fn(async (agent) => ({
       agent,
       ok: true,
@@ -285,13 +301,33 @@ describe('API-first workspace', () => {
     expect(screen.queryByText('Claude Code')).toBeNull()
     expect(screen.queryByText('Pi')).toBeNull()
   })
-  it('shows a recharge placeholder without payment inputs', async () => {
+  it('opens account recharge without automatically creating an order', async () => {
     await ready()
-    fireEvent.click(screen.getByRole('button', { name: /充值/ }))
+    fireEvent.click(screen.getByRole('button', { name: '充值' }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('充值功能正在准备中')).toBeTruthy()
-    expect(within(dialog).queryByRole('textbox')).toBeNull()
-    expect(within(dialog).queryByRole('button', { name: '支付' })).toBeNull()
+    expect(await within(dialog).findByText('¥128.50')).toBeTruthy()
+    expect(within(dialog).getByLabelText('充值金额（元）')).toBeTruthy()
+    expect(api.payments.create).not.toHaveBeenCalled()
+  })
+  it('returns guests to recharge after login without creating a key or payment order', async () => {
+    state.account = { loggedIn: false }
+    vi.mocked(api.account.login).mockImplementation(async () => {
+      state.account = { loggedIn: true, userId: 1, email: 'simon@example.com' }
+      return state
+    })
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: '充值' }))
+    fireEvent.click(await screen.findByRole('button', { name: '登录后充值' }))
+    const auth = await screen.findByRole('dialog')
+    fireEvent.change(within(auth).getByLabelText('邮箱'), {
+      target: { value: 'simon@example.com' }
+    })
+    fireEvent.change(within(auth).getByLabelText('密码'), { target: { value: 'fixture-password' } })
+    fireEvent.submit(within(auth).getByLabelText('密码').closest('form')!)
+    await screen.findByRole('dialog', { name: '账户充值' })
+    await screen.findByText('¥128.50')
+    expect(api.account.createKey).not.toHaveBeenCalled()
+    expect(api.payments.create).not.toHaveBeenCalled()
   })
   it('lets guests add an existing key without signing up', async () => {
     state.account = { loggedIn: false }

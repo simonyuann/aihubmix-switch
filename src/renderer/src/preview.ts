@@ -189,7 +189,56 @@ export function createPreviewApi(): RendererApi {
     format: 'app',
     error: null
   } as import('../../shared/types').UpdateStatus
+  let recharge: import('../../shared/types').RechargeOrder | null = null
+  let wallet = 128.5
   return {
+    payments: {
+      overview: async () => ({
+        enabled: true,
+        email: state.account.email || 'preview@example.com',
+        balance: wallet,
+        currency: 'CNY',
+        minAmount: 1,
+        maxAmount: 1000,
+        methods: [
+          { id: 'wxpay', name: '微信支付（演示）', minAmount: 1, maxAmount: 1000, feeRate: 0 }
+        ],
+        orders: recharge ? [structuredClone(recharge)] : []
+      }),
+      create: async (input) => {
+        recharge = {
+          id: 1001,
+          amount: Number(input.amount),
+          payAmount: Number(input.amount),
+          bonusAmount: 0,
+          currency: 'CNY',
+          method: input.method,
+          status: 'PENDING',
+          tradeNo: 'PREVIEW-NOT-A-REAL-ORDER',
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 900000).toISOString(),
+          qrCode: 'AIHubMix Switch 界面演示，非真实付款码'
+        }
+        return structuredClone(recharge)
+      },
+      order: async () => {
+        if (!recharge) throw new Error('演示订单不存在')
+        return structuredClone(recharge)
+      },
+      verify: async () => {
+        if (!recharge) throw new Error('演示订单不存在')
+        if (recharge.status === 'PENDING') {
+          recharge.status = 'COMPLETED'
+          wallet += recharge.amount || 0
+        }
+        return structuredClone(recharge)
+      },
+      cancel: async () => {
+        if (!recharge) throw new Error('演示订单不存在')
+        recharge.status = 'CANCELLED'
+        return structuredClone(recharge)
+      }
+    },
     diagnoseAgent: async (agent) => ({
       agent,
       ok: true,

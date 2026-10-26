@@ -4,6 +4,7 @@ mod codex_history;
 mod config_formats;
 mod detection;
 mod diagnostics;
+mod payments;
 mod protocol;
 mod service;
 mod sessions;
@@ -65,7 +66,17 @@ async fn dispatch(
     command: String,
     payload: Option<Value>,
     state: tauri::State<'_, Arc<Mutex<Backend>>>,
+    payments: tauri::State<'_, payments::Payments>,
 ) -> Result<Value, String> {
+    if command.starts_with("payment-") {
+        return payments::dispatch(
+            state.inner(),
+            payments.inner(),
+            &command,
+            payload.unwrap_or(Value::Null),
+        )
+        .await;
+    }
     if command == "diagnose" {
         let input = payload.unwrap_or(Value::Null);
         let task = state
@@ -97,6 +108,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::Updates::default())
+        .manage(payments::Payments::default())
         .setup(|app| {
             let dir = dirs::data_dir()
                 .ok_or("无法定位应用数据目录")?
