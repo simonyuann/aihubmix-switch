@@ -2,18 +2,18 @@
 
 白色、简洁的 API 与智能体接入助手。基于 **Tauri 2 + Rust + React**，支持 Windows、macOS 与 Linux，运行时使用系统 WebView，无需安装 Node.js。
 
-[下载安装包](https://github.com/simonyuann/aihubmix-switch/releases/latest) · [更新说明](docs/releases/v0.3.2.md)
+[下载安装包](https://dl.csmy.fun:23457/) · [更新说明](docs/releases/v1.0.0.md)
 
 ## 使用
 
 1. 注册或登录 AIHubMix；已有 API Key 可直接添加，不必登录。
 2. 在「我的 API」创建、查看、复制或删除 Key。
-3. 点击某个 Key 的「导入」，选择智能体和模型。通过真实流式与工具调用验证后，自动备份并写入配置。
+3. 点击某个 Key 的「导入」并选择智能体。软件自动选择兼容模型完成真实流式与工具调用验证，通过后备份并写入配置；进入智能体后使用 `/model` 选择日常使用的模型。
 4. 「已接入」只显示配置过的工具，可运行连接诊断、更换配置、查看对应会话或还原。
 
-从 0.3.0 起覆盖参考 CC Switch 的的 13 种智能体配置入口，导入时可搜索，首页只展示 API 与已接入项。导入前会发送两次简短测试请求，可能产生少量模型费用；验证失败时保留原配置。未定位到 CLI 不等于未安装，可重新扫描或在高级设置填写完整路径。Windows 原生和 WSL 的安装与配置相互独立。
+正式版覆盖参考 CC Switch 的 13 种智能体配置入口，导入时可搜索，首页只展示 API 与已接入项。导入前会自动选择与智能体协议匹配的模型，发送两次简短测试请求，可能产生少量模型费用；验证失败时保留原配置。未定位到 CLI 不等于未安装，可重新扫描或在高级设置填写完整路径。Windows 原生和 WSL 的安装与配置相互独立。
 
-Gemini CLI / Antigravity CLI 需要 Gemini 原生接口；Claude Desktop 需要支持第三方网关的新版本和 Claude 模型。MiniMax Code / Oh My Pi 导入后在原工具选择 csmy 下的模型。Antigravity CLI 需填写原生显示名并使用生成的专用启动命令；普通 agy 和 IDE 登录不变。常用 IDE 插件另外提供手动接入指南。
+Gemini CLI / Antigravity CLI 需要 Gemini 原生接口；Claude Desktop 需要支持第三方网关的新版本和 Claude 模型。MiniMax Code / Oh My Pi 导入后在原工具选择 csmy 下的模型。Antigravity CLI 使用自动匹配的模型和生成的专用启动命令，启动后可通过 `/model` 切换；普通 agy 和 IDE 登录不变。常用 IDE 插件另外提供手动接入指南。
 
 「会话」支持本机 Claude Code、Codex、Pi、Grok Build、Gemini CLI、OpenClaw 的记录浏览、标题/项目/预览搜索与复制继续命令，默认只读，不上传内容。**Codex CLI 统一续聊历史开关已于 0.3.1 上线**，与此会话浏览页不同；需在设置中主动开启，迁入旧记录也需单独勾选。
 
@@ -50,13 +50,13 @@ Windows 安装版、macOS App、Linux AppImage / deb 支持对应格式的原生
 - 每个智能体独立记录所用 Key 指纹，不把「当前选择的 Key」当作所有智能体的配置。
 - 查看、复制和选择 Key 不修改智能体配置；明确点击导入后才写入。
 - 只修改接入所需字段，保留无关配置及 TOML / JSONC 注释。写入采用临时文件 + 原子替换，多文件操作失败时回滚已修改文件。
-- 导入前自动备份；再次更换 Key 或模型仍保留首次导入前的基线。还原时只恢复仍与本工具写入值一致的字段，保留后续手动修改。
+- 导入前自动备份；再次更换 Key 仍保留首次导入前的基线。还原时只恢复仍与本工具写入值一致的字段，保留后续手动修改。
 - API Key 与登录凭据通过 ChaCha20-Poly1305 加密存入本机 vault，主密钥由 macOS Keychain / Windows Credential Manager / Linux Secret Service 保管。安全存储无法访问时不会回退为明文。
 - 完整 Key 默认隐藏，主动查看 60 秒后自动隐藏。导入后目标工具的配置文件及其备份可能包含原始凭据，备份目录属于本机敏感数据。
 - Antigravity CLI 的专用启动脚本也包含凭据；Unix 下使用私有目录与 0600 文件。不要分享配置、脚本或备份。还原仅移除本工具仍未被用户改动的配置。
-- Claude Code：原生 Anthropic 模型可直接连接；OpenAI 兼容 Key 通过本机 Rust 兼容层使用 Responses / Chat Completions，支持流式输出、图片、工具调用和多轮工具结果。使用的仍是你选择的模型。
+- Claude Code：原生 Anthropic 模型可直接连接；OpenAI 兼容 Key 通过本机 Rust 兼容层使用 Responses / Chat Completions，支持流式输出、图片、工具调用和多轮工具结果。导入后可在 Claude Code 中使用 `/model`。
 - 本地兼容层只监听 `127.0.0.1`，使用独立随机令牌鉴权，上游 Key 不写入 Claude 配置。启用兼容连接后关闭窗口会保留托盘运行，通过托盘菜单退出才停止服务。使用时请保持应用运行。
-- 兼容连接通过 Claude Code 官方自定义模型选项注册所选模型，并将 MCP 工具提前加载（`ENABLE_TOOL_SEARCH=false`），不转发 Anthropic 服务端专用工具；`count_tokens` 是本地估算。Responses 推理上下文以不透明签名保留，支持后续工具调用。
+- 兼容连接通过 Claude Code 官方自定义模型选项注册自动验证通过的模型，并将 MCP 工具提前加载（`ENABLE_TOOL_SEARCH=false`），不转发 Anthropic 服务端专用工具；`count_tokens` 是本地估算。Responses 推理上下文以不透明签名保留，支持后续工具调用。
 - 删除平台 Key 会调用真实删除接口，操作前确认并提示关联智能体；不会自动改写或还原这些工具的配置。本机 Key 的移除只作用于当前设备。
 
 默认服务地址：`https://csmy.fun:23457`。

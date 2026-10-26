@@ -199,7 +199,8 @@ export interface ImportInput {
   keyId: number
   keyLabel: string
   agent: AgentId
-  model: string
+  /** 旧版调用可指定；新版由后端从当前 Key 的可用列表中自动选择。 */
+  model?: string
   effort?: string
   agyModelName?: string
 }

@@ -110,6 +110,68 @@ pub fn parse_models(value: &Value) -> Vec<Model> {
     }
     models.into_values().collect()
 }
+
+pub(crate) fn choose_import_model(
+    agent: &str,
+    requested: &str,
+    saved: Option<&str>,
+    probe: &Probe,
+) -> Result<Model> {
+    let available = probe
+        .models
+        .iter()
+        .filter(|model| selectable(&model.id))
+        .collect::<Vec<_>>();
+    if !requested.is_empty() {
+        let selected = available
+            .iter()
+            .copied()
+            .find(|model| model.id == requested)
+            .ok_or("所选模型不在当前 Key 的模型列表中")?;
+        agents::preflight(agent, &selected.id)?;
+        return Ok(selected.clone());
+    }
+    let preferred = |model: &Model| match agent {
+        "claude-desktop" => agents::preflight(agent, &model.id).is_ok(),
+        "claude" if probe.messages == "supported" => {
+            model.id.to_ascii_lowercase().starts_with("claude")
+        }
+        "gemini" | "agy" => model
+            .id
+            .to_ascii_lowercase()
+            .trim_start_matches("models/")
+            .starts_with("gemini"),
+        "codex" | "grokbuild" | "pi" => {
+            let id = model.id.to_ascii_lowercase();
+            id.starts_with("gpt-") || id.starts_with("codex-")
+        }
+        _ => true,
+    };
+    let saved = saved.and_then(|id| {
+        available
+            .iter()
+            .copied()
+            .find(|model| model.id == id && preferred(model))
+    });
+    let selected = saved
+        .or_else(|| available.iter().copied().find(|model| preferred(model)))
+        .or_else(|| {
+            (!matches!(agent, "claude-desktop" | "gemini" | "agy"))
+                .then(|| available.first().copied())
+                .flatten()
+        })
+        .ok_or_else(|| {
+            match agent {
+                "claude-desktop" => "当前 Key 没有 Claude Desktop 支持的 Claude 模型",
+                "gemini" | "agy" => "当前 Key 没有 Gemini 原生接口可用的模型",
+                _ => "当前 Key 没有可用于编程的模型",
+            }
+            .to_string()
+        })?;
+    agents::preflight(agent, &selected.id)?;
+    Ok(selected.clone())
+}
+
 fn key_info(value: &Value) -> KeyInfo {
     KeyInfo {
         id: value["id"].as_i64().unwrap_or_default(),
@@ -839,13 +901,12 @@ impl Backend {
                 if !AGENTS.contains(&agent.as_str()) {
                     return Err("请选择智能体".into());
                 }
-                let model = string(&input, "model");
+                let requested_model = string(&input, "model");
                 if agent == "codex"
                     && crate::codex_history::status(&self.context)["recoveryRequired"] == true
                 {
                     return Err("请先在设置中恢复未完成的 Codex 历史操作".into());
                 }
-                agents::preflight(&agent, &model)?;
                 let key = self.key(id).await?;
                 let cached = self.probe_identity.as_ref().is_some_and(|(hash, time)| {
                     *hash == fingerprint(&key) && time.elapsed() < Duration::from_secs(60)
@@ -858,9 +919,29 @@ impl Backend {
                 if !probe.ok {
                     return Err(probe.error.unwrap_or_else(|| "连接检测失败".into()));
                 }
+                let selected = choose_import_model(
+                    &agent,
+                    &requested_model,
+                    self.store
+                        .settings
+                        .agent_models
+                        .get(&agent)
+                        .map(String::as_str),
+                    &probe,
+                )?;
+                let model = selected.id.clone();
                 let mut options = self.store.settings.options.clone();
                 if agent == "agy" {
-                    let name = string(&input, "agyModelName");
+                    let requested_name = string(&input, "agyModelName");
+                    let name = if requested_name.trim().is_empty() {
+                        if selected.name.trim().is_empty() {
+                            selected.id.as_str()
+                        } else {
+                            selected.name.as_str()
+                        }
+                    } else {
+                        requested_name.trim()
+                    };
                     agents::validate_agy_name(name.trim())?;
                     options.agy_model_name = name.trim().into();
                 }
@@ -871,11 +952,6 @@ impl Backend {
                 let compatibility = agent == "claude"
                     && (probe.messages != "supported"
                         || !model.to_lowercase().starts_with("claude"));
-                let selected = probe
-                    .models
-                    .iter()
-                    .find(|m| m.id == model)
-                    .ok_or("所选模型不在当前 Key 的模型列表中")?;
                 if compatibility {
                     if let Some(error) = &self.bridge_error {
                         return Err(error.clone());

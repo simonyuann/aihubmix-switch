@@ -34,9 +34,7 @@ export function ImportModal({
   const [agent, setAgent] = useState<AgentId | ''>(initial)
   const [search, setSearch] = useState('')
   const [manual, setManual] = useState(false)
-  const [model, setModel] = useState('')
   const [effort, setEffort] = useState(state.options.codexReasoningEffort)
-  const [agyName, setAgyName] = useState(state.options.agyModelName || '')
   const [probe, setProbe] = useState<RelayProbe | null>(null)
   const [testing, setTesting] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -106,34 +104,27 @@ export function ImportModal({
   }, [item.id, retry])
 
   const models = probe?.models.filter((m) => isSelectableModel(m.id)) || []
-  useEffect(() => {
-    const options = probe?.models.filter((m) => isSelectableModel(m.id)) || []
-    const saved = agent ? state.agentModels[agent] : undefined
-    setModel(
-      saved && options.some((m) => m.id === saved)
-        ? saved
-        : options.length === 1
-          ? options[0]?.id || ''
-          : ''
-    )
-  }, [agent, probe, state.agentModels])
   const meta = agent ? AGENTS[agent] : null
   const agentState = detectedAgents.find((value) => value.id === agent)
+  const hasCompatibleModel = models.some((item) => {
+    const id = item.id.toLowerCase().replace(/^anthropic\//, '')
+    if (agent === 'claude-desktop')
+      return ['claude-sonnet-', 'claude-opus-', 'claude-haiku-', 'claude-fable-'].some((prefix) =>
+        id.startsWith(prefix)
+      )
+    if (agent === 'gemini' || agent === 'agy')
+      return id.replace(/^models\//, '').startsWith('gemini')
+    return true
+  })
   const compatibility =
     agent === 'claude' &&
-    (probe?.messages !== 'supported' || !model.toLowerCase().startsWith('claude'))
+    (probe?.messages !== 'supported' ||
+      !models.some((item) => item.id.toLowerCase().startsWith('claude')))
   const compatibilityBlocked = compatibility && state.compatibilityReady === false
-  const selectedModel = models.find((m) => m.id === model)
-  const efforts = selectedModel?.reasoningLevels?.length
-    ? selectedModel.reasoningLevels
-    : ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
-  const actualEffort =
-    selectedModel?.reasoning === false || (effort !== 'auto' && !efforts.includes(effort))
-      ? 'auto'
-      : effort
+  const efforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
   async function apply() {
-    if (!agent || !model || compatibilityBlocked || !probe?.ok) return
+    if (!agent || !hasCompatibleModel || compatibilityBlocked || !probe?.ok) return
     setBusy(true)
     setError('')
     try {
@@ -141,9 +132,7 @@ export function ImportModal({
         keyId: item.id,
         keyLabel: `${item.name} · ${item.keyMasked}`,
         agent,
-        model,
-        effort: agent === 'codex' ? actualEffort : undefined,
-        agyModelName: agent === 'agy' ? agyName.trim() : undefined
+        effort: agent === 'codex' ? effort : undefined
       })
       setDetectedAgents(next.agents)
       onImported(next)
@@ -158,7 +147,7 @@ export function ImportModal({
     <Modal
       open
       title={success ? '已成功导入' : '导入到智能体'}
-      subtitle={success ? '模型调用验证通过，配置已写入。' : '选择一个工具，我们帮你完成配置。'}
+      subtitle={success ? '连接验证通过，配置已写入。' : '选择一个工具，我们帮你完成配置。'}
       onClose={onClose}
       width={500}
       busy={busy}
@@ -170,7 +159,7 @@ export function ImportModal({
               <CheckIcon size={26} />
             </div>
             <h3>{meta?.name}</h3>
-            <p>{model}</p>
+            <p>已接入 AIHubMix</p>
           </div>
           <div className="notice notice-ok">
             <ShieldIcon size={16} />
@@ -185,7 +174,7 @@ export function ImportModal({
             {agent === 'agy'
               ? '请通过下方专用启动命令运行，直接输入 agy 不会使用本次接入。'
               : agentState?.installed
-                ? `请重新打开 ${meta?.name}，让新配置生效。`
+                ? `请重新打开 ${meta?.name}，可在智能体内使用 /model 选择模型。`
                 : `配置已写入；请确认 ${meta?.name} 的实际运行环境及配置路径。`}
           </p>
           {meta?.setupNote && <p className="fine-print">{meta.setupNote}</p>}
@@ -206,7 +195,6 @@ export function ImportModal({
             onClick={() => {
               setSuccess(false)
               setAgent('')
-              setModel('')
             }}
           >
             继续导入其他智能体
@@ -297,38 +285,12 @@ export function ImportModal({
                     <span>{meta.setupNote}</span>
                   </div>
                 )}
-                <label className="field">
-                  <span>使用模型</span>
-                  <select
-                    value={model}
-                    disabled={busy || !models.length}
-                    required
-                    onChange={(event) => setModel(event.target.value)}
-                  >
-                    <option value="">
-                      {models.length ? '选择一个模型' : '暂无可用于编程的模型'}
-                    </option>
-                    {models.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name === item.id ? item.id : `${item.name} · ${item.id}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {agent === 'agy' && (
-                  <label className="field">
-                    <span>Antigravity 模型名称</span>
-                    <input
-                      value={agyName}
-                      onChange={(e) => setAgyName(e.target.value)}
-                      disabled={busy}
-                      placeholder="例如 Gemini 3.1 Pro (High)"
-                      maxLength={160}
-                    />
-                    <small>
-                      运行 agy models，填写与上方模型对应的原生名称，包含 High / Low 等后缀。
-                    </small>
-                  </label>
+                {!hasCompatibleModel && (
+                  <div className="notice notice-error" role="alert">
+                    {agent === 'claude-desktop'
+                      ? '当前 Key 没有 Claude Desktop 支持的 Claude 模型。'
+                      : '当前 Key 没有 Gemini 原生接口可用的模型。'}
+                  </div>
                 )}
                 {compatibility && (
                   <div className="notice notice-ok">
@@ -405,9 +367,9 @@ export function ImportModal({
                     <label className="field">
                       <span>思考强度</span>
                       <select
-                        value={actualEffort}
+                        value={effort}
                         aria-label="Codex 思考强度"
-                        disabled={busy || selectedModel?.reasoning === false}
+                        disabled={busy}
                         onChange={(event) => setEffort(event.target.value)}
                       >
                         <option value="auto">自动（交给 Codex 决定）</option>
@@ -482,20 +444,20 @@ export function ImportModal({
                     testing ||
                     !probe?.ok ||
                     !agent ||
-                    !model ||
-                    compatibilityBlocked ||
-                    (agent === 'agy' && !agyName.trim())
+                    !hasCompatibleModel ||
+                    compatibilityBlocked
                   }
                 >
                   {busy ? <LoaderIcon size={16} /> : <CheckIcon size={16} />}
                   {busy
-                    ? '正在验证模型与工具调用…'
+                    ? '正在验证连接并写入配置…'
                     : meta
                       ? `导入到 ${meta.name}`
                       : '选择智能体后导入'}
                 </button>
                 <p className="fine-print centered">
-                  导入前会发送两次简短模型请求，可能产生少量费用。验证通过后才备份并写入。
+                  将自动选择兼容模型完成连接验证；导入后可在智能体中使用 /model
+                  切换。验证可能产生少量费用，通过后才备份并写入。
                 </p>
               </>
             )}

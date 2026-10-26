@@ -591,7 +591,7 @@ export default function App() {
         <Modal
           open
           title={`更换 ${AGENTS[connectionTarget.id].name} 配置`}
-          subtitle="选择本次使用的 Key，下一步直接选择模型并验证。"
+          subtitle="选择本次使用的 Key，下一步会自动验证并写入配置。"
           onClose={close}
           width={460}
         >

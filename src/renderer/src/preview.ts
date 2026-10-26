@@ -344,7 +344,11 @@ export function createPreviewApi(): RendererApi {
       const agent = state.agents.find((a) => a.id === input.agent)!
       agent.connected = true
       agent.backupAvailable = true
-      agent.appliedModel = input.model
+      agent.appliedModel =
+        input.model ||
+        state.agentModels[input.agent] ||
+        state.models.find((model) => model.id)?.id ||
+        null
       agent.keyLabel = input.keyLabel
       return current()
     },

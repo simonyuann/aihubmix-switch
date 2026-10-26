@@ -170,13 +170,12 @@ describe('API-first workspace', () => {
     }
     fireEvent.change(selector, { target: { value: 'mcode' } })
     await within(dialog).findByText(/默认模型由原工具管理/)
-    fireEvent.change(within(dialog).getByLabelText('使用模型'), { target: { value: 'gpt-5.4' } })
+    expect(within(dialog).queryByLabelText('使用模型')).toBeNull()
     fireEvent.click(within(dialog).getByRole('button', { name: '导入到 MiniMax Code' }))
-    await waitFor(() =>
-      expect(api.importAgent).toHaveBeenCalledWith(
-        expect.objectContaining({ agent: 'mcode', model: 'gpt-5.4', keyId: 11 })
-      )
-    )
+    await waitFor(() => expect(api.importAgent).toHaveBeenCalled())
+    const input = vi.mocked(api.importAgent).mock.calls[0]![0]
+    expect(input).toEqual(expect.objectContaining({ agent: 'mcode', keyId: 11 }))
+    expect(input).not.toHaveProperty('model')
     expect(api.getKey).not.toHaveBeenCalled()
     expect(api.copyKey).not.toHaveBeenCalled()
     await within(dialog).findByText('已成功导入')
@@ -223,6 +222,25 @@ describe('API-first workspace', () => {
     expect(api.getKey).not.toHaveBeenCalled()
     expect(api.copyKey).not.toHaveBeenCalled()
   })
+  it('blocks native Gemini import when the key has no Gemini model', async () => {
+    await ready()
+    fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('选择智能体'), {
+      target: { value: 'gemini' }
+    })
+    expect((await within(dialog).findByRole('alert')).textContent).toContain(
+      '当前 Key 没有 Gemini 原生接口可用的模型'
+    )
+    expect(
+      (
+        within(dialog).getByRole('button', {
+          name: '导入到 Gemini CLI'
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true)
+    expect(api.importAgent).not.toHaveBeenCalled()
+  })
   it('shows keys without listing all agents and never fetches a secret on startup', async () => {
     await ready()
     expect(screen.getByText('轻量任务')).toBeTruthy()
@@ -236,16 +254,16 @@ describe('API-first workspace', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '导入' })[0]!)
     const dialog = await screen.findByRole('dialog')
     await within(dialog).findByRole('button', { name: '导入到 Codex CLI' })
-    await waitFor(() =>
-      expect((within(dialog).getByLabelText('使用模型') as HTMLSelectElement).value).toBe('gpt-5.4')
-    )
+    expect(within(dialog).queryByLabelText('使用模型')).toBeNull()
     expect(api.prepareKey).toHaveBeenCalledWith(11)
     expect(api.importAgent).not.toHaveBeenCalled()
     fireEvent.click(within(dialog).getByRole('button', { name: '导入到 Codex CLI' }))
     await within(dialog).findByText('已成功导入')
+    expect(within(dialog).getByText(/使用 \/model 选择模型/)).toBeTruthy()
     expect(api.importAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ keyId: 11, agent: 'codex', model: 'gpt-5.4', effort: 'medium' })
+      expect.objectContaining({ keyId: 11, agent: 'codex', effort: 'medium' })
     )
+    expect(vi.mocked(api.importAgent).mock.calls[0]![0]).not.toHaveProperty('model')
   })
   it('lets a non-Anthropic key use Claude through local compatibility', async () => {
     state.messages = 'unsupported'
@@ -254,7 +272,6 @@ describe('API-first workspace', () => {
     const dialog = await screen.findByRole('dialog')
     fireEvent.change(within(dialog).getByLabelText('选择智能体'), { target: { value: 'claude' } })
     await within(dialog).findByText('通过本地兼容连接使用 Claude Code。')
-    fireEvent.change(within(dialog).getByLabelText('使用模型'), { target: { value: 'gpt-5.4' } })
     expect(
       (within(dialog).getByRole('button', { name: '导入到 Claude Code' }) as HTMLButtonElement)
         .disabled

@@ -67,7 +67,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     configHint: 'Claude-3p/configLibrary/',
     installCommand: 'https://claude.com/download',
     setupNote:
-      '写入桌面版第三方网关配置，需要支持该功能的新版本。选择 claude-sonnet-*、claude-opus-* 或 claude-haiku-* 模型并验证 Messages 接口。完全退出后重新打开桌面应用。Linux 依赖所用桌面移植版本的支持。'
+      '写入桌面版第三方网关配置，需要支持该功能的新版本。会自动选择可用的 Claude 模型验证 Messages 接口。完全退出后重新打开桌面应用。Linux 依赖所用桌面移植版本的支持。'
   },
   hermes: {
     id: 'hermes',
@@ -107,7 +107,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     configHint: '本应用数据目录 / agent-profiles/agy',
     installCommand: 'https://www.agy.dev/docs/cli/',
     setupNote:
-      '适用于 agy CLI。需要 Gemini 原生接口，并填写当前版本的原生模型名称。导入完成后复制专用启动命令运行；普通 agy 启动方式仍使用原账号。不会修改 Antigravity IDE 账号。'
+      '适用于 agy CLI，需要 Gemini 原生接口。会自动选择兼容模型完成配置；启动后可使用 /model 切换。导入完成后复制专用启动命令运行；普通 agy 启动方式仍使用原账号。不会修改 Antigravity IDE 账号。'
   },
   grokbuild: {
     id: 'grokbuild',

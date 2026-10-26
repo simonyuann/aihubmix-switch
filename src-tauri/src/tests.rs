@@ -1,6 +1,6 @@
 use crate::{
     agents::{self, Context},
-    service::{parse_models, unwrap_response},
+    service::{choose_import_model, parse_models, unwrap_response},
     store::atomic_write,
     types::*,
 };
@@ -281,6 +281,89 @@ fn response_envelopes_models_and_urls_are_normalized() {
     assert!(normalize("https://user:secret@example.com").is_err());
     assert!(!selectable("gpt-image-1"));
     assert!(!mask("sk-secret-123456789").contains("secret"));
+}
+
+#[test]
+fn automatic_import_model_prefers_each_agents_native_protocol() {
+    let probe = Probe {
+        ok: true,
+        base_url: DEFAULT_BASE.into(),
+        models: vec![
+            Model {
+                id: "claude-sonnet-4-5".into(),
+                name: "Claude Sonnet".into(),
+                ..Model::default()
+            },
+            Model {
+                id: "gpt-5.4".into(),
+                name: "GPT".into(),
+                ..Model::default()
+            },
+            Model {
+                id: "gemini-3-pro".into(),
+                name: "Gemini".into(),
+                ..Model::default()
+            },
+        ],
+        balance: None,
+        rate_multiplier: None,
+        messages: "supported".into(),
+        latency_ms: 1,
+        error: None,
+    };
+    assert_eq!(
+        choose_import_model("codex", "", None, &probe).unwrap().id,
+        "gpt-5.4"
+    );
+    assert_eq!(
+        choose_import_model("claude", "", None, &probe).unwrap().id,
+        "claude-sonnet-4-5"
+    );
+    assert_eq!(
+        choose_import_model("gemini", "", None, &probe).unwrap().id,
+        "gemini-3-pro"
+    );
+    assert_eq!(
+        choose_import_model("claude-desktop", "", None, &probe)
+            .unwrap()
+            .id,
+        "claude-sonnet-4-5"
+    );
+    assert!(choose_import_model(
+        "claude-desktop",
+        "",
+        None,
+        &Probe {
+            models: vec![Model {
+                id: "gpt-5.4".into(),
+                ..Model::default()
+            }],
+            ..probe
+        }
+    )
+    .is_err());
+    assert!(choose_import_model(
+        "gemini",
+        "",
+        None,
+        &Probe {
+            models: vec![Model {
+                id: "gpt-5.4".into(),
+                ..Model::default()
+            }],
+            ..Probe {
+                ok: true,
+                base_url: DEFAULT_BASE.into(),
+                models: vec![],
+                balance: None,
+                rate_multiplier: None,
+                messages: "unknown".into(),
+                latency_ms: 1,
+                error: None,
+            }
+        }
+    )
+    .is_err());
 }
 
 #[test]

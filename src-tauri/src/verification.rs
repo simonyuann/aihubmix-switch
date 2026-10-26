@@ -736,7 +736,7 @@ mod tests {
             overrides: Default::default(),
         };
         let state = backend
-            .dispatch("apply", json!({"keyId":-1,"agent":"pi","model":"model-a"}))
+            .dispatch("apply", json!({"keyId":-1,"agent":"pi"}))
             .await
             .unwrap();
         assert_eq!(count.load(Ordering::SeqCst), 2);
