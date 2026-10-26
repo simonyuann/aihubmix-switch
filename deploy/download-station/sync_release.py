@@ -229,6 +229,7 @@ def download(asset, destination):
     digest = hashlib.sha256()
     total = 0
     with urlopen(request(asset['url']), timeout=60) as response, destination.open('xb') as output:
+        declared = str(response.headers.get('Content-Length', '') or '')
         while True:
             chunk = response.read(1024 * 1024)
             if not chunk:
@@ -240,9 +241,31 @@ def download(asset, destination):
             digest.update(chunk)
         output.flush()
         os.fsync(output.fileno())
+    # A proxy or a dropped connection can end the stream early without raising.
+    if declared.isdigit() and int(declared) != total:
+        raise ValueError(f'truncated download: {asset["name"]} ({total} of {declared} bytes)')
     if asset['size'] is not None and total != asset['size']:
         raise ValueError(f'asset size mismatch: {asset["name"]}')
     return digest.hexdigest()
+
+
+def download_verified(asset, destination, expected=None, attempts=3):
+    """Re-fetch once or twice instead of waiting a whole interval for a flaky stream."""
+    error = None
+    for attempt in range(attempts):
+        if destination.exists():
+            destination.unlink()
+        try:
+            error = None
+            actual = download(asset, destination)
+            if expected is None or actual == expected:
+                return
+            error = ValueError(f'checksum mismatch: {asset["name"]}')
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            error = exc
+        if attempt + 1 < attempts:
+            print(f'retrying {asset["name"]} ({attempt + 1}/{attempts}): {error}', flush=True)
+    raise error if isinstance(error, ValueError) else ValueError(str(error))
 
 
 def fingerprint(tag, assets, checksum):
@@ -332,16 +355,16 @@ def sync_once():
     staging.mkdir()
     try:
         checksum_path = staging / checksum_asset['name']
-        download(checksum_asset, checksum_path)
+        download_verified(
+            checksum_asset, checksum_path, checksum_asset['sha256']
+        )
         checksums = parse_checksums(checksum_path.read_text(encoding='utf-8'))
         if any(item['name'] not in checksums for item in assets):
             raise ValueError('SHA256SUMS.txt does not cover every selected asset')
         for item in assets:
             folder = staging / item['platform']
             folder.mkdir(exist_ok=True)
-            actual = download(item, folder / item['name'])
-            if actual != checksums[item['name']]:
-                raise ValueError(f'checksum mismatch: {item["name"]}')
+            download_verified(item, folder / item['name'], checksums[item['name']])
 
         prepare_feed(staging, tag)
         os.replace(staging, destination)

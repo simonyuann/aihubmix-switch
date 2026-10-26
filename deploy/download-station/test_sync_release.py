@@ -15,9 +15,10 @@ from update_feed import FORMATS, ORIGIN, PREFIX, update_file
 class FakeResponse(io.BytesIO):
     """Minimal stand-in for the object urllib returns after following redirects."""
 
-    def __init__(self, body=b'', url=''):
+    def __init__(self, body=b'', url='', headers=None):
         super().__init__(body)
         self._url = url
+        self.headers = headers or {}
 
     def geturl(self):
         return self._url
@@ -110,6 +111,12 @@ class SyncReleaseTests(unittest.TestCase):
             result = responses[url]
             if isinstance(result, Exception):
                 raise result
+            if isinstance(result, list):
+                if not result:
+                    raise HTTPError(url, 404, 'Not Found', {}, None)
+                result = result.pop(0)
+            if isinstance(result, FakeResponse):
+                return result
             if isinstance(result, tuple):
                 final, body = result
                 return FakeResponse(body, final)
@@ -221,6 +228,36 @@ class SyncReleaseTests(unittest.TestCase):
         self.assertFalse(self.module.sync_once())
         retained = [path.resolve() for path in self.module.RELEASES.iterdir() if path.is_dir()]
         self.assertEqual(retained, [repaired])
+
+    def test_truncated_download_is_retried_before_publishing(self):
+        responses = self.release('v1.2.4')
+        url = (self.module.DOWNLOAD_PREFIX
+               + 'v1.2.4/AIHubMix-Switch_1.2.4_windows-x64-setup.exe')
+        good = responses[url]
+        responses[url] = [
+            FakeResponse(b'cut', url, {'Content-Length': str(len(good))}),
+            good,
+        ]
+        self.install_responses(responses)
+        self.assertTrue(self.module.sync_once())
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.4')
+        self.assertEqual(
+            (self.module.current_release() / 'Windows'
+             / 'AIHubMix-Switch_1.2.4_windows-x64-setup.exe').read_bytes(), good)
+
+    def test_persistently_corrupted_download_never_replaces_current(self):
+        self.install_responses(self.release())
+        self.assertTrue(self.module.sync_once())
+        first = self.module.current_release()
+        responses = self.release('v1.2.4')
+        url = (self.module.DOWNLOAD_PREFIX
+               + 'v1.2.4/AIHubMix-Switch_1.2.4_linux-x64.deb')
+        bad = b'x' * len(responses[url])
+        responses[url] = [bad, bad, bad]
+        self.install_responses(responses)
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+            self.module.sync_once()
+        self.assertEqual(self.module.current_release(), first)
 
     def test_invalid_manifest_never_replaces_current(self):
         self.install_responses(self.release())
