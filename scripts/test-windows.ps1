@@ -16,7 +16,7 @@ if ($executables.Count -eq 0) { throw 'Cargo produced no Windows test executable
 $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
 $mt = Get-ChildItem "$sdkRoot/*/x64/mt.exe" | Sort-Object FullName -Descending | Select-Object -First 1
 if (-not $mt) { throw 'Windows SDK manifest tool is unavailable' }
-$manifest = (Resolve-Path 'src-tauri/windows-test.manifest').Path
+$manifest = (Resolve-Path 'src-tauri/common-controls.manifest').Path
 foreach ($executable in ($executables | Select-Object -Unique)) {
   & $mt.FullName -nologo -manifest $manifest "-outputresource:$executable;#1"
   if ($LASTEXITCODE -ne 0) { throw 'Could not activate Common Controls v6 for tests' }

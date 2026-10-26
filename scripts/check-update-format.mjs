@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
+import { existsSync } from 'node:fs'
 const target = process.argv[2]
 const release = join('src-tauri', 'target', target, 'release')
 function check(file, expected) {
@@ -11,11 +12,18 @@ function check(file, expected) {
     timeout: 60000
   }).trim()
   if (value !== expected) throw new Error(`Wrong update format: expected ${expected}, got ${value}`)
+  const mode = execFileSync(resolve(file), ['--print-update-install-mode'], {
+    encoding: 'utf8', env: { ...process.env, APPIMAGE_EXTRACT_AND_RUN: '1' }, timeout: 60000
+  }).trim()
+  if (mode !== (expected === 'portable' ? 'manual' : 'automatic'))
+    throw new Error(`Wrong update install mode for ${expected}: ${mode}`)
   console.log(`Native update format verified: ${expected}`)
 }
 if (target.includes('windows')) {
   const portable = (await readdir('artifacts')).find((name) => name.endsWith('-portable.exe'))
   if (!portable) throw new Error('Portable executable is missing')
+  if (existsSync(join('artifacts', 'portable.ini')))
+    throw new Error('Portable regression must run without portable.ini')
   check(join('artifacts', portable), 'portable')
   // Tauri restores the raw executable after bundling. Inspect the actual installer payload.
   const folder = join(release, 'bundle', 'nsis')
@@ -25,7 +33,7 @@ if (target.includes('windows')) {
   try {
     execFileSync('7z', ['x', resolve(folder, installer), `-o${directory}`, '-y'], { stdio: 'pipe' })
     const binary = (await readdir(directory, { recursive: true })).find((name) =>
-      name.endsWith('aihubmix-switch.exe')
+      name.endsWith('cc-switch.exe')
     )
     if (!binary) throw new Error('NSIS app payload is missing')
     check(join(directory, binary), 'nsis')
@@ -34,7 +42,7 @@ if (target.includes('windows')) {
   }
 } else if (target.includes('apple')) {
   check(
-    join(release, 'bundle', 'macos', 'AIHubMix Switch.app', 'Contents', 'MacOS', 'aihubmix-switch'),
+    join(release, 'bundle', 'macos', 'AIHubMix Switch.app', 'Contents', 'MacOS', 'cc-switch'),
     'app'
   )
 } else if (target.includes('linux')) {
@@ -48,7 +56,7 @@ if (target.includes('windows')) {
   const directory = await mkdtemp(join(tmpdir(), 'aihubmix-deb-check-'))
   try {
     execFileSync('dpkg-deb', ['--extract', join(release, 'bundle', 'deb', deb), directory])
-    check(join(directory, 'usr', 'bin', 'aihubmix-switch'), 'deb')
+    check(join(directory, 'usr', 'bin', 'cc-switch'), 'deb')
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

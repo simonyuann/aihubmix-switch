@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "items": [
+    {
+      "type": "improve",
+      "zh": "基于 CC Switch 重构，沿用其工具管理、界面和代理功能",
+      "zh-TW": "基於 CC Switch 重構，沿用其工具管理、介面和代理功能",
+      "en": "Rebuilt on CC Switch, retaining its tool management, interface and proxy features",
+      "ja": "CC Switch を基盤に再構築。ツール管理、画面、プロキシ機能を継承"
+    },
+    {
+      "type": "new",
+      "zh": "使用独立数据目录，旧版数据仅在手动确认后导入",
+      "zh-TW": "使用獨立資料目錄，舊版資料僅在手動確認後匯入",
+      "en": "Separate app data; legacy data is imported only when you explicitly request it",
+      "ja": "アプリデータを独立保存。旧版データは明示的な操作でのみ取り込み"
+    }
+  ]
+}

@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote
 from urllib.request import Request, urlopen
-from update_feed import prepare_feed
+from update_feed import prepare_feed, manifest_name, legacy_release, formats_for_version
 
 BASE = Path(os.environ.get('DATA_DIR', '/data'))
 RELEASES = BASE / 'releases'
@@ -126,20 +126,21 @@ def release_from_files(tag):
     if len(checksum_bytes) > 1024 * 1024:
         raise ValueError('checksum file is too large')
     checksums = parse_checksums(checksum_bytes.decode('utf-8'))
-    if 'latest.json' not in checksums:
+    feed_name = manifest_name(tag)
+    if feed_name not in checksums:
         raise ValueError('release publishes no updater manifest')
-    with urlopen(request(base_url + 'latest.json'), timeout=30) as response:
+    with urlopen(request(base_url + feed_name), timeout=30) as response:
         manifest_bytes = response.read(1024 * 1024 + 1)
     if len(manifest_bytes) > 1024 * 1024:
         raise ValueError('updater manifest is too large')
-    if checksums['latest.json'] != hashlib.sha256(manifest_bytes).hexdigest():
+    if checksums[feed_name] != hashlib.sha256(manifest_bytes).hexdigest():
         raise ValueError('latest updater manifest failed checksum verification')
     manifest = json.loads(manifest_bytes)
     if str(manifest.get('version', '')) != tag.removeprefix('v'):
         raise ValueError('updater manifest version does not match the release tag')
     assets = []
     for name, digest in checksums.items():
-        if name == 'latest.json' or platform_for(name.removesuffix('.sig')):
+        if name == feed_name or platform_for(name.removesuffix('.sig')):
             assets.append({
                 'id': 0,
                 'name': name,
@@ -189,6 +190,7 @@ def release_assets(release):
     tag = checked_tag(release.get('tag_name'))
     if release.get('draft') or release.get('prerelease'):
         raise ValueError('latest release is not a stable published release')
+    feed_name = manifest_name(tag)
     selected = []
     checksum = None
     platforms = set()
@@ -210,7 +212,7 @@ def release_assets(release):
             checksum = item
             continue
         platform = platform_for(name.removesuffix('.sig'))
-        if name == 'latest.json':
+        if name == feed_name:
             item['platform'] = ''
             selected.append(item)
             continue
@@ -218,9 +220,10 @@ def release_assets(release):
             item['platform'] = platform
             selected.append(item)
             platforms.add(platform)
-    if checksum is None or platforms != set(PLATFORM_SUFFIXES):
+    required_platforms = {platform for platform, _ in formats_for_version(tag).values()}
+    if checksum is None or not required_platforms.issubset(platforms):
         raise ValueError('release is missing checksums or a supported platform')
-    if not any(item['name'] == 'latest.json' for item in selected):
+    if not any(item['name'] == feed_name for item in selected):
         raise ValueError('release contains no updater manifest')
     return tag, selected, checksum
 
@@ -318,6 +321,7 @@ def atomic_json(path, value):
 
 
 def remove_stale_releases(active):
+    compatible = legacy_release(RELEASES)
     for child in RELEASES.iterdir():
         # Persistent user files never belong to release retention. Protect legacy
         # trees too, even if a migration was missed or interrupted.
@@ -325,6 +329,7 @@ def remove_stale_releases(active):
                 and re.fullmatch(r'v?[0-9]+\.[0-9]+\.[0-9]+[-.A-Za-z0-9]*', child.name)
                 and not (child / 'swq').exists()
                 and not (child / 'swq').is_symlink()
+                and child != compatible
                 and child.resolve() != active.resolve()
                 and time.time() - child.stat().st_mtime > 7 * 86400):
             shutil.rmtree(child)

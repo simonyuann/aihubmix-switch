@@ -1,7 +1,22 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "main-capability",
-  "description": "Local application window only",
+  "identifier": "default",
+  "description": "enables the default permissions",
   "windows": ["main"],
-  "permissions": ["core:default", "clipboard-manager:allow-write-text"]
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "updater:default",
+    "log:default",
+    "core:window:allow-set-skip-taskbar",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "core:window:allow-set-decorations",
+    "process:allow-exit",
+    "process:allow-restart",
+    "dialog:default"
+  ]
 }

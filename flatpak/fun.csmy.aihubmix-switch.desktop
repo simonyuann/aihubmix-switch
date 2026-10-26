@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=AIHubMix Switch
+Comment=All-in-One Assistant for Claude Code, Codex & Gemini CLI
+Exec=cc-switch
+Icon=fun.csmy.aihubmix-switch
+Terminal=false
+Categories=Utility;Development;
+StartupNotify=true
