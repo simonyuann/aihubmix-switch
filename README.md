@@ -2,7 +2,7 @@
 
 白色、简洁的 API 与智能体接入助手。基于 **Tauri 2 + Rust + React**，支持 Windows、macOS 与 Linux，运行时使用系统 WebView，无需安装 Node.js。
 
-[下载安装包](https://dl.csmy.fun:23457/) · [更新说明](docs/releases/v1.0.1.md)
+[下载安装包](https://dl.csmy.fun:23457/) · [更新说明](docs/releases/v1.0.2.md)
 
 ## 使用
 
