@@ -12,6 +12,17 @@ from urllib.error import HTTPError
 from update_feed import FORMATS, ORIGIN, PREFIX, update_file
 
 
+class FakeResponse(io.BytesIO):
+    """Minimal stand-in for the object urllib returns after following redirects."""
+
+    def __init__(self, body=b'', url=''):
+        super().__init__(body)
+        self._url = url
+
+    def geturl(self):
+        return self._url
+
+
 class SyncReleaseTests(unittest.TestCase):
     def setUp(self):
         spec = importlib.util.spec_from_file_location(
@@ -60,25 +71,60 @@ class SyncReleaseTests(unittest.TestCase):
                 'browser_download_url':
                     f'https://github.com/simonyuann/aihubmix-switch/releases/download/{tag}/{name}',
             })
-        release = {'tag_name': tag, 'draft': False, 'prerelease': False,
-                   'published_at': '2026-10-25T00:00:00Z', 'assets': assets}
-        responses = {self.module.API_URL: json.dumps(release).encode()}
+        base_url = f'{self.module.DOWNLOAD_PREFIX}{tag}/'
+        responses = {}
         responses.update({item['browser_download_url']: content[item['name']] for item in assets})
-        responses[self.module.LATEST_MANIFEST_URL] = content['latest.json']
+        responses[base_url + 'SHA256SUMS.txt'] = content['SHA256SUMS.txt']
+        responses[base_url + 'latest.json'] = content['latest.json']
+        responses[self.module.RELEASES_LATEST_URL] = (self.tag_url(tag), b'')
+        responses[self.module.RELEASES_ATOM_URL] = self.atom(tag)
         return responses
 
+    def release_json(self, responses, tag):
+        """Render the same files as an api.github.com style release payload."""
+        assets = [{'id': index, 'name': url.rsplit('/', 1)[1], 'size': len(body),
+                   'browser_download_url': url}
+                  for index, (url, body) in enumerate(sorted(responses.items()), 1)
+                  if url.startswith(self.module.DOWNLOAD_PREFIX)]
+        return {'tag_name': tag, 'draft': False, 'prerelease': False,
+                'published_at': '2026-10-25T00:00:00Z', 'assets': assets}
+
+    def tag_url(self, tag):
+        return f'https://github.com/simonyuann/aihubmix-switch/releases/tag/{tag}'
+
+    def atom(self, *tags):
+        entries = ''.join(
+            '<entry><id>tag:github.com</id>'
+            f'<link rel="alternate" type="text/html" href="{self.tag_url(tag)}"/>'
+            '</entry>' for tag in tags)
+        return ('<?xml version="1.0" encoding="UTF-8"?><feed>' + entries + '</feed>').encode()
+
     def install_responses(self, responses):
+        self.calls = []
+
         def fake_urlopen(req, timeout=0):
-            result = responses[req.full_url]
+            url = req.full_url
+            self.calls.append(url)
+            if url not in responses:
+                raise HTTPError(url, 404, 'Not Found', {}, None)
+            result = responses[url]
             if isinstance(result, Exception):
                 raise result
-            return io.BytesIO(result)
+            if isinstance(result, tuple):
+                final, body = result
+                return FakeResponse(body, final)
+            return FakeResponse(result, url)
         self.module.urlopen = fake_urlopen
 
     def test_classification_and_checksum_parsing(self):
-        self.assertEqual(
-            self.module.LATEST_MANIFEST_URL,
-            'https://github.com/simonyuann/aihubmix-switch/releases/latest/download/latest.json')
+        self.assertEqual(self.module.RELEASES_LATEST_URL,
+                         'https://github.com/simonyuann/aihubmix-switch/releases/latest')
+        self.assertEqual(self.module.RELEASES_ATOM_URL,
+                         'https://github.com/simonyuann/aihubmix-switch/releases.atom')
+        self.assertEqual(self.module.checked_tag('1.2.3'), 'v1.2.3')
+        self.assertEqual(self.module.checked_tag('v1.2.3-beta.1'), 'v1.2.3-beta.1')
+        with self.assertRaises(ValueError):
+            self.module.checked_tag('../../../etc/passwd')
         self.assertEqual(self.module.platform_for('AIHubMix-Switch_1.0_windows-x64-setup.exe'), 'Windows')
         self.assertEqual(self.module.platform_for('AIHubMix-Switch_1.0_macos-arm64.dmg'), 'macOS')
         self.assertEqual(self.module.platform_for('AIHubMix-Switch_1.0_linux-x64.AppImage'), 'Linux')
@@ -88,17 +134,55 @@ class SyncReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.module.validate_name('../app.exe')
 
-    def test_api_rate_limit_falls_back_to_public_release_files(self):
-        responses = self.release()
+    def test_discovery_needs_no_api_quota(self):
+        responses = self.release('v1.2.4')
         responses[self.module.API_URL] = HTTPError(
             self.module.API_URL, 403, 'rate limit exceeded', {}, None)
         self.install_responses(responses)
         self.assertTrue(self.module.sync_once())
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.4')
+        self.assertNotIn(self.module.API_URL, self.calls)
+
+    def test_api_still_works_as_last_resort(self):
+        responses = self.release('v1.2.3')
+        del responses[self.module.RELEASES_LATEST_URL]
+        del responses[self.module.RELEASES_ATOM_URL]
+        responses[self.module.API_URL] = json.dumps(
+            self.release_json(responses, 'v1.2.3')).encode()
+        self.install_responses(responses)
+        self.assertTrue(self.module.sync_once())
         self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.3')
-        self.assertFalse(self.module.sync_once())
-        state = json.loads(self.module.STATE.read_text())
-        self.assertEqual(state['tag'], 'v1.2.3')
-        self.assertTrue(state['asset_sizes'])
+        self.assertIn(self.module.API_URL, self.calls)
+
+    def test_atom_feed_covers_stale_redirect(self):
+        responses = self.release('v1.2.4')
+        # The /releases/latest edge cache can still point at the previous tag.
+        responses[self.module.RELEASES_LATEST_URL] = (self.tag_url('v9.9.9'), b'')
+        self.install_responses(responses)
+        self.assertTrue(self.module.sync_once())
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.4')
+
+    def test_prerelease_tag_in_feed_is_skipped(self):
+        responses = self.release('v1.2.3')
+        del responses[self.module.RELEASES_LATEST_URL]
+        responses[self.module.RELEASES_ATOM_URL] = self.atom('v1.3.0-beta.1', 'v1.2.3')
+        self.install_responses(responses)
+        self.assertTrue(self.module.sync_once())
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.2.3')
+
+    def test_half_uploaded_release_keeps_previous(self):
+        self.install_responses(self.release())
+        self.assertTrue(self.module.sync_once())
+        first = self.module.current_release()
+        responses = self.release('v1.2.4')
+        # Assets are still uploading, so the checksum file is not published yet.
+        del responses[self.module.DOWNLOAD_PREFIX + 'v1.2.4/SHA256SUMS.txt']
+        responses[self.module.API_URL] = HTTPError(
+            self.module.API_URL, 404, 'Not Found', {}, None)
+        self.install_responses(responses)
+        with self.assertRaisesRegex(RuntimeError, 'no usable release metadata'):
+            self.module.sync_once()
+        self.assertEqual(self.module.current_release(), first)
 
     def test_atomic_publish_retention_and_checksum_failure(self):
         self.install_responses(self.release())
@@ -106,6 +190,10 @@ class SyncReleaseTests(unittest.TestCase):
         first = self.module.current_release()
         self.assertIsNotNone(first)
         self.assertEqual(len(list(first.glob('Windows/*'))), 4)
+        state = json.loads(self.module.STATE.read_text())
+        self.assertEqual(state['tag'], 'v1.2.3')
+        self.assertTrue(state['asset_sizes'])
+        self.assertFalse(self.module.sync_once())
 
         self.install_responses(self.release('v1.2.4', bad_checksum=True))
         with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
@@ -139,23 +227,16 @@ class SyncReleaseTests(unittest.TestCase):
         self.module.sync_once()
         first = self.module.current_release()
         responses = self.release('v1.2.4')
-        release = json.loads(responses[self.module.API_URL])
-        # Keep a valid checksum while forging the manifest destination.
-        manifest_url = next(a['browser_download_url'] for a in release['assets']
-                            if a['name'] == 'latest.json')
+        base_url = self.module.DOWNLOAD_PREFIX + 'v1.2.4/'
+        manifest_url = base_url + 'latest.json'
+        checksum_url = base_url + 'SHA256SUMS.txt'
         manifest = json.loads(responses[manifest_url])
         manifest['platforms']['windows-x86_64-nsis']['url'] = 'https://evil.example/app.exe'
         old = responses[manifest_url]
         new = json.dumps(manifest).encode()
         responses[manifest_url] = new
-        for a in release['assets']:
-            if a['name'] == 'latest.json':
-                a['size'] = len(new)
-            if a['name'] == 'SHA256SUMS.txt':
-                url = a['browser_download_url']
-                responses[url] = responses[url].replace(hashlib.sha256(old).hexdigest().encode(),
-                                                       hashlib.sha256(new).hexdigest().encode())
-        responses[self.module.API_URL] = json.dumps(release).encode()
+        responses[checksum_url] = responses[checksum_url].replace(
+            hashlib.sha256(old).hexdigest().encode(), hashlib.sha256(new).hexdigest().encode())
         self.install_responses(responses)
         with self.assertRaisesRegex(ValueError, 'unexpected updater package URL'):
             self.module.sync_once()

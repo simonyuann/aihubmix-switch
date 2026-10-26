@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from urllib.request import Request, urlopen
 from update_feed import prepare_feed
 
@@ -20,9 +20,14 @@ INCOMING = BASE / 'incoming'
 CURRENT = BASE / 'current'
 STATE = BASE / 'release-sync.json'
 API_URL = 'https://api.github.com/repos/simonyuann/aihubmix-switch/releases/latest'
+RELEASES_LATEST_URL = 'https://github.com/simonyuann/aihubmix-switch/releases/latest'
+RELEASES_ATOM_URL = 'https://github.com/simonyuann/aihubmix-switch/releases.atom'
 DOWNLOAD_PREFIX = 'https://github.com/simonyuann/aihubmix-switch/releases/download/'
-LATEST_MANIFEST_URL = 'https://github.com/simonyuann/aihubmix-switch/releases/latest/download/latest.json'
+TAG_PATTERN = r'v?[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?'
+STABLE_TAG_PATTERN = r'v[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?'
+PRERELEASE_PATTERN = r'-[0-9A-Za-z.-]*(?:alpha|beta|rc|pre|preview|dev|nightly|canary)'
 MAX_ASSET_BYTES = 2 * 1024**3
+MAX_FEED_BYTES = 512 * 1024
 PLATFORM_SUFFIXES = {
     'Windows': ('.exe', '.msi', '.msix', '.msixbundle', '.zip'),
     'macOS': ('.dmg', '.pkg', '.zip', '.tar.gz'),
@@ -31,12 +36,16 @@ PLATFORM_SUFFIXES = {
 
 
 def request(url):
-    headers = {'User-Agent': 'csmy-release-mirror/1.0'}
+    headers = {'User-Agent': 'csmy-release-mirror/1.1'}
     if url.startswith('https://api.github.com/'):
         headers.update({
             'Accept': 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
         })
+        # Optional: an authenticated call raises the quota from 60/h to 5000/h.
+        token = os.environ.get('GITHUB_TOKEN', '').strip()
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
     return Request(url, headers=headers)
 
 
@@ -75,17 +84,41 @@ def sha256_value(raw):
     return value.lower() if re.fullmatch(r'[0-9a-fA-F]{64}', value) else None
 
 
-def fallback_release():
-    """Discover the latest stable release without using the rate-limited API."""
-    with urlopen(request(LATEST_MANIFEST_URL), timeout=30) as response:
-        manifest_bytes = response.read(1024 * 1024 + 1)
-    if len(manifest_bytes) > 1024 * 1024:
-        raise ValueError('updater manifest is too large')
-    manifest = json.loads(manifest_bytes)
-    version = str(manifest.get('version', ''))
-    if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?', version):
-        raise ValueError('updater manifest has an unsupported version')
-    tag = 'v' + version
+def checked_tag(value):
+    tag = str(value or '').strip()
+    if not re.fullmatch(TAG_PATTERN, tag):
+        raise ValueError(f'unsupported release tag: {tag!r}')
+    return tag if tag.startswith('v') else 'v' + tag
+
+
+def tag_from_redirect():
+    """Newest stable tag from /releases/latest; costs no API quota."""
+    with urlopen(request(RELEASES_LATEST_URL), timeout=30) as response:
+        final = str(response.geturl())
+    match = re.search(r'/releases/tag/([^/?#]+)/*$', final)
+    if not match:
+        raise ValueError('latest release redirect does not point at a tag')
+    return checked_tag(unquote(match.group(1)))
+
+
+def tag_from_atom():
+    """Fallback discovery: newest stable tag listed in the release feed."""
+    with urlopen(request(RELEASES_ATOM_URL), timeout=30) as response:
+        raw = response.read(MAX_FEED_BYTES + 1)
+    if len(raw) > MAX_FEED_BYTES:
+        raise ValueError('release feed is too large')
+    for href in re.findall(r'href="[^"]*?/releases/tag/([^"/]+)"',
+                           raw.decode('utf-8', 'replace')):
+        tag = unquote(href)
+        if (re.fullmatch(STABLE_TAG_PATTERN, tag)
+                and not re.search(PRERELEASE_PATTERN, tag, re.IGNORECASE)):
+            return tag
+    raise ValueError('release feed lists no stable release')
+
+
+def release_from_files(tag):
+    """Build release metadata from public release files, without the API."""
+    tag = checked_tag(tag)
     base_url = DOWNLOAD_PREFIX + quote(tag, safe='') + '/'
     checksum_url = base_url + 'SHA256SUMS.txt'
     with urlopen(request(checksum_url), timeout=30) as response:
@@ -93,8 +126,17 @@ def fallback_release():
     if len(checksum_bytes) > 1024 * 1024:
         raise ValueError('checksum file is too large')
     checksums = parse_checksums(checksum_bytes.decode('utf-8'))
-    if checksums.get('latest.json') != hashlib.sha256(manifest_bytes).hexdigest():
+    if 'latest.json' not in checksums:
+        raise ValueError('release publishes no updater manifest')
+    with urlopen(request(base_url + 'latest.json'), timeout=30) as response:
+        manifest_bytes = response.read(1024 * 1024 + 1)
+    if len(manifest_bytes) > 1024 * 1024:
+        raise ValueError('updater manifest is too large')
+    if checksums['latest.json'] != hashlib.sha256(manifest_bytes).hexdigest():
         raise ValueError('latest updater manifest failed checksum verification')
+    manifest = json.loads(manifest_bytes)
+    if str(manifest.get('version', '')) != tag.removeprefix('v'):
+        raise ValueError('updater manifest version does not match the release tag')
     assets = []
     for name, digest in checksums.items():
         if name == 'latest.json' or platform_for(name.removesuffix('.sig')):
@@ -122,18 +164,29 @@ def fallback_release():
 
 
 def latest_release():
+    """Discover the newest release without depending on the rate-limited API."""
+    problems = []
+    for source, find_tag in (('releases/latest', tag_from_redirect),
+                             ('release feed', tag_from_atom)):
+        try:
+            tag = find_tag()
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            problems.append(f'{source}: {type(exc).__name__}: {exc}')
+            continue
+        try:
+            return release_from_files(tag)
+        except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+            problems.append(f'{tag}: {type(exc).__name__}: {exc}')
     try:
         with urlopen(request(API_URL), timeout=30) as response:
             return json.load(response)
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
-        print(f'GitHub API unavailable ({type(exc).__name__}); using release files', flush=True)
-        return fallback_release()
+        problems.append(f'api.github.com: {type(exc).__name__}: {exc}')
+    raise RuntimeError('no usable release metadata: ' + '; '.join(problems))
 
 
 def release_assets(release):
-    tag = str(release.get('tag_name', ''))
-    if not re.fullmatch(r'v?[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?', tag):
-        raise ValueError(f'unsupported release tag: {tag!r}')
+    tag = checked_tag(release.get('tag_name'))
     if release.get('draft') or release.get('prerelease'):
         raise ValueError('latest release is not a stable published release')
     selected = []
