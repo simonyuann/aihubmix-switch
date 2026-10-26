@@ -3020,7 +3020,7 @@ model_provider = "aihubmix"
         fs::create_dir_all(&codex_dir).expect("create codex dir");
         fs::write(
             codex_dir.join("config.toml"),
-            "[profiles.legacy]\nmodel_provider = \"cc-switch-official\"\n\n[model_providers.aihubmix-switch-official]\nname = \"OpenAI\"\nrequires_openai_auth = true\n",
+            "[profiles.legacy]\nmodel_provider = \"cc-switch-official\"\n\n[model_providers.cc-switch-official]\nname = \"OpenAI\"\nrequires_openai_auth = true\n",
         )
         .expect("write config");
         let state_db = codex_dir.join(CODEX_STATE_DB_FILENAME);
@@ -3053,7 +3053,7 @@ model_provider = "aihubmix"
             id
         ));
         assert!(!codex_config_selects_provider(
-            "model_provider = \"custom\"\n\n[model_providers.aihubmix-switch-official]\nname = \"OpenAI\"\n",
+            "model_provider = \"custom\"\n\n[model_providers.cc-switch-official]\nname = \"OpenAI\"\n",
             id
         ));
         assert!(!codex_config_selects_provider("not = [valid", id));
