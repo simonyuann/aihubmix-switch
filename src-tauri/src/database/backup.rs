@@ -1457,7 +1457,9 @@ mod tests {
             .import_sql_string(&header_only)
             .expect_err("缺少原始 schema 的文件必须被拒绝");
         assert!(
-            error.to_string().contains("required AIHubMix Switch tables")
+            error
+                .to_string()
+                .contains("required AIHubMix Switch tables")
                 || error.to_string().contains("AIHubMix Switch 必需表"),
             "应由原始 schema 校验拒绝，实际错误: {error}"
         );

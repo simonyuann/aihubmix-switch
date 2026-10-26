@@ -109,8 +109,9 @@ pub async fn open_portable_update_download(
     handle: AppHandle,
     version: String,
 ) -> Result<bool, String> {
-    let url = portable_zip_url(&version, cfg!(target_arch = "aarch64"))
-        .unwrap_or_else(|| "https://github.com/simonyuann/aihubmix-switch/releases/latest".to_string());
+    let url = portable_zip_url(&version, cfg!(target_arch = "aarch64")).unwrap_or_else(|| {
+        "https://github.com/simonyuann/aihubmix-switch/releases/latest".to_string()
+    });
     handle
         .opener()
         .open_url(url, None::<String>)

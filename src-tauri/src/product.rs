@@ -26,7 +26,11 @@ fn target_for(os: &str, arch: &str, format: &str) -> Result<String, String> {
 
 #[tauri::command]
 pub fn product_update_target() -> Result<String, String> {
-    target_for(std::env::consts::OS, std::env::consts::ARCH, update_format())
+    target_for(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        update_format(),
+    )
 }
 
 #[cfg(test)]

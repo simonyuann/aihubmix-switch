@@ -3033,7 +3033,10 @@ pub fn handle_tray_menu_event(app: &tauri::AppHandle, event_id: &str) {
     match event_id {
         "show_main" => show_main_window(app),
         "open_website" => {
-            if let Err(e) = app.opener().open_url("https://dl.csmy.fun:23457", None::<String>) {
+            if let Err(e) = app
+                .opener()
+                .open_url("https://dl.csmy.fun:23457", None::<String>)
+            {
                 log::error!("打开官方网站失败: {e}");
             }
         }
@@ -4522,7 +4525,10 @@ mod tests {
             }
         };
         assert_eq!(quit_text(&zh(), false), "退出 AIHubMix Switch");
-        assert_eq!(quit_text(&zh(), true), "退出 AIHubMix Switch（路由服务会停止）");
+        assert_eq!(
+            quit_text(&zh(), true),
+            "退出 AIHubMix Switch（路由服务会停止）"
+        );
         assert_eq!(
             quit_text(&en(), true),
             "Quit AIHubMix Switch (stops the routing service)"

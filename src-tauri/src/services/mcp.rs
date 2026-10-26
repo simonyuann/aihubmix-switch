@@ -301,7 +301,9 @@ impl McpService {
                 );
             }
             AppType::ClaudeDesktop => {
-                log::debug!("Claude Desktop 3P profiles do not use AIHubMix Switch MCP sync, skipping");
+                log::debug!(
+                    "Claude Desktop 3P profiles do not use AIHubMix Switch MCP sync, skipping"
+                );
             }
             AppType::Codex => {
                 // Codex uses TOML format, must use the correct function
@@ -369,7 +371,9 @@ impl McpService {
                 );
             }
             AppType::ClaudeDesktop => {
-                log::debug!("Claude Desktop 3P profiles do not use AIHubMix Switch MCP sync, skipping");
+                log::debug!(
+                    "Claude Desktop 3P profiles do not use AIHubMix Switch MCP sync, skipping"
+                );
             }
             AppType::Codex => mcp::remove_server_from_codex(id)?,
             AppType::Gemini => mcp::remove_server_from_gemini(id)?,

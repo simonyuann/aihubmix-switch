@@ -76,19 +76,24 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_get_macos_app_bundle_path_valid() {
-        let exe_path = std::path::Path::new("/Applications/AIHubMix Switch.app/Contents/MacOS/AIHubMix Switch");
+        let exe_path = std::path::Path::new(
+            "/Applications/AIHubMix Switch.app/Contents/MacOS/AIHubMix Switch",
+        );
         let result = get_macos_app_bundle_path(exe_path);
         assert_eq!(
             result,
-            Some(std::path::PathBuf::from("/Applications/AIHubMix Switch.app"))
+            Some(std::path::PathBuf::from(
+                "/Applications/AIHubMix Switch.app"
+            ))
         );
     }
 
     #[cfg(target_os = "macos")]
     #[test]
     fn test_get_macos_app_bundle_path_with_spaces() {
-        let exe_path =
-            std::path::Path::new("/Users/test/My Apps/AIHubMix Switch.app/Contents/MacOS/AIHubMix Switch");
+        let exe_path = std::path::Path::new(
+            "/Users/test/My Apps/AIHubMix Switch.app/Contents/MacOS/AIHubMix Switch",
+        );
         let result = get_macos_app_bundle_path(exe_path);
         assert_eq!(
             result,
