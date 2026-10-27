@@ -25,10 +25,14 @@ describe("remembered usage choices", () => {
   });
 
   it("keeps working when storage is unavailable", () => {
-    vi.spyOn(window.localStorage, "getItem").mockImplementation(() => {
+    // Native Storage methods live on its prototype; the Node fallback owns them.
+    const storageApi = Object.hasOwn(window.localStorage, "getItem")
+      ? window.localStorage
+      : Object.getPrototypeOf(window.localStorage);
+    vi.spyOn(storageApi, "getItem").mockImplementation(() => {
       throw new Error("denied");
     });
-    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+    vi.spyOn(storageApi, "setItem").mockImplementation(() => {
       throw new Error("denied");
     });
     expect(() => writeRememberedChoice(KEY, "cost")).not.toThrow();
