@@ -26,7 +26,10 @@ describe("remembered usage choices", () => {
 
   it("keeps working when storage is unavailable", () => {
     // Native Storage methods live on its prototype; the Node fallback owns them.
-    const storageApi = Object.hasOwn(window.localStorage, "getItem")
+    const storageApi = Object.prototype.hasOwnProperty.call(
+      window.localStorage,
+      "getItem",
+    )
       ? window.localStorage
       : Object.getPrototypeOf(window.localStorage);
     vi.spyOn(storageApi, "getItem").mockImplementation(() => {
