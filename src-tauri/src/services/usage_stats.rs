@@ -2616,6 +2616,30 @@ pub(crate) fn find_model_pricing_row(
     conn: &Connection,
     model_id: &str,
 ) -> Result<Option<(String, String, String, String)>, AppError> {
+    if let Some((base, tier)) = crate::services::codex_pricing::split_tier_pricing_model(model_id) {
+        // An explicit user price can cover additional models/tiers. Generated
+        // variants are never seeded: Standard's prefix fallback cannot select
+        // one of our Priority prices after its Standard row was deleted.
+        if let Some(row) = query_model_pricing_exact(conn, model_id)? {
+            return Ok(Some(row));
+        }
+        let multiplier = crate::services::codex_pricing::tier_price_multiplier(base, tier);
+        return find_model_pricing_row(conn, base)?
+            .map(|(input, output, read, write)| {
+                let scale = |price: &str| {
+                    rust_decimal::Decimal::from_str(price)
+                        .map(|value| (value * multiplier).to_string())
+                        .map_err(|e| AppError::Database(format!("解析服务档位价格失败: {e}")))
+                };
+                Ok((
+                    scale(&input)?,
+                    scale(&output)?,
+                    scale(&read)?,
+                    scale(&write)?,
+                ))
+            })
+            .transpose();
+    }
     let candidates = model_pricing_candidates(model_id);
     if candidates.is_empty() {
         return Ok(None);

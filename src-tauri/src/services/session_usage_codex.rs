@@ -10,7 +10,7 @@
 //!
 //! ## 解析的事件类型
 //! - `session_meta` → 提取唯一 thread_id（子代理的 session_id 指向父线程）
-//! - `turn_context` / `event_msg` (type=thread_settings_applied) → 提取当前 model
+//! - `turn_context` / `event_msg` (type=thread_settings_applied) → 提取当前 model / service_tier
 //! - `event_msg` (type=token_count) → 提取累计 token 用量，计算 delta
 //! - `token_usage_record` → 随后的 token_count last 为 0 时补记这次用量
 
@@ -20,6 +20,7 @@ use crate::database::{lock_conn, Database};
 use crate::error::AppError;
 use crate::proxy::usage::calculator::{CostCalculator, ModelPricing};
 use crate::proxy::usage::parser::TokenUsage;
+use crate::services::codex_pricing::CodexServiceTier;
 use crate::services::session_usage::{
     estimated_first_token_ms, estimated_latency_ms, metadata_modified_nanos,
     parse_timestamp_millis, update_sync_state, update_sync_state_on_conn, EstimatedTiming,
@@ -210,6 +211,7 @@ struct ParsedTokenEvent {
     /// 避免把后面每次请求的 `event_index` 都往后挤。
     request_suffix: Option<String>,
     model: String,
+    service_tier: CodexServiceTier,
     timestamp: Option<String>,
     /// 按事件时间戳估出来的请求耗时（含首字等待）和首字时间；估不出来为 None。
     timing: Option<EstimatedTiming>,
@@ -531,6 +533,9 @@ fn is_rollout_filename(file_name: &str) -> bool {
 }
 
 fn is_codex_cursor_path(file_path: &str, codex_dir: &Path) -> bool {
+    if file_path.starts_with("codex:fast-pricing-v1:") {
+        return true;
+    }
     let path = Path::new(file_path);
     let file_name = file_path.rsplit(['/', '\\']).next().unwrap_or_default();
     if !is_rollout_filename(file_name) {
@@ -951,6 +956,7 @@ struct PendingUsageRecord {
     usage: CumulativeTokens,
     timestamp: Option<String>,
     model: String,
+    service_tier: CodexServiceTier,
 }
 
 fn push_unmatched_usage(
@@ -976,6 +982,7 @@ fn push_unmatched_usage(
         event_index: None,
         request_suffix: Some(format!("usage:{}", pending.key)),
         model: pending.model,
+        service_tier: pending.service_tier,
         timestamp: pending.timestamp,
         timing: None,
     });
@@ -1253,6 +1260,7 @@ fn parse_codex_file_with_index(
     let mut meta_thread_id = None;
     let mut parent = ParentResolution::None;
     let mut current_model = "unknown".to_string();
+    let mut current_service_tier = CodexServiceTier::default();
     // `total_token_usage` is session-cumulative, including across model and
     // rate-limit bucket changes. Divergent snapshots are handled by preferring
     // exact `last_token_usage`, not by splitting the cumulative baseline.
@@ -1419,6 +1427,12 @@ fn parse_codex_file_with_index(
             }
             "turn_context" => {
                 if let Some(payload) = value.get("payload") {
+                    current_service_tier.observe(payload);
+                    if payload.get("service_tier").is_none() {
+                        if let Some(info) = payload.get("info") {
+                            current_service_tier.observe(info);
+                        }
+                    }
                     if let Some(model) = payload
                         .get("model")
                         .or_else(|| payload.get("info").and_then(|info| info.get("model")))
@@ -1438,6 +1452,9 @@ fn parse_codex_file_with_index(
                     // Resumed/Desktop threads may change models without another
                     // turn_context. Only update attribution: the cumulative token
                     // baseline and duplicate snapshots still belong to the session.
+                    if let Some(settings) = payload.get("thread_settings") {
+                        current_service_tier.observe(settings);
+                    }
                     if let Some(model) = payload
                         .get("thread_settings")
                         .and_then(|settings| settings.get("model"))
@@ -1458,6 +1475,7 @@ fn parse_codex_file_with_index(
                 let Some(signature) = parse_token_signature(info) else {
                     continue;
                 };
+                let mut service_tier = current_service_tier.for_request(&[info, payload]);
 
                 if let Some(model) = info
                     .get("model")
@@ -1482,6 +1500,12 @@ fn parse_codex_file_with_index(
                     let covered = last
                         .as_ref()
                         .is_some_and(|last| usage_matches(last, &pending.usage));
+                    if covered
+                        && info.get("service_tier").is_none()
+                        && payload.get("service_tier").is_none()
+                    {
+                        service_tier = pending.service_tier.clone();
+                    }
                     if !covered && last.as_ref().is_some_and(usage_is_zero) {
                         push_unmatched_usage(
                             &mut usage_record_events,
@@ -1597,6 +1621,7 @@ fn parse_codex_file_with_index(
                     event_index: nonzero_index,
                     request_suffix: None,
                     model: current_model.clone(),
+                    service_tier,
                     timestamp,
                     timing,
                 });
@@ -1629,6 +1654,7 @@ fn parse_codex_file_with_index(
                         .and_then(serde_json::Value::as_str)
                         .map(str::to_owned),
                     model: current_model.clone(),
+                    service_tier: current_service_tier.for_request(&[payload]),
                 });
             }
             _ => {}
@@ -1957,6 +1983,100 @@ fn mark_deferred(
 /// 与大文件重导期间面板的响应性。
 const CODEX_INSERT_BATCH_SIZE: usize = 1000;
 
+// Reserved local-only cursor, stable across archive moves and .zst compression.
+// Never reset the real cursor: pruned requests must not be imported again.
+fn pricing_enrichment_key(file_path: &str) -> String {
+    format!(
+        "codex:fast-pricing-v1:{}",
+        codex_rollout_file::logical_file_name(file_path)
+    )
+}
+
+fn mark_pricing_enriched(conn: &rusqlite::Connection, file_path: &str) -> Result<(), AppError> {
+    update_sync_state_on_conn(conn, &pricing_enrichment_key(file_path), 1, 0)
+}
+
+fn enrich_retained_codex_pricing(
+    db: &Database,
+    file_path: &str,
+    root_thread_id: &str,
+    parsed: &ParsedCodexFile,
+    replay_prefix: usize,
+    last_offset: i64,
+    pass: &mut CodexSyncPass,
+) -> Result<(), AppError> {
+    let conn = lock_conn!(db.conn);
+    let tx = conn.unchecked_transaction()?;
+    let mut updated = 0;
+    let events = parsed
+        .token_events
+        .iter()
+        .skip(replay_prefix)
+        .filter_map(|event| event.event_index.map(|index| (event, index.to_string())))
+        .chain(parsed.usage_record_events.iter().filter_map(|event| {
+            event
+                .request_suffix
+                .as_ref()
+                .map(|suffix| (event, suffix.clone()))
+        }));
+    for (event, suffix) in events {
+        if event.line_offset > last_offset
+            || matches!(
+                event.service_tier,
+                CodexServiceTier::Unspecified | CodexServiceTier::Standard
+            )
+        {
+            continue;
+        }
+        let request_id = format!("{CODEX_THREAD_REQUEST_ID_PREFIX}:{root_thread_id}:{suffix}");
+        let pricing_model = event.service_tier.pricing_model(&event.model);
+        let cost = if event.service_tier == CodexServiceTier::Priority {
+            calculate_codex_cost(&tx, &event.delta, &pricing_model, &mut pass.pricing)
+        } else {
+            // Unknown/Flex tiers remain the original standard estimate. Preserve
+            // evidence without repricing old records at today's base prices.
+            None
+        };
+        // Update only retained rows with exactly the same identity and token
+        // semantics. Missing/pruned rows, proxy rows and changed logs stay intact.
+        updated += tx.execute(
+            "UPDATE proxy_request_logs SET pricing_model = ?1,
+                 input_cost_usd = COALESCE(?2, input_cost_usd),
+                 output_cost_usd = COALESCE(?3, output_cost_usd),
+                 cache_read_cost_usd = COALESCE(?4, cache_read_cost_usd),
+                 cache_creation_cost_usd = COALESCE(?5, cache_creation_cost_usd),
+                 total_cost_usd = COALESCE(?6, total_cost_usd)
+             WHERE request_id = ?7 AND data_source = 'codex_session'
+               AND app_type = 'codex' AND model = ?8
+               AND input_tokens = ?9 AND output_tokens = ?10
+               AND cache_read_tokens = ?11 AND cache_creation_tokens = ?12
+               AND input_token_semantics = ?13 AND CAST(cost_multiplier AS REAL) = 1",
+            rusqlite::params![
+                pricing_model,
+                cost.as_ref().map(|c| c.input_cost.to_string()),
+                cost.as_ref().map(|c| c.output_cost.to_string()),
+                cost.as_ref().map(|c| c.cache_read_cost.to_string()),
+                cost.as_ref().map(|c| c.cache_creation_cost.to_string()),
+                cost.as_ref().map(|c| c.total_cost.to_string()),
+                request_id,
+                event.model,
+                event.delta.input,
+                event.delta.output,
+                event.delta.cached_input,
+                event.delta.cache_write_input,
+                INPUT_TOKEN_SEMANTICS_TOTAL,
+            ],
+        )?;
+    }
+    mark_pricing_enriched(&tx, file_path)?;
+    tx.commit()?;
+    if updated > 0 {
+        log::info!("[CODEX-SYNC] 已修正 {updated} 条留存会话的服务档位计价");
+        crate::usage_events::notify_log_recorded();
+    }
+    Ok(())
+}
+
 fn update_codex_sync_state_on_conn(
     conn: &rusqlite::Connection,
     file_path: &str,
@@ -1968,6 +2088,7 @@ fn update_codex_sync_state_on_conn(
         "UPDATE session_log_sync SET last_byte_offset = ?1 WHERE file_path = ?2",
         rusqlite::params![parsed.observed_bytes, file_path],
     )?;
+    mark_pricing_enriched(conn, file_path)?;
     Ok(())
 }
 
@@ -2001,11 +2122,17 @@ fn sync_single_codex_file(
 
     // 检查同步状态
     let (last_modified, last_offset) = get_codex_sync_state(db, file_path, pass)?;
+    let needs_pricing_enrichment = !pass
+        .cursors
+        .contains_key(&pricing_enrichment_key(&file_path_str));
 
     // Windows may keep mtime unchanged while Codex holds its write handle open.
     // Legacy cursors have no byte offset: rescan once to catch up and persist it.
     let last_byte_offset = pass.byte_offsets.get(&file_path_str).copied().flatten();
-    if file_modified == last_modified && last_byte_offset == i64::try_from(file_size).ok() {
+    if !needs_pricing_enrichment
+        && file_modified == last_modified
+        && last_byte_offset == i64::try_from(file_size).ok()
+    {
         return Ok(CodexFileSyncResult::default());
     }
 
@@ -2173,6 +2300,18 @@ fn sync_single_codex_file(
         caches.pending.remove(file_path);
     }
 
+    if needs_pricing_enrichment {
+        enrich_retained_codex_pricing(
+            db,
+            &file_path_str,
+            root_thread_id,
+            &parsed,
+            replay_prefix,
+            last_offset,
+            pass,
+        )?;
+    }
+
     let mut result = CodexFileSyncResult::default();
     let mut to_insert: Vec<(&ParsedTokenEvent, String)> = Vec::new();
     for (token_offset, event) in parsed.token_events.iter().enumerate() {
@@ -2228,6 +2367,7 @@ fn sync_single_codex_file(
                 &request_id,
                 &event.delta,
                 &event.model,
+                &event.service_tier,
                 Some(session_thread_id),
                 event.timestamp.as_deref(),
                 event.timing,
@@ -2279,6 +2419,7 @@ fn insert_codex_session_entry(
         request_id,
         delta,
         model,
+        &CodexServiceTier::default(),
         session_id,
         timestamp,
         None,
@@ -2299,6 +2440,7 @@ fn insert_codex_session_entry_on_conn(
     request_id: &str,
     delta: &DeltaTokens,
     model: &str,
+    service_tier: &CodexServiceTier,
     session_id: Option<&str>,
     timestamp: Option<&str>,
     timing: Option<EstimatedTiming>,
@@ -2340,52 +2482,35 @@ fn insert_codex_session_entry_on_conn(
         );
     }
 
-    // 计算费用
-    let usage = TokenUsage {
-        input_tokens: delta.input,
-        output_tokens: delta.output,
-        cache_read_tokens: delta.cached_input,
-        cache_creation_tokens: delta.cache_write_input,
-        cache_creation_1h_tokens: 0,
-        model: Some(model.to_string()),
-        message_id: None,
-    };
-
-    let pricing = pricing_cache
-        .entry(model.to_string())
-        .or_insert_with(|| find_codex_pricing(conn, model));
-    let multiplier = Decimal::from(1);
-    let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) = match pricing
-    {
-        Some(p) => {
-            let cost = CostCalculator::calculate_for_app("codex", &usage, p, multiplier);
-            (
+    let pricing_model = service_tier.pricing_model(model);
+    let (input_cost, output_cost, cache_read_cost, cache_creation_cost, total_cost) =
+        match calculate_codex_cost(conn, delta, &pricing_model, pricing_cache) {
+            Some(cost) => (
                 cost.input_cost.to_string(),
                 cost.output_cost.to_string(),
                 cost.cache_read_cost.to_string(),
                 cost.cache_creation_cost.to_string(),
                 cost.total_cost.to_string(),
-            )
-        }
-        None => (
-            "0".to_string(),
-            "0".to_string(),
-            "0".to_string(),
-            "0".to_string(),
-            "0".to_string(),
-        ),
-    };
+            ),
+            None => (
+                "0".to_string(),
+                "0".to_string(),
+                "0".to_string(),
+                "0".to_string(),
+                "0".to_string(),
+            ),
+        };
 
     let inserted_rows = conn
         .prepare_cached(
             "INSERT OR IGNORE INTO proxy_request_logs (
-            request_id, provider_id, app_type, model, request_model,
+            request_id, provider_id, app_type, model, request_model, pricing_model,
             input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
             input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
             latency_ms, first_token_ms, status_code, error_message, session_id,
             provider_type, is_streaming, cost_multiplier, created_at, data_source,
             input_token_semantics
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?26, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
         )
         .and_then(|mut stmt| stmt.execute(rusqlite::params![
                 request_id,
@@ -2413,10 +2538,34 @@ fn insert_codex_session_entry_on_conn(
                 created_at,
                 "codex_session",     // data_source
                 INPUT_TOKEN_SEMANTICS_TOTAL, // input_tokens 含缓存读写
+                pricing_model,
             ]))
         .map_err(|e| AppError::Database(format!("插入 Codex 会话日志失败: {e}")))?;
 
     Ok(inserted_rows > 0)
+}
+
+fn calculate_codex_cost(
+    conn: &rusqlite::Connection,
+    delta: &DeltaTokens,
+    pricing_model: &str,
+    pricing_cache: &mut HashMap<String, Option<ModelPricing>>,
+) -> Option<crate::proxy::usage::calculator::CostBreakdown> {
+    let pricing = pricing_cache
+        .entry(pricing_model.to_string())
+        .or_insert_with(|| find_codex_pricing(conn, pricing_model));
+    let usage = TokenUsage {
+        input_tokens: delta.input,
+        output_tokens: delta.output,
+        cache_read_tokens: delta.cached_input,
+        cache_creation_tokens: delta.cache_write_input,
+        cache_creation_1h_tokens: 0,
+        model: None,
+        message_id: None,
+    };
+    pricing
+        .as_ref()
+        .map(|price| CostCalculator::calculate_for_app("codex", &usage, price, Decimal::ONE))
 }
 
 /// 查找 Codex 模型定价（带归一化）
@@ -3753,6 +3902,237 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(deltas, vec![100, 50]);
+        Ok(())
+    }
+
+    fn tier_settings(tier: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({"type":"event_msg", "payload": {
+            "type":"thread_settings_applied", "thread_settings":{"service_tier":tier}
+        }})
+    }
+
+    fn fast_fixture(file: &Path) {
+        write_jsonl(
+            file,
+            &[
+                session_meta(PARENT_ID),
+                turn_context_for_model_at("gpt-6.1-sol", "2026-07-10T03:00:01Z"),
+                tier_settings(serde_json::json!("priority")),
+                token_count_at(100, 50, 10, "2026-07-10T03:00:02Z"),
+                token_count_at(200, 100, 20, "2026-07-10T03:00:03Z"),
+                token_count_at(300, 150, 30, "2026-07-10T03:00:04Z"),
+            ],
+        );
+    }
+
+    fn stored_costs(db: &Database) -> Result<Vec<Decimal>, AppError> {
+        let conn = lock_conn!(db.conn);
+        let mut stmt =
+            conn.prepare("SELECT total_cost_usd FROM proxy_request_logs ORDER BY request_id")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows
+            .map(|row| row.unwrap().parse::<Decimal>().unwrap())
+            .collect())
+    }
+
+    // Reproduce a pre-fix database without changing source logs or cursors.
+    fn downgrade_fast_costs(db: &Database, file: &Path) -> Result<(), AppError> {
+        let conn = lock_conn!(db.conn);
+        conn.execute(
+            "UPDATE proxy_request_logs SET pricing_model = NULL,
+            input_cost_usd = CAST(CAST(input_cost_usd AS REAL) / 2 AS TEXT),
+            output_cost_usd = CAST(CAST(output_cost_usd AS REAL) / 2 AS TEXT),
+            cache_read_cost_usd = CAST(CAST(cache_read_cost_usd AS REAL) / 2 AS TEXT),
+            cache_creation_cost_usd = CAST(CAST(cache_creation_cost_usd AS REAL) / 2 AS TEXT),
+            total_cost_usd = CAST(CAST(total_cost_usd AS REAL) / 2 AS TEXT)",
+            [],
+        )?;
+        conn.execute(
+            "DELETE FROM session_log_sync WHERE file_path = ?1",
+            [pricing_enrichment_key(&file.to_string_lossy())],
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn fast_mixed_modes_models_and_request_overrides_preserve_tokens() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let dir = tempdir().unwrap();
+        let file = rollout_path(dir.path(), PARENT_ID);
+        let mut override_usage = token_count_at(400, 200, 40, "2026-07-10T03:00:08Z");
+        override_usage["payload"]["info"]["service_tier"] = serde_json::json!("default");
+        write_jsonl(
+            &file,
+            &[
+                session_meta(PARENT_ID),
+                turn_context_for_model_at("gpt-6.1-sol", "2026-07-10T03:00:01Z"),
+                token_count_at(100, 50, 10, "2026-07-10T03:00:02Z"),
+                tier_settings(serde_json::json!("fast")),
+                // A mode change must not make an unchanged snapshot billable.
+                token_count_at(100, 50, 10, "2026-07-10T03:00:03Z"),
+                token_count_at(200, 100, 20, "2026-07-10T03:00:04Z"),
+                tier_settings(serde_json::Value::Null),
+                token_count_at(300, 150, 30, "2026-07-10T03:00:05Z"),
+                tier_settings(serde_json::json!("priority")),
+                override_usage,
+                // The request-level default must not switch the session out of Fast.
+                thread_settings_at(
+                    serde_json::json!("OpenAI/GPT-5.6-LUNA-2026-10-01"),
+                    "2026-07-10T03:00:09Z",
+                ),
+                token_count_at(500, 250, 50, "2026-07-10T03:00:10Z"),
+            ],
+        );
+        assert_eq!(sync_test_file(&db, &file, &[&file])?.imported, 5);
+        assert_eq!(
+            stored_costs(&db)?,
+            ["0.000205", "0.000410", "0.000205", "0.000205", "0.000046"]
+                .map(|v| v.parse::<Decimal>().unwrap())
+        );
+        let summary = db.get_usage_summary(None, None, Some("codex"), None, None)?;
+        assert_eq!(
+            (
+                summary.total_requests,
+                summary.total_input_tokens,
+                summary.total_cache_read_tokens,
+                summary.total_output_tokens
+            ),
+            (5, 250, 250, 50)
+        );
+        assert_unchanged_codex_file_is_skipped(&db, &file)?;
+        Ok(())
+    }
+
+    #[test]
+    fn fast_turn_context_and_compaction_keep_their_own_tier() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let dir = tempdir().unwrap();
+        let file = rollout_path(dir.path(), PARENT_ID);
+        let mut context = turn_context_for_model_at("gpt-6.1-sol", "2026-07-10T03:00:01Z");
+        context["payload"]["service_tier"] = serde_json::json!("priority");
+        write_jsonl(
+            &file,
+            &[
+                session_meta(PARENT_ID),
+                context,
+                token_usage_record_at("resp_fast", 100, 50, 10, "2026-07-10T03:00:02Z"),
+                // A later setting must not change an earlier pending usage record.
+                tier_settings(serde_json::Value::Null),
+                token_count_with_last_at(0, 0, 0, 0, 0, 0, "default", "2026-07-10T03:00:03Z"),
+            ],
+        );
+        assert_eq!(sync_test_file(&db, &file, &[&file])?.imported, 1);
+        assert_eq!(stored_costs(&db)?, vec![Decimal::new(410, 6)]);
+        assert_unchanged_codex_file_is_skipped(&db, &file)?;
+        Ok(())
+    }
+
+    #[test]
+    fn fast_history_enrichment_is_idempotent_and_never_reimports_missing_rows(
+    ) -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let dir = tempdir().unwrap();
+        let file = rollout_path(dir.path(), PARENT_ID);
+        fast_fixture(&file);
+        assert_eq!(sync_test_file(&db, &file, &[&file])?.imported, 3);
+        downgrade_fast_costs(&db, &file)?;
+        let cursor_before = get_sync_state(&db, &file.to_string_lossy())?;
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute(
+                "UPDATE proxy_request_logs SET input_tokens = 101 WHERE request_id LIKE '%:2'",
+                [],
+            )?;
+            conn.execute(
+                "DELETE FROM proxy_request_logs WHERE request_id LIKE '%:3'",
+                [],
+            )?;
+        }
+        assert_eq!(sync_test_file(&db, &file, &[&file])?.imported, 0);
+        assert_eq!(
+            stored_costs(&db)?,
+            vec![Decimal::new(410, 6), Decimal::new(205, 6)]
+        );
+        assert_eq!(get_sync_state(&db, &file.to_string_lossy())?, cursor_before);
+        assert_unchanged_codex_file_is_skipped(&db, &file)?;
+        // Even forced enrichment must assign the price, never multiply old cost.
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute(
+                "DELETE FROM session_log_sync WHERE file_path = ?1",
+                [pricing_enrichment_key(&file.to_string_lossy())],
+            )?;
+        }
+        assert_eq!(sync_test_file(&db, &file, &[&file])?.imported, 0);
+        assert_eq!(
+            stored_costs(&db)?,
+            vec![Decimal::new(410, 6), Decimal::new(205, 6)]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fast_history_enrichment_rolls_back_and_retries() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let dir = tempdir().unwrap();
+        let file = rollout_path(dir.path(), PARENT_ID);
+        fast_fixture(&file);
+        sync_test_file(&db, &file, &[&file])?;
+        downgrade_fast_costs(&db, &file)?;
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute_batch("CREATE TRIGGER fail_fast_enrichment BEFORE UPDATE ON proxy_request_logs
+                WHEN NEW.request_id LIKE '%:2' BEGIN SELECT RAISE(ABORT, 'test interruption'); END;")?;
+        }
+        assert!(sync_test_file(&db, &file, &[&file]).is_err());
+        assert_eq!(stored_costs(&db)?, vec![Decimal::new(205, 6); 3]);
+        {
+            let conn = lock_conn!(db.conn);
+            let marked: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM session_log_sync WHERE file_path=?1)",
+                [pricing_enrichment_key(&file.to_string_lossy())],
+                |row| row.get(0),
+            )?;
+            assert!(!marked);
+            conn.execute_batch("DROP TRIGGER fail_fast_enrichment")?;
+        }
+        assert_eq!(sync_test_file(&db, &file, &[&file])?.imported, 0);
+        assert_eq!(stored_costs(&db)?, vec![Decimal::new(410, 6); 3]);
+        Ok(())
+    }
+
+    #[test]
+    fn fast_zero_cost_backfill_and_rollup_preserve_tier_prices() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let dir = tempdir().unwrap();
+        let file = rollout_path(dir.path(), PARENT_ID);
+        fast_fixture(&file);
+        sync_test_file(&db, &file, &[&file])?;
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute("UPDATE proxy_request_logs SET total_cost_usd='0',input_cost_usd='0',output_cost_usd='0',cache_read_cost_usd='0',cache_creation_cost_usd='0'", [])?;
+        }
+        assert_eq!(db.backfill_missing_usage_costs_for_model("gpt-6.1-sol")?, 3);
+        assert_eq!(stored_costs(&db)?, vec![Decimal::new(410, 6); 3]);
+        let before = db.get_usage_summary(None, None, Some("codex"), None, None)?;
+        assert_eq!(db.rollup_and_prune(1)?, 3);
+        let after = db.get_usage_summary(None, None, Some("codex"), None, None)?;
+        assert_eq!(
+            (before.total_requests, before.total_cost),
+            (after.total_requests, after.total_cost)
+        );
+        // Re-running a price migration cannot resurrect already rolled-up data.
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute(
+                "DELETE FROM session_log_sync WHERE file_path = ?1",
+                [pricing_enrichment_key(&file.to_string_lossy())],
+            )?;
+        }
+        assert_eq!(sync_test_file(&db, &file, &[&file])?.imported, 0);
+        assert!(stored_costs(&db)?.is_empty());
+        let final_summary = db.get_usage_summary(None, None, Some("codex"), None, None)?;
+        assert_eq!(final_summary.total_requests, 3);
         Ok(())
     }
 
