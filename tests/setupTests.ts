@@ -25,7 +25,11 @@ beforeAll(async () => {
 afterEach(() => {
   cleanup();
   // 页面数据的本地缓存（src/lib/localCache.ts）和用量页记住的选择不能从一个用例带到下一个
-  for (const key of Object.keys(localStorage)) {
+  const storageKeys = Array.from({ length: localStorage.length }, (_, index) =>
+    localStorage.key(index),
+  );
+  for (const key of storageKeys) {
+    if (!key) continue;
     if (
       key.startsWith("cc-switch-cache:") ||
       key.startsWith("cc-switch.usage.")

@@ -17,6 +17,7 @@ import {
 } from "@/tray-panel/api";
 import { emitTauriEvent } from "../msw/tauriMocks";
 import { createTestQueryClient } from "../utils/testQueryClient";
+import { dispatch } from "@/lib/api/aihubmix";
 
 vi.mock("@/tray-panel/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/tray-panel/api")>()),
@@ -29,6 +30,15 @@ vi.mock("@/tray-panel/api", async (importOriginal) => ({
   },
 }));
 vi.mock("@/tray-panel/UsageTab", () => ({ UsageTab: () => <div>Usage</div> }));
+vi.mock("@/lib/api/aihubmix", () => ({
+  dispatch: vi
+    .fn()
+    .mockResolvedValue({
+      email: "account@example.test",
+      balance: 12.34,
+      currency: "USD",
+    }),
+}));
 
 const state: TrayPanelState = {
   texts: {
@@ -128,6 +138,11 @@ async function openPanel(placement: PanelPlacement) {
 
 describe("TrayPanel window layout", () => {
   beforeEach(() => {
+    vi.mocked(dispatch).mockResolvedValue({
+      email: "account@example.test",
+      balance: 12.34,
+      currency: "USD",
+    });
     frames.clear();
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frames.set(++frameId, callback);
@@ -216,6 +231,39 @@ describe("TrayPanel window layout", () => {
       }),
     );
     expect(frames.size).toBe(0);
+  });
+
+  it("shows wallet balance between the title and settings and refreshes on every popup", async () => {
+    vi.mocked(dispatch).mockResolvedValue({
+      email: "account@example.test",
+      balance: 12.34,
+      currency: "USD",
+    });
+    await openPanel(windows);
+    const balance = await screen.findByText("USD 12.34");
+    const heading = screen.getByText("AIHubMix Switch");
+    const settings = screen.getByRole("button", { name: "Settings" });
+    expect(heading.parentElement).toContainElement(balance);
+    expect(heading.parentElement).toContainElement(settings);
+    expect(
+      heading.compareDocumentPosition(balance) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      balance.compareDocumentPosition(settings) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    vi.mocked(dispatch).mockResolvedValue({
+      email: "account@example.test",
+      balance: 10,
+      currency: "USD",
+    });
+    await act(async () => emitTauriEvent(SHOW_EVENT, { ...windows, seq: 2 }));
+    expect(await screen.findByText("USD 10.00")).toBeInTheDocument();
+    vi.mocked(dispatch).mockRejectedValueOnce(new Error("balance unavailable"));
+    await act(async () => emitTauriEvent(SHOW_EVENT, { ...windows, seq: 3 }));
+    expect(await screen.findByTitle("余额暂不可用")).toHaveTextContent("—");
+    expect(screen.queryByText("USD 10.00")).not.toBeInTheDocument();
   });
 
   it("cancels a pending Windows reveal when the provider list is closed before painting", async () => {

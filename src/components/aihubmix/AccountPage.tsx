@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { KeyRound, Plus, LogOut } from "lucide-react";
+import { KeyRound, Plus } from "lucide-react";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/contexts/AccountContext";
@@ -7,7 +7,7 @@ import { dispatch, type KeyInfo } from "@/lib/api/aihubmix";
 import { ApplyApiDialog } from "./ApplyApiDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 export function AccountPage() {
-  const { state, logout } = useAccount();
+  const { state } = useAccount();
   const [keys, setKeys] = useState<KeyInfo[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -102,20 +102,6 @@ export function AccountPage() {
                 {state?.account.email}
               </p>
             </div>
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => {
-                setBusy(true);
-                void logout().catch((e) => {
-                  setError(String(e));
-                  setBusy(false);
-                });
-              }}
-            >
-              <LogOut className="me-2 h-4 w-4" />
-              退出登录
-            </Button>
           </section>
           <section className="rounded-panel border border-border">
             <div className="flex items-center justify-between border-b border-border p-4">
@@ -165,9 +151,6 @@ export function AccountPage() {
                   <code className="mt-1 block text-caption text-fg-3">
                     {k.keyMasked}
                   </code>
-                  <p className="mt-1 text-caption text-fg-3">
-                    Key 配额：{k.quotaUsed ?? "—"} / {k.quota ?? "—"}
-                  </p>
                 </div>
                 <div className="flex gap-2">
                   <Button

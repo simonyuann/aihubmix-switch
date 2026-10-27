@@ -103,6 +103,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     // Revalidate the stored session rather than trusting the local loggedIn flag.
     const timer = window.setInterval(() => {
       void refresh();
+      void refreshWallet();
     }, 60_000);
     return () => window.clearInterval(timer);
   }, [state?.account.userId, state?.account.loggedIn, refresh, refreshWallet]);

@@ -1,9 +1,11 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { DRAG_REGION_ATTR, DRAG_REGION_STYLE } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+import { BalanceDisplay } from "@/components/aihubmix/BalanceDisplay";
 
 /** 由外壳提供：Linux 自绘窗口按钮要接在每一屏页头的最右端。 */
 export const WindowControlsContext = createContext<ReactNode>(null);
+export const HeaderBalanceContext = createContext(false);
 
 const NO_DRAG = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 
@@ -40,6 +42,7 @@ export function AppPageHeader({
   className,
 }: AppPageHeaderProps) {
   const windowControls = useContext(WindowControlsContext);
+  const showBalance = useContext(HeaderBalanceContext);
   // 自绘窗口按钮启用时没有系统标题栏，页头必须同时提供拖动入口。
   const dragRegionAttr = windowControls
     ? { "data-tauri-drag-region": true }
@@ -96,6 +99,7 @@ export function AppPageHeader({
         )}
       </div>
       {!truncateTitle && <div {...dragRegionAttr} className="flex-1" />}
+      {showBalance && <BalanceDisplay />}
       {actions && (
         <div
           className="flex min-w-0 shrink items-center justify-end gap-2"

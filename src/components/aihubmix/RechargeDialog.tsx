@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { settingsApi } from "@/lib/api/settings";
 import {
   Dialog,
@@ -11,6 +12,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   dispatch,
   type RechargeOrder,
@@ -43,7 +49,9 @@ export function RechargeDialog({
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
     [uncertain, setUncertain] = useState(false),
+    [historyOpen, setHistoryOpen] = useState(false),
     [now, setNow] = useState(Date.now());
+  const bodyRef = useRef<HTMLDivElement>(null);
   const mounted = useRef(true),
     gate = useRef(false),
     revision = useRef(0),
@@ -100,6 +108,9 @@ export function RechargeDialog({
   useEffect(() => {
     if (open) void refresh();
   }, [open, refresh]);
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [order?.id]);
   const apply = useCallback(
     (next: RechargeOrder) => {
       if (!mounted.current) return;
@@ -181,7 +192,10 @@ export function RechargeDialog({
       const next = await dispatch<RechargeOrder>(command, payload);
       if (mounted.current) {
         apply(next);
-        if (creation) setUncertain(false);
+        if (creation) {
+          setUncertain(false);
+          setHistoryOpen(false);
+        }
       }
     } catch (e) {
       if (mounted.current) {
@@ -216,25 +230,39 @@ export function RechargeDialog({
         if (!value && !busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] overflow-hidden">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] overflow-hidden">
         <DialogHeader>
           <DialogTitle>账户充值</DialogTitle>
           <DialogDescription>
-            钱包余额与 Key 配额分别计算。创建订单后请在支付页面完成付款。
+            钱包余额与 Key 配额分别计算。创建订单后扫码付款。
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 space-y-4 overflow-y-auto px-6 pb-2 text-body [&_label]:block [&_label]:space-y-2">
-          <p className="break-words">
-            {overview?.email} · 钱包余额：{overview?.currency ?? ""}{" "}
-            {overview?.balance?.toFixed(2) ?? "—"}
-          </p>
-          <Button
-            variant="outline"
-            disabled={busy || loading}
-            onClick={() => void refresh()}
-          >
-            刷新余额与充值记录
-          </Button>
+        <div
+          ref={bodyRef}
+          className="min-h-0 space-y-3 overflow-y-auto px-6 pb-1 text-body [&_label]:block [&_label]:space-y-2"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <p className="min-w-0 break-all text-fg-3">{overview?.email}</p>
+            <div className="flex shrink-0 items-center gap-1">
+              <p className="tabular-nums">
+                钱包余额：{overview?.currency ?? ""}{" "}
+                {overview?.balance?.toFixed(2) ?? "—"}
+              </p>
+              <Button
+                variant="ghost"
+                size="icon-compact"
+                aria-label="刷新余额与充值记录"
+                title="刷新余额与充值记录"
+                disabled={busy || loading}
+                onClick={() => void refresh()}
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 ${loading ? "animate-spin motion-reduce:animate-none" : ""}`}
+                />
+              </Button>
+            </div>
+          </div>
           {error && (
             <p role="alert" className="break-words text-destructive">
               {error}
@@ -245,67 +273,84 @@ export function RechargeDialog({
               提交结果不确定。请成功刷新订单记录后再创建，避免重复付款。
             </p>
           )}
-          <label>
-            充值金额
-            <Input
-              value={amount}
-              inputMode="decimal"
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={busy}
-            />
-          </label>
-          <p className="text-fg-3">
-            范围：{minimum}–{Number.isFinite(maximum) ? maximum : "不限"}
-            ；手续费：{selected?.feeRate ?? 0}
-          </p>
-          <label>
-            支付方式
-            <select
-              className="w-full rounded-control border border-border bg-surface p-2"
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-            >
-              {overview?.methods.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button
-            disabled={
-              !overview?.enabled ||
-              !selected ||
-              !validAmount(amount, minimum, maximum) ||
-              !!outstanding ||
-              uncertain ||
-              busy ||
-              loading
-            }
-            onClick={() =>
-              void operate("payment-create", { amount, method }, true)
-            }
-          >
-            创建充值订单
-          </Button>
+          {!order && (
+            <div className="space-y-3 rounded-panel border border-border p-4">
+              <label>
+                充值金额
+                <Input
+                  value={amount}
+                  inputMode="decimal"
+                  onChange={(e) => setAmount(e.target.value)}
+                  disabled={busy}
+                />
+              </label>
+              <p className="text-fg-3">
+                范围：{minimum}–{Number.isFinite(maximum) ? maximum : "不限"}
+                ；手续费：{selected?.feeRate ?? 0}
+              </p>
+              <label>
+                支付方式
+                <select
+                  className="w-full rounded-control border border-border bg-surface p-2"
+                  value={method}
+                  onChange={(e) => setMethod(e.target.value)}
+                >
+                  {overview?.methods.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button
+                className="w-full"
+                disabled={
+                  !overview?.enabled ||
+                  !selected ||
+                  !validAmount(amount, minimum, maximum) ||
+                  !!outstanding ||
+                  uncertain ||
+                  busy ||
+                  loading
+                }
+                onClick={() =>
+                  void operate("payment-create", { amount, method }, true)
+                }
+              >
+                创建充值订单
+              </Button>
+            </div>
+          )}
           {order && (
-            <section className="space-y-2 rounded-panel border border-border p-3">
-              <p>
-                订单 #{order.id} · {order.status}
-              </p>
-              <p>
-                支付金额：{order.currency} {order.payAmount ?? "—"}
-              </p>
-              {order.status === "PENDING" && <p>剩余 {remaining} 秒</p>}
+            <section className="space-y-3 rounded-panel border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p className="font-semibold">订单 #{order.id}</p>
+                <p className="text-fg-3">{order.status}</p>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p className="tabular-nums">
+                  支付金额：{order.currency} {order.payAmount ?? "—"}
+                </p>
+                {order.status === "PENDING" && (
+                  <p className="text-fg-3 tabular-nums">剩余 {remaining} 秒</p>
+                )}
+              </div>
               {qr && order.status === "PENDING" && remaining > 0 && (
-                <img src={qr} alt="订单付款二维码" width={260} height={260} />
+                <img
+                  src={qr}
+                  alt="订单付款二维码"
+                  width={260}
+                  height={260}
+                  className="mx-auto aspect-square h-auto w-[clamp(9rem,32dvh,14rem)] max-w-full rounded-control bg-white object-contain"
+                />
               )}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap justify-center gap-2">
                 {order.payUrl &&
                   order.status === "PENDING" &&
                   remaining > 0 && (
                     <Button
                       variant="outline"
+                      size="compact"
                       onClick={() =>
                         void settingsApi
                           .openExternal(order.payUrl!)
@@ -317,6 +362,7 @@ export function RechargeDialog({
                   )}
                 {pending(order) && (
                   <Button
+                    size="compact"
                     disabled={busy}
                     onClick={() =>
                       void operate("payment-verify", { id: order.id })
@@ -328,6 +374,7 @@ export function RechargeDialog({
                 {order.status === "PENDING" && (
                   <Button
                     variant="outline"
+                    size="compact"
                     disabled={busy}
                     onClick={() =>
                       void operate("payment-cancel", { id: order.id })
@@ -336,26 +383,50 @@ export function RechargeDialog({
                     取消订单
                   </Button>
                 )}
+                {!pending(order) && (
+                  <Button disabled={busy} onClick={() => setOrder(null)}>
+                    返回充值
+                  </Button>
+                )}
               </div>
             </section>
           )}
-          <h3 className="font-semibold">充值记录</h3>
-          {overview?.orders.map((o) => (
-            <button
-              key={o.id}
-              className="flex w-full justify-between rounded-control border border-border p-2 text-start hover:bg-subtle"
-              onClick={() => void operate("payment-order", { id: o.id })}
-              disabled={busy}
-            >
-              <span>
-                #{o.id} · {o.currency} {o.amount ?? "—"}
-              </span>
-              <span>{o.status}</span>
-            </button>
-          ))}
-          {overview && !overview.orders.length && (
-            <p className="text-fg-3">暂无充值记录</p>
-          )}
+          <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+            <CollapsibleTrigger asChild>
+              <button className="flex w-full items-center justify-between gap-2 rounded-control py-2 text-start text-fg-2 hover:text-fg-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+                <span>
+                  充值记录
+                  {overview && (
+                    <span className="ms-2 text-fg-3">
+                      {overview.orders.length}
+                    </span>
+                  )}
+                </span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className={`h-4 w-4 transition-transform ${historyOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-2 pb-2 pt-1">
+              {overview?.orders.map((o) => (
+                <button
+                  key={o.id}
+                  className="flex w-full justify-between gap-2 rounded-control border border-border p-2 text-start hover:bg-subtle"
+                  onClick={() => void operate("payment-order", { id: o.id })}
+                  disabled={busy}
+                >
+                  <span>
+                    #{o.id} · {o.currency} {o.amount ?? "—"}
+                  </span>
+                  <span>{o.status}</span>
+                </button>
+              ))}
+              {overview && !overview.orders.length && (
+                <p className="text-fg-3">暂无充值记录</p>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
         </div>
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={onClose}>

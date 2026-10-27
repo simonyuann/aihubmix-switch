@@ -163,8 +163,8 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: false
 
-      # The operator promotes the same verified files to dl.csmy.fun before publishing this draft.
-      - name: Verify uploaded assets and retain draft for download-station promotion
+      # Publish this draft after verification; the download station syncs it automatically.
+      - name: Verify uploaded assets before publishing the draft
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ steps.upload_draft.outputs.id }}

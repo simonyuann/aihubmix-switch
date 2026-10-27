@@ -36,6 +36,7 @@ import { ImportExportSection } from "@/components/settings/ImportExportSection";
 import { BackupListSection } from "@/components/settings/BackupListSection";
 import { WebdavSyncSection } from "@/components/settings/WebdavSyncSection";
 import { AboutSection } from "@/components/settings/AboutSection";
+import { AccountSettings } from "@/components/settings/AccountSettings";
 import { RoutingSection } from "@/components/settings/sections/RoutingSection";
 import { GlobalProxySettings } from "@/components/settings/GlobalProxySettings";
 import { LogConfigPanel } from "@/components/settings/LogConfigPanel";
@@ -369,12 +370,15 @@ export function SettingsPage({
     switch (section) {
       case "general":
         return (
-          <GeneralSection
-            dedicatedClient={!settings.enableOtherProviders}
-            settings={settings}
-            onAutoSave={handleAutoSave}
-            onOpenApps={onOpenApps}
-          />
+          <>
+            <AccountSettings />
+            <GeneralSection
+              dedicatedClient={!settings.enableOtherProviders}
+              settings={settings}
+              onAutoSave={handleAutoSave}
+              onOpenApps={onOpenApps}
+            />
+          </>
         );
       case "appConfig":
         return (

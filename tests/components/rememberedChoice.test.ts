@@ -25,10 +25,10 @@ describe("remembered usage choices", () => {
   });
 
   it("keeps working when storage is unavailable", () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    vi.spyOn(window.localStorage, "getItem").mockImplementation(() => {
       throw new Error("denied");
     });
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
       throw new Error("denied");
     });
     expect(() => writeRememberedChoice(KEY, "cost")).not.toThrow();

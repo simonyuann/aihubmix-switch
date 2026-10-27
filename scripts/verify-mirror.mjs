@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { verifyUpdateSignature } from './verify-update-signature.mjs'
-import { formatsForVersion, manifestName } from './generate-update-manifest.mjs'
+import { applicationUpdatePrefix, formatsForVersion, manifestName } from './generate-update-manifest.mjs'
 const origin = 'https://dl.csmy.fun:23457'
-const response = await fetch(`${origin}/updates/aihubmix-switch/latest-v2.json`, {
+const response = await fetch(`${origin}${applicationUpdatePrefix}latest-v2.json`, {
   redirect: 'error', signal: AbortSignal.timeout(20000)
 })
 assert.equal(response.status, 200)
 const manifest = await response.json()
+const compatible = await fetch(`${origin}/updates/aihubmix-switch/latest-v2.json`, {
+  redirect: 'error', signal: AbortSignal.timeout(20000)
+})
+assert.equal(compatible.status, 200)
+assert.deepEqual(await compatible.json(), manifest)
 assert.equal(manifestName(manifest.version), 'latest-v2.json')
 // Old clients may get 404 until an operator seeds a verified 1.0.x snapshot.
 const legacy = await fetch(`${origin}/updates/aihubmix-switch/latest.json`, {
@@ -20,7 +25,7 @@ const key = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8')).plug
 assert.deepEqual(Object.keys(manifest.platforms).sort(), Object.keys(formatsForVersion(manifest.version)).sort())
 for (const [target, asset] of Object.entries(manifest.platforms)) {
   assert.equal(new URL(asset.url).origin, origin)
-  assert.ok(new URL(asset.url).pathname.startsWith(`/updates/aihubmix-switch/v${manifest.version}/`))
+  assert.ok(new URL(asset.url).pathname.startsWith(`${applicationUpdatePrefix}v${manifest.version}/`))
   const download = await fetch(asset.url, { redirect: 'error', signal: AbortSignal.timeout(60000) })
   assert.equal(download.status, 200)
   const bytes = Buffer.from(await download.arrayBuffer())

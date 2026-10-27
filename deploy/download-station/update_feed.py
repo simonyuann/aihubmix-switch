@@ -4,6 +4,8 @@ import re
 
 ORIGIN = 'https://dl.csmy.fun:23457'
 PREFIX = '/updates/aihubmix-switch/'
+APPLICATION_ID = 'gh-2dfe2a292f49bc85'
+APPLICATION_PREFIX = f'/github-updates/{APPLICATION_ID}/'
 FORMATS = {
     'darwin-aarch64-app': ('macOS', 'macos-arm64.app.tar.gz'),
     'darwin-x86_64-app': ('macOS', 'macos-x64.app.tar.gz'),
@@ -71,7 +73,8 @@ def prepare_feed(directory, tag):
         asset = manifest['platforms'][target]
         mirror = f'{ORIGIN}{PREFIX}v{version}/{name}'
         upstream = f'https://github.com/simonyuann/aihubmix-switch/releases/download/{tag}/{name}'
-        if asset.get('url') not in (mirror, upstream):
+        application_mirror = f'{ORIGIN}{APPLICATION_PREFIX}v{version}/{name}'
+        if asset.get('url') not in (mirror, application_mirror, upstream):
             raise ValueError('unexpected updater package URL')
         package = directory / platform / name
         signature = (directory / platform / (name + '.sig')).read_text().strip()

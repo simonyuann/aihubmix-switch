@@ -110,6 +110,15 @@ describe("AIHubMix account integration", () => {
     await waitFor(() => expect(create).toBeEnabled());
     fireEvent.click(create);
     await screen.findByAltText("订单付款二维码");
+    expect(
+      screen.queryByRole("button", { name: "创建充值订单" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /#2 ·/ }),
+    ).not.toBeInTheDocument();
+    const history = screen.getByRole("button", { name: /^充值记录/ });
+    expect(history).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(history);
     fireEvent.click(screen.getByRole("button", { name: /#2 ·/ }));
     await waitFor(() =>
       expect(screen.queryByAltText("订单付款二维码")).not.toBeInTheDocument(),
@@ -119,6 +128,37 @@ describe("AIHubMix account integration", () => {
     expect(
       screen.getByRole("button", { name: "打开支付页面" }),
     ).toBeInTheDocument();
+  });
+  it("returns to recharge after a cancelled payment without creating another order", async () => {
+    const pending = {
+      id: 3,
+      amount: 50,
+      payAmount: 50,
+      currency: "CNY",
+      status: "PENDING",
+      expiresAt: new Date(Date.now() + 600000).toISOString(),
+      qrCode: "checkout-c",
+    };
+    const cancelled = { ...pending, status: "CANCELLED" };
+    mocks.dispatch.mockImplementation((command: string) => {
+      if (command === "payment-overview") return Promise.resolve(overview);
+      if (command === "payment-cancel") return Promise.resolve(cancelled);
+      return Promise.resolve(pending);
+    });
+    render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
+    const create = await screen.findByRole("button", { name: "创建充值订单" });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    await screen.findByAltText("订单付款二维码");
+    fireEvent.click(screen.getByRole("button", { name: "取消订单" }));
+    fireEvent.click(await screen.findByRole("button", { name: "返回充值" }));
+    expect(screen.getByRole("button", { name: "创建充值订单" })).toBeEnabled();
+    expect(screen.queryByAltText("订单付款二维码")).not.toBeInTheDocument();
+    expect(
+      mocks.dispatch.mock.calls.filter(
+        ([command]) => command === "payment-create",
+      ),
+    ).toHaveLength(1);
   });
   it("uses service wallet denomination separately from checkout currency", async () => {
     mocks.dispatch.mockResolvedValue({

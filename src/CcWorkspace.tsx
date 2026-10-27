@@ -73,6 +73,7 @@ import { useUpdate } from "@/contexts/UpdateContext";
 import { NewLayoutDialog } from "@/components/shell/NewLayoutDialog";
 import {
   AppPageHeader,
+  HeaderBalanceContext,
   WindowControlsContext,
 } from "@/components/shell/AppPageHeader";
 import { WindowControls } from "@/components/shell/WindowControls";
@@ -146,7 +147,6 @@ import type { PiFamilyAppId } from "@/lib/api/pi";
 // Keep the upstream CC workspace intact; platform pages are additive entry points.
 import { AccountPage } from "@/components/aihubmix/AccountPage";
 import { ToolPage } from "@/components/aihubmix/ToolPage";
-import { BalanceDisplay } from "@/components/aihubmix/BalanceDisplay";
 
 interface SyncStatusUpdatedPayload {
   source?: string;
@@ -1394,7 +1394,6 @@ function CcWorkspace() {
         <>
           {currentView === "providers" && (
             <>
-              <BalanceDisplay />
               <Button
                 variant="neutral"
                 size="regular"
@@ -1845,7 +1844,9 @@ function CcWorkspace() {
             }
             className="flex min-h-0 flex-1 flex-col"
           >
-            {renderContent()}
+            <HeaderBalanceContext.Provider value={currentView !== "settings"}>
+              {renderContent()}
+            </HeaderBalanceContext.Provider>
           </div>
         </main>
       </div>

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { formats, formatsForVersion, generateManifest, manifestName } from '../scripts/generate-update-manifest.mjs'
+import { applicationUpdatePrefix, formats, formatsForVersion, generateManifest, manifestName, packageUrl } from '../scripts/generate-update-manifest.mjs'
 import { verifyUpdateSignature } from '../scripts/verify-update-signature.mjs'
 const folder = new URL('../src-tauri/fixtures/updater/', import.meta.url)
 const payload = await readFile(new URL('payload.bin', folder))
@@ -71,10 +71,12 @@ test('manifest binds all installation formats and every package has a valid sign
 test('production updater checks only the download station', async () => {
   const config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'))
   assert.deepEqual(config.plugins.updater.endpoints, [
-    'https://dl.csmy.fun:23457/updates/aihubmix-switch/latest-v2.json'
+    'https://dl.csmy.fun:23457/github-updates/gh-2dfe2a292f49bc85/latest-v2.json'
   ])
   assert.equal(config.plugins.updater.requireSignedVersion, true)
   assert.equal(config.plugins.updater.allowDowngrades, false)
+  assert.equal(packageUrl('1.1.1', 'package.exe'), `https://dl.csmy.fun:23457${applicationUpdatePrefix}v1.1.1/package.exe`)
+  assert.equal(packageUrl('1.0.2', 'package.exe'), 'https://dl.csmy.fun:23457/updates/aihubmix-switch/v1.0.2/package.exe')
 })
 
 test('macOS 12+ releases use a distinct feed from macOS 11 legacy clients', () => {

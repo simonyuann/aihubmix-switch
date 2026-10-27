@@ -41,6 +41,7 @@ import {
 import { aimingAt, type Point } from "./menuAim";
 import { usePanelTheme } from "./usePanelTheme";
 import { UsageTab } from "./UsageTab";
+import { TrayWalletBalance } from "./WalletBalance";
 
 type Tab = "config" | "usage";
 const TAB_KEY = "cc-switch-tray-tab";
@@ -990,7 +991,12 @@ export function TrayPanel() {
           data-other-item
           className="flex shrink-0 items-center px-4 pb-2 pt-3"
         >
-          <span className="text-[15px] font-semibold">AIHubMix Switch</span>
+          <span className="min-w-0 truncate text-[15px] font-semibold">
+            AIHubMix Switch
+          </span>
+          <div className="flex min-w-0 flex-1 justify-center px-2">
+            <TrayWalletBalance refreshKey={shownCount} />
+          </div>
           <button
             type="button"
             title={texts.settings}

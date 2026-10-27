@@ -16,7 +16,6 @@ import { dispatch, type GroupInfo, type KeyInfo } from "@/lib/api/aihubmix";
 import type { AppId } from "@/lib/api";
 import type { Provider } from "@/types";
 import { ApplyApiDialog } from "./ApplyApiDialog";
-import { BalanceDisplay } from "./BalanceDisplay";
 interface ToolCard {
   provider: Provider;
   configured: boolean;
@@ -142,7 +141,6 @@ export function ToolPage({
         icon={<AppGlyph app={app} size={22} />}
         actions={
           <>
-            <BalanceDisplay />
             {onOpenProviders && (
               <Button variant="outline" onClick={onOpenProviders}>
                 其他供应商

@@ -1,5 +1,17 @@
 # CSMY 下载站更新源
 
+## 2026-10-27 下载站改版后的入口
+
+当前下载站已独立改版，实际部署源码位于 `/srv/hdd/download-station`。**不要直接应用下方历史部署补丁或覆盖现有 Dockerfile / Compose / 服务端文件**，应在当前下载站源码上合并必要改动，保留应用管理与同步功能。
+
+AIhubMix 的受管应用 ID 为 `gh-2dfe2a292f49bc85`，入口为 `https://dl.csmy.fun:23457/?github=gh-2dfe2a292f49bc85`。客户端与发布清单使用 `/github-updates/gh-2dfe2a292f49bc85/latest-v2.json`，更新包使用同前缀下的 `v<版本>/<文件名>`。新接口复用原有经过校验的发布存储，只改写下载 URL，保留签名和版本绑定。
+
+已安装 1.1.x 客户端的 `/updates/aihubmix-switch/latest-v2.json` 是新清单的兼容入口；1.0.x 的 `latest.json` 继续隔离。主页下载列表读取该应用的 sources/state，只展示其选中的平台和资产；主页快捷入口和浏览链接指向该应用，可附加 `&platform=windows` 或 `macos`。客户端配置已修改，下次打包生效，本次不发布客户端版本。
+
+当前认证与同步任务以线上 Compose 为准；下文凭据路径和 release-sync 操作仅适用于历史部署。
+
+## 历史部署说明
+
 这些文件运行在现有下载站 `/srv/hdd/download-station`，不需要客户端访问 GitHub。只从正式 Release 同步，SHA256 全部通过且对应版本要求的更新格式、清单版本、包地址与签名文件一致后才切换 `data/current`。客户端继续使用固定公钥验证签名及版本。
 
 部署时先备份现有 `server.py`、`sync_release.py`、`Dockerfile`，再应用 `integration.patch`，将本目录 `sync_release.py`、`update_feed.py` 复制到下载站根目录。将下载站 `package-source.py` 的源码文件列表加入 `update_feed.py`，重新生成公开源码包，然后 `docker compose up -d --build`。原服务的数据目录、持久化文件和凭据无需改动。

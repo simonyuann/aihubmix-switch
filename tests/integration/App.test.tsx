@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -22,13 +22,16 @@ vi.mock("@/lib/modelsDevAutoSync", () => ({
 vi.mock("@/lib/query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/query")>()),
   useSettingsQuery: () => ({
-    data: {
-      visibleApps: { claude: true, codex: true, gemini: true },
-      firstRunNoticeConfirmed: true,
-      enableOtherProviders: mocks.otherProviders,
-      newLayoutNoticeConfirmed: true,
-      whatsNewSeenVersion: "99.0.0",
-    },
+    data: useMemo(
+      () => ({
+        visibleApps: { claude: true, codex: true, gemini: true },
+        firstRunNoticeConfirmed: true,
+        enableOtherProviders: mocks.otherProviders,
+        newLayoutNoticeConfirmed: true,
+        whatsNewSeenVersion: "99.0.0",
+      }),
+      [mocks.otherProviders],
+    ),
   }),
 }));
 vi.mock("@/contexts/UpdateContext", () => ({
@@ -45,6 +48,9 @@ vi.mock("@/hooks/useSidebarStatus", () => ({
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ setDecorations: mocks.setDecorations }),
+}));
+vi.mock("@/components/theme-provider", () => ({
+  useTheme: () => ({ theme: "system", setTheme: vi.fn() }),
 }));
 vi.mock("@/components/JsonEditor", () => ({
   default: ({ value }: { value: string }) => (
@@ -228,6 +234,7 @@ describe("dedicated client account boundary", () => {
       )!,
     );
     await screen.findByRole("heading", { name: "API 管理" });
+    expect(await screen.findByText("USD 12.34")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "申请 API" })[0]);
     expect(await screen.findByRole("dialog")).toHaveTextContent("申请 API");
@@ -251,10 +258,20 @@ describe("dedicated client account boundary", () => {
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("登录已失效");
   });
-  it("supports logout from the account page", async () => {
+  it("supports logout from settings instead of API management", async () => {
     loggedIn = true;
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "API 管理" }));
+    await screen.findByRole("heading", { name: "API 管理" });
+    expect(
+      screen.queryByRole("button", { name: "退出登录" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /^(设置|common.settings|nav.settings)$/,
+      }),
+    );
+    expect(screen.queryByText("USD 12.34")).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "退出登录" }));
     await screen.findByRole("heading", { name: "登录你的账户" });
     expect(mocks.dispatch).toHaveBeenCalledWith("logout");
