@@ -29,7 +29,9 @@ describe("AboutSection", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "settings.officialWebsite" }),
     );
-    expect(open).toHaveBeenCalledWith("https://csmy.fun:23457/");
+    expect(open).toHaveBeenCalledWith(
+      "https://dl.csmy.fun:23457/?github=gh-2dfe2a292f49bc85",
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "settings.checkForUpdates" }),
     );
