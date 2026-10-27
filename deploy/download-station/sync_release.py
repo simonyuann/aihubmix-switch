@@ -10,8 +10,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, unquote
-from urllib.request import Request, urlopen
+from urllib.parse import quote, unquote, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from update_feed import prepare_feed, manifest_name, legacy_release, formats_for_version
 
 BASE = Path(os.environ.get('DATA_DIR', '/data'))
@@ -20,6 +20,7 @@ INCOMING = BASE / 'incoming'
 CURRENT = BASE / 'current'
 STATE = BASE / 'release-sync.json'
 API_URL = 'https://api.github.com/repos/simonyuann/aihubmix-switch/releases/latest'
+ASSET_API_PREFIX = 'https://api.github.com/repos/simonyuann/aihubmix-switch/releases/assets/'
 RELEASES_LATEST_URL = 'https://github.com/simonyuann/aihubmix-switch/releases/latest'
 RELEASES_ATOM_URL = 'https://github.com/simonyuann/aihubmix-switch/releases.atom'
 DOWNLOAD_PREFIX = 'https://github.com/simonyuann/aihubmix-switch/releases/download/'
@@ -35,6 +36,27 @@ PLATFORM_SUFFIXES = {
 }
 
 
+class ReleaseRedirectHandler(HTTPRedirectHandler):
+    """Signed asset-storage redirects must never receive the GitHub token."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urlsplit(newurl).scheme != 'https':
+            raise ValueError('release download redirected to a non-HTTPS URL')
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None:
+            old, new = urlsplit(req.full_url), urlsplit(newurl)
+            if (old.scheme, old.netloc) != (new.scheme, new.netloc):
+                redirected.remove_header('Authorization')
+        return redirected
+
+
+urlopen = build_opener(ReleaseRedirectHandler()).open
+
+
+def github_token():
+    return os.environ.get('GITHUB_TOKEN', '').strip()
+
+
 def request(url):
     headers = {'User-Agent': 'csmy-release-mirror/1.1'}
     if url.startswith('https://api.github.com/'):
@@ -42,9 +64,10 @@ def request(url):
             'Accept': 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28',
         })
-        # Optional: an authenticated call raises the quota from 60/h to 5000/h.
-        token = os.environ.get('GITHUB_TOKEN', '').strip()
-        if token:
+        if re.fullmatch(re.escape(ASSET_API_PREFIX) + r'[1-9][0-9]*', url):
+            headers['Accept'] = 'application/octet-stream'
+        token = github_token()
+        if token and (url == API_URL or url.startswith(ASSET_API_PREFIX)):
             headers['Authorization'] = f'Bearer {token}'
     return Request(url, headers=headers)
 
@@ -165,7 +188,10 @@ def release_from_files(tag):
 
 
 def latest_release():
-    """Discover the newest release without depending on the rate-limited API."""
+    """Use the authenticated API for private repos; public discovery needs no quota."""
+    if github_token():
+        with urlopen(request(API_URL), timeout=30) as response:
+            return json.load(response)
     problems = []
     for source, find_tag in (('releases/latest', tag_from_redirect),
                              ('release feed', tag_from_atom)):
@@ -206,7 +232,13 @@ def release_assets(release):
             raise ValueError(f'invalid asset size for {name}')
         if size is None and sha256 is None:
             raise ValueError(f'asset has neither size nor checksum: {name}')
-        item = {'id': int(raw.get('id', 0)), 'name': name, 'size': size,
+        asset_id = int(raw.get('id', 0))
+        if github_token():
+            api_url = str(raw.get('url', ''))
+            if asset_id <= 0 or api_url != ASSET_API_PREFIX + str(asset_id):
+                raise ValueError(f'unexpected asset API URL for {name}')
+            url = api_url
+        item = {'id': asset_id, 'name': name, 'size': size,
                 'sha256': sha256, 'url': url}
         if name == 'SHA256SUMS.txt':
             checksum = item

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import os
 import time
 from urllib.error import HTTPError
@@ -26,6 +27,9 @@ class FakeResponse(io.BytesIO):
 
 class SyncReleaseTests(unittest.TestCase):
     def setUp(self):
+        environment = patch.dict(os.environ, {'GITHUB_TOKEN': ''})
+        environment.start()
+        self.addCleanup(environment.stop)
         spec = importlib.util.spec_from_file_location(
             'sync_release', (Path(__file__).parent / 'sync_release.py'
                              if (Path(__file__).parent / 'sync_release.py').exists()
@@ -103,10 +107,12 @@ class SyncReleaseTests(unittest.TestCase):
 
     def install_responses(self, responses):
         self.calls = []
+        self.requests = []
 
         def fake_urlopen(req, timeout=0):
             url = req.full_url
             self.calls.append(url)
+            self.requests.append(req)
             if url not in responses:
                 raise HTTPError(url, 404, 'Not Found', {}, None)
             result = responses[url]
@@ -123,6 +129,91 @@ class SyncReleaseTests(unittest.TestCase):
                 return FakeResponse(body, final)
             return FakeResponse(result, url)
         self.module.urlopen = fake_urlopen
+
+    def private_release(self, tag='v1.1.1', bad_checksum=False):
+        public = self.release(tag, bad_checksum)
+        release = self.release_json(public, tag)
+        responses = {}
+        for asset in release['assets']:
+            body = public[asset['browser_download_url']]
+            asset['url'] = self.module.ASSET_API_PREFIX + str(asset['id'])
+            asset['digest'] = 'sha256:' + hashlib.sha256(body).hexdigest()
+            responses[asset['url']] = body
+        responses[self.module.API_URL] = json.dumps(release).encode()
+        return responses, release
+
+    def test_private_release_uses_authenticated_api_for_metadata_and_all_assets(self):
+        os.environ['GITHUB_TOKEN'] = 'test-private-token'
+        responses, release = self.private_release()
+        self.install_responses(responses)
+        self.assertTrue(self.module.sync_once())
+        self.assertEqual(self.module.current_release().name.split('-')[0], 'v1.1.1')
+        self.assertEqual(len(self.requests), len(release['assets']) + 1)
+        for req in self.requests:
+            self.assertEqual(req.get_header('Authorization'), 'Bearer test-private-token')
+            self.assertEqual(req.get_header('Accept'),
+                             'application/vnd.github+json' if req.full_url == self.module.API_URL
+                             else 'application/octet-stream')
+        # Repeat metadata polling must reuse an already verified local version.
+        self.calls.clear()
+        self.assertFalse(self.module.sync_once())
+        self.assertEqual(self.calls, [self.module.API_URL])
+
+    def test_private_auth_failure_preserves_current_without_public_fallback(self):
+        self.install_responses(self.release('v1.1.0'))
+        self.module.sync_once()
+        current = self.module.current_release()
+        os.environ['GITHUB_TOKEN'] = 'test-private-token'
+        self.install_responses({self.module.API_URL: HTTPError(
+            self.module.API_URL, 401, 'Unauthorized', {}, None)})
+        with self.assertRaises(HTTPError):
+            self.module.sync_once()
+        self.assertEqual(self.module.current_release(), current)
+        self.assertEqual(self.calls, [self.module.API_URL])
+
+    def test_private_asset_from_another_repository_is_rejected(self):
+        os.environ['GITHUB_TOKEN'] = 'test-private-token'
+        _, release = self.private_release()
+        release['assets'][0]['url'] = (
+            'https://api.github.com/repos/other/repo/releases/assets/1')
+        with self.assertRaisesRegex(ValueError, 'unexpected asset API URL'):
+            self.module.release_assets(release)
+
+    def test_private_corrupted_download_preserves_previous(self):
+        self.install_responses(self.release('v1.1.0'))
+        self.module.sync_once()
+        current = self.module.current_release()
+        os.environ['GITHUB_TOKEN'] = 'test-private-token'
+        responses, _ = self.private_release(bad_checksum=True)
+        self.install_responses(responses)
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+            self.module.sync_once()
+        self.assertEqual(self.module.current_release(), current)
+
+    def test_github_token_is_only_attached_to_this_repositories_release_api(self):
+        os.environ['GITHUB_TOKEN'] = 'test-private-token'
+        for url in (self.module.RELEASES_LATEST_URL,
+                    self.module.DOWNLOAD_PREFIX + 'v1.1.1/latest-v2.json',
+                    'https://release-assets.githubusercontent.com/file',
+                    'https://api.github.com/repos/other/repo/releases/latest',
+                    'https://api.github.com.evil.example/file'):
+            with self.subTest(url=url):
+                self.assertIsNone(self.module.request(url).get_header('Authorization'))
+
+    def test_asset_storage_redirect_strips_authentication_and_rejects_http(self):
+        os.environ['GITHUB_TOKEN'] = 'test-private-token'
+        req = self.module.request(self.module.ASSET_API_PREFIX + '1')
+        handler = self.module.ReleaseRedirectHandler()
+        redirected = handler.redirect_request(
+            req, None, 302, 'Found', {},
+            'https://release-assets.githubusercontent.com/file?signature=fixture')
+        self.assertIsNone(redirected.get_header('Authorization'))
+        self.assertEqual(req.get_header('Authorization'), 'Bearer test-private-token')
+        same_origin = handler.redirect_request(
+            req, None, 302, 'Found', {}, self.module.ASSET_API_PREFIX + '2')
+        self.assertEqual(same_origin.get_header('Authorization'), 'Bearer test-private-token')
+        with self.assertRaisesRegex(ValueError, 'non-HTTPS'):
+            handler.redirect_request(req, None, 302, 'Found', {}, 'http://example.test/file')
 
     def test_classification_and_checksum_parsing(self):
         self.assertEqual(self.module.RELEASES_LATEST_URL,
