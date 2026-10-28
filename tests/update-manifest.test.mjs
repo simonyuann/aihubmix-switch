@@ -95,4 +95,5 @@ test('CC rebuild releases require macOS and Windows without waiting for Linux', 
     'windows-x86_64-nsis', 'windows-x86_64-portable'
   ])
   assert.deepEqual(formatsForVersion('1.0.2'), formats)
+  assert.deepEqual(formatsForVersion('1.1.3'), formats)
 })

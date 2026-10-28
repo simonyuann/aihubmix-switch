@@ -81,6 +81,7 @@ pub(crate) fn tier_price_multiplier(model: &str, tier: &str) -> Decimal {
         && matches!(
             model,
             "gpt-6.1-sol"
+                | "gpt-6.1-terra"
                 | "gpt-6-sol"
                 | "gpt-6-astra"
                 | "gpt-6-luna"
@@ -136,6 +137,7 @@ mod tests {
         let conn = lock_conn!(db.conn);
         for model in [
             "gpt-6.1-sol",
+            "gpt-6.1-terra",
             "gpt-6-sol",
             "gpt-6-astra",
             "gpt-6-luna",

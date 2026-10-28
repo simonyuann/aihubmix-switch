@@ -24,8 +24,9 @@ export function manifestName(version) {
   return major > 1 || (major === 1 && minor >= 1) ? 'latest-v2.json' : 'latest.json'
 }
 export function formatsForVersion(version) {
+  const [major, minor, patch] = version.split('.').map(Number)
   return Object.fromEntries(Object.entries(formats).filter(([target]) =>
-    manifestName(version) === 'latest.json' || !target.startsWith('linux-')
+    manifestName(version) === 'latest.json' || major > 1 || minor > 1 || (minor === 1 && patch >= 3) || !target.startsWith('linux-')
   ))
 }
 export async function generateManifest(
