@@ -66,7 +66,10 @@ def prepare_feed(directory, tag):
     manifest = json.loads((directory / manifest_name(tag)).read_text())
     version = tag.removeprefix('v')
     formats = formats_for_version(tag)
-    if manifest.get('version') != version or set(manifest.get('platforms', {})) != set(formats):
+    targets = set(manifest.get('platforms', {}))
+    if manifest_name(tag) == 'latest-v2.json' and targets == set(FORMATS):
+        formats = FORMATS
+    if manifest.get('version') != version or targets != set(formats):
         raise ValueError('updater manifest version or formats do not match release')
     for target, (platform, suffix) in formats.items():
         name = f'AIHubMix-Switch_{version}_{suffix}'

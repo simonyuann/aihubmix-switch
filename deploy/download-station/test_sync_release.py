@@ -10,7 +10,7 @@ from unittest.mock import patch
 import os
 import time
 from urllib.error import HTTPError
-from update_feed import FORMATS, ORIGIN, PREFIX, update_file, manifest_name, formats_for_version
+from update_feed import FORMATS, ORIGIN, PREFIX, update_file, manifest_name, formats_for_version, prepare_feed
 
 
 class FakeResponse(io.BytesIO):
@@ -46,6 +46,33 @@ class SyncReleaseTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_cc_feed_accepts_complete_linux_pair_and_rejects_partial_pair(self):
+        directory = Path(self.temp.name) / 'feed'
+        directory.mkdir()
+        version = '1.1.2'
+        platforms = {}
+        for target, (folder, suffix) in FORMATS.items():
+            name = f'AIHubMix-Switch_{version}_{suffix}'
+            (directory / folder).mkdir(exist_ok=True)
+            (directory / folder / name).write_bytes(b'package')
+            (directory / folder / (name + '.sig')).write_text('c2lnbmF0dXJl')
+            platforms[target] = {'url': f'{ORIGIN}{PREFIX}v{version}/{name}',
+                                 'signature': 'c2lnbmF0dXJl'}
+        feed = directory / 'latest-v2.json'
+        feed.write_text(json.dumps({'version': version, 'platforms': platforms}))
+        prepare_feed(directory, 'v' + version)
+        self.assertEqual(set(json.loads((directory / 'updater.json').read_text())['platforms']), set(FORMATS))
+        del platforms['linux-x86_64-deb']
+        feed.write_text(json.dumps({'version': version, 'platforms': platforms}))
+        with self.assertRaises(ValueError):
+            prepare_feed(directory, 'v' + version)
+        platforms['linux-x86_64-deb'] = {'url': f'{ORIGIN}{PREFIX}v{version}/AIHubMix-Switch_{version}_linux-x64.deb',
+                                         'signature': 'c2lnbmF0dXJl'}
+        (directory / 'Linux' / f'AIHubMix-Switch_{version}_linux-x64.deb.sig').unlink()
+        feed.write_text(json.dumps({'version': version, 'platforms': platforms}))
+        with self.assertRaises(FileNotFoundError):
+            prepare_feed(directory, 'v' + version)
 
     def release(self, tag='v1.0.3', bad_checksum=False):
         version = tag[1:]
