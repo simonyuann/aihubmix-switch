@@ -1,133 +1,45 @@
-name: Prepare desktop release draft
-
+name: Add verified Linux packages to v1.1.2
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing release tag (for example v1.1.2)
+      source_run:
+        description: Successful Linux rebuild run ID
         required: true
-      run_id:
-        description: Successful Rebuild desktop release artifacts run ID
-        required: true
-
 permissions:
-  contents: read
+  contents: write
   actions: read
-
-concurrency:
-  group: prepare-desktop-release-${{ inputs.tag }}
-  cancel-in-progress: false
-
 jobs:
-  draft:
+  release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
-    env:
-      RELEASE_TAG: ${{ inputs.tag }}
-      SOURCE_RUN_ID: ${{ inputs.run_id }}
     steps:
-      - name: Validate successful build and available artifacts
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { RELEASE_TAG: tag, SOURCE_RUN_ID: runId } = process.env;
-            if (!/^v\d+\.\d+\.\d+$/.test(tag) || !/^\d+$/.test(runId)) {
-              throw new Error('Expected a stable version tag and numeric build run ID');
-            }
-            const repo = context.repo;
-            const { data: run } = await github.rest.actions.getWorkflowRun({ ...repo, run_id: runId });
-            if (run.status !== 'completed' || run.conclusion !== 'success' ||
-                run.event !== 'workflow_dispatch' || run.head_branch !== 'main' ||
-                run.path !== '.github/workflows/rebuild-desktop-release.yml') {
-              throw new Error('Source must be a successful desktop rebuild dispatched from main');
-            }
-            const expected = [
-              'desktop-aarch64-apple-darwin',
-              'desktop-x86_64-apple-darwin',
-              'desktop-x86_64-pc-windows-msvc',
-            ].sort();
-            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-              ...repo, run_id: runId, per_page: 100,
-            });
-            if (JSON.stringify(artifacts.map(a => a.name).sort()) !== JSON.stringify(expected) ||
-                artifacts.some(a => a.expired)) {
-              throw new Error('Expected all three unexpired desktop build artifacts');
-            }
-            // Existing public releases and drafts must never be overwritten by a retry.
-            const releases = await github.paginate(github.rest.repos.listReleases, {
-              ...repo, per_page: 100,
-            });
-            if (releases.some(r => r.tag_name === tag)) {
-              throw new Error('A release already exists for this tag; review it on the Releases page');
-            }
-            await github.rest.git.getRef({ ...repo, ref: `tags/${tag}` });
-
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Verify release source version
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          const version = JSON.parse(readFileSync('package.json')).version;
-          const tauri = JSON.parse(readFileSync('src-tauri/tauri.conf.json')).version;
-          const cargo = readFileSync('src-tauri/Cargo.toml', 'utf8');
-          if (process.env.RELEASE_TAG !== `v${version}` || tauri !== version ||
-              !cargo.includes(`version = "${version}"`)) throw new Error('Release version mismatch');
-          NODE
-      - name: Download existing build artifacts on GitHub
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: ${{ inputs.run_id }}
-          pattern: desktop-*
-          merge-multiple: true
-          path: artifacts
-      - name: Verify signatures and generate updater manifest and checksums
-        run: node scripts/generate-update-manifest.mjs artifacts
-      - name: Verify complete release file set before upload
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync, readdirSync } from 'node:fs';
-          import { formatsForVersion, manifestName } from './scripts/generate-update-manifest.mjs';
-          const { version } = JSON.parse(readFileSync('package.json'));
-          const expected = [
-            'SHA256SUMS.txt', manifestName(version),
-            ...['macos-arm64.dmg', 'macos-x64.dmg'].map(s => `AIHubMix-Switch_${version}_${s}`),
-            ...Object.values(formatsForVersion(version)).flatMap(s =>
-              ['', '.sig'].map(extra => `AIHubMix-Switch_${version}_${s}${extra}`)),
-          ].sort();
-          if (JSON.stringify(readdirSync('artifacts').sort()) !== JSON.stringify(expected)) {
-            throw new Error('Incomplete or unexpected release files');
-          }
-          NODE
-      - name: Create release draft
-        id: release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.tag }}
-          name: AIHubMix Switch ${{ inputs.tag }}
-          body_path: docs/releases/${{ inputs.tag }}.md
-          files: artifacts/*
-          draft: true
-          fail_on_unmatched_files: true
-          generate_release_notes: false
-      - name: Verify uploaded asset sizes and SHA256 digests
+      - name: Validate Linux build provenance
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_ID: ${{ steps.release.outputs.id }}
+          RUN_ID: ${{ inputs.source_run }}
+        shell: bash
         run: |
-          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > release-info.json
-          node scripts/verify-release-assets.mjs artifacts release-info.json
-          release_url=$(gh api "repos/$GH_REPO/releases/$RELEASE_ID" --jq '.html_url')
-          {
-            echo '### Release draft verified'
-            echo "All packages, updater signatures and uploaded SHA256 digests passed verification."
-            echo "Open [$RELEASE_TAG draft]($release_url), then click **Publish release**."
-          } >> "$GITHUB_STEP_SUMMARY"
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq 'select(.conclusion == "success" and .event == "workflow_dispatch" and .path == ".github/workflows/rebuild-desktop-release.yml" and .head_branch == "feat/linux-v1.1.2") | .id' | grep -Fx "$RUN_ID"
+          gh run download "$RUN_ID" --name desktop-x86_64-unknown-linux-gnu --dir linux
+      - name: Verify existing and Linux assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir artifacts
+          gh release download v1.1.2 --dir artifacts
+          (cd artifacts && sha256sum -c SHA256SUMS.txt)
+          test "$(find linux -maxdepth 1 -type f | wc -l)" -eq 4
+          cp linux/* artifacts/
+          node scripts/prepare-linux-v112.mjs artifacts
+          (cd artifacts && sha256sum -c SHA256SUMS.txt)
+      - name: Add Linux assets and update checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v1.1.2 artifacts/*linux* --clobber
+          gh release upload v1.1.2 artifacts/latest-v2.json artifacts/SHA256SUMS.txt --clobber
+          gh release view v1.1.2 --json assets --jq '.assets[] | select(.name | contains("linux")) | [.name,.digest] | @tsv'
