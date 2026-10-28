@@ -69,6 +69,7 @@ import {
   type View,
 } from "@/lib/navigation";
 import { Sidebar } from "@/components/shell/Sidebar";
+import { UpdateBanner } from "@/components/shell/UpdateBanner";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { NewLayoutDialog } from "@/components/shell/NewLayoutDialog";
 import {
@@ -1810,6 +1811,9 @@ function CcWorkspace() {
           id="content-area"
           className="relative isolate flex min-w-0 flex-1 flex-col overflow-hidden bg-app"
         >
+          {currentView !== "settings" && (
+            <UpdateBanner onOpenUpdate={() => openSettings("about")} />
+          )}
           {showEnvBanner && envConflicts.length > 0 && (
             <EnvWarningBanner
               conflicts={envConflicts}

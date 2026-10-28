@@ -93,7 +93,6 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error("检查更新失败:", err);
       setError(extractErrorMessage(err) || "检查更新失败");
-      setHasUpdate(false);
       throw err; // 抛出错误让调用方处理
     } finally {
       setIsChecking(false);
@@ -116,14 +115,19 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(LEGACY_DISMISSED_KEY);
   }, []);
 
-  // 应用启动时自动检查更新
+  // 启动和运行期间检查，网络异常不打断使用。
   useEffect(() => {
-    // 延迟1秒后检查，避免影响启动体验
     const timer = setTimeout(() => {
       checkUpdate().catch(console.error);
     }, 1000);
+    const interval = setInterval(() => {
+      checkUpdate().catch(console.error);
+    }, 60 * 60 * 1000);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, [checkUpdate]);
 
   const value: UpdateContextValue = {
