@@ -16,6 +16,7 @@ import { dispatch, type GroupInfo, type KeyInfo } from "@/lib/api/aihubmix";
 import type { AppId } from "@/lib/api";
 import type { Provider } from "@/types";
 import { ApplyApiDialog } from "./ApplyApiDialog";
+import { groupBrandIcon } from "./groupBrandIcon";
 interface ToolCard {
   provider: Provider;
   configured: boolean;
@@ -158,9 +159,7 @@ export function ToolPage({
             >
               添加分组
             </Button>
-            <Button variant="outline" onClick={() => setApply(true)}>
-              申请 API
-            </Button>
+            <Button onClick={() => setApply(true)}>申请 API</Button>
           </>
         }
       />
@@ -192,10 +191,19 @@ export function ToolPage({
           )}
           {data?.cards.map((card) => {
             const current = card.provider.id === data.currentProviderId;
+            const brandIcon = groupBrandIcon(
+              card.provider.name,
+              groups.find((group) => group.id === card.groupId)?.name,
+              card.platform,
+            );
             return (
               <ProviderCard
                 key={card.provider.id}
-                provider={card.provider}
+                provider={{
+                  ...card.provider,
+                  icon: brandIcon ?? card.provider.icon,
+                  iconColor: brandIcon ? undefined : card.provider.iconColor,
+                }}
                 appId={app}
                 fixedService
                 isCurrent={current}

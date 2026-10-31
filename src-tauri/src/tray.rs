@@ -2448,17 +2448,17 @@ const PROBLEM_DOT_RGB: [u8; 3] = [0xF7, 0x63, 0x0C];
 const DOT_RADIUS: f32 = 0.15;
 const DOT_RING_RADIUS: f32 = 0.21;
 
-/// 托盘平时的图标和它是不是 macOS 模板图：macOS 用单色模板图（跟随菜单栏深浅色），读不到时
-/// 和其它平台一样用应用图标。读一次缓存起来，出问题 / 恢复时在它上面加减圆点。
+/// 托盘图标与模板标记：macOS 使用应用品牌图标，读不到时回退到窗口图标。
+/// 读一次缓存起来，出问题 / 恢复时在它上面加减圆点。
 pub fn base_tray_icon(app: &tauri::AppHandle) -> Option<(Image<'static>, bool)> {
     static BASE: OnceLock<Option<(Image<'static>, bool)>> = OnceLock::new();
     BASE.get_or_init(|| {
         #[cfg(target_os = "macos")]
         {
             const ICON_BYTES: &[u8] =
-                include_bytes!("../icons/tray/macos/statusbar_template_3x.png");
+                include_bytes!("../icons/32x32.png");
             match Image::from_bytes(ICON_BYTES) {
-                Ok(icon) => return Some((icon, true)),
+                Ok(icon) => return Some((icon, false)),
                 Err(err) => {
                     log::warn!("Failed to load macOS tray icon: {err}");
                     log::warn!("Falling back to default window icon for tray");

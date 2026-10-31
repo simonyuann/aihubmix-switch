@@ -12,13 +12,13 @@ export function UpdateBanner({ onOpenUpdate }: { onOpenUpdate: () => void }) {
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center gap-3 border-b border-border bg-surface px-5 py-3"
+      className="flex flex-wrap items-center gap-3 border-b border-orange-400/40 bg-orange-100 px-5 py-3 dark:bg-orange-950 dark:border-orange-700"
     >
       <ArrowUpCircle
-        className="h-4 w-4 shrink-0 text-action"
+        className="h-5 w-5 shrink-0 text-orange-600 dark:text-orange-300"
         aria-hidden="true"
       />
-      <span className="min-w-0 flex-1 text-body text-fg-1">
+      <span className="min-w-0 flex-1 text-body font-semibold text-orange-950 dark:text-orange-100">
         {t("settings.updateAvailable", {
           version: updateInfo.availableVersion,
         })}

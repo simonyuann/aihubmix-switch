@@ -1,12 +1,47 @@
-import { Wallet } from "lucide-react";
+import { useState } from "react";
+import { RefreshCw, Wallet } from "lucide-react";
 import { useOptionalAccount } from "@/contexts/AccountContext";
 import type { WalletBalance } from "@/lib/api/aihubmix";
 
 export function BalanceDisplay() {
   const account = useOptionalAccount();
+  const [refreshing, setRefreshing] = useState(false);
   if (!account?.state?.account.loggedIn) return null;
   return (
-    <WalletBalanceDisplay wallet={account.wallet} error={account.walletError} />
+    <div
+      className="flex items-center"
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+    >
+      <WalletBalanceDisplay
+        wallet={account.wallet}
+        error={account.walletError}
+      />
+      <button
+        type="button"
+        aria-label="刷新余额"
+        title={account.walletError || "刷新余额"}
+        disabled={refreshing}
+        className="-ms-1 me-2 rounded p-1 text-fg-3 hover:bg-subtle hover:text-fg-1 disabled:opacity-50"
+        onClick={async () => {
+          setRefreshing(true);
+          try {
+            await account.refreshWallet();
+          } finally {
+            setRefreshing(false);
+          }
+        }}
+      >
+        <RefreshCw
+          aria-hidden="true"
+          className={`h-3.5 w-3.5 ${refreshing ? "animate-spin motion-reduce:animate-none" : ""}`}
+        />
+      </button>
+      {account.walletError && (
+        <span role="status" className="sr-only">
+          余额刷新失败：{account.walletError}
+        </span>
+      )}
+    </div>
   );
 }
 

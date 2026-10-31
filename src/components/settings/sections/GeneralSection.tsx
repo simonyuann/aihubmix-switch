@@ -48,18 +48,6 @@ export function GeneralSection({
 
   return (
     <>
-      <SettingsBlock title="供应商功能">
-        <SettingsCard>
-          <SettingsSwitchRow
-            label="启用其他供应商"
-            description="显示 CC 原有的供应商管理、授权和高级配置功能。关闭后隐藏入口，保留已保存的供应商配置。"
-            checked={settings.enableOtherProviders ?? false}
-            onCheckedChange={(enableOtherProviders) =>
-              void onAutoSave({ enableOtherProviders })
-            }
-          />
-        </SettingsCard>
-      </SettingsBlock>
       <SettingsBlock title={t("settings.general.appearance")}>
         <SettingsCard>
           <SettingsRow
@@ -303,6 +291,21 @@ export function GeneralSection({
           />
         </SettingsCard>
       </SettingsBlock>
+      <details className="mt-5 text-body text-fg-3">
+        <summary className="cursor-pointer select-none py-2 hover:text-fg-1">
+          高级选项
+        </summary>
+        <SettingsCard>
+          <SettingsSwitchRow
+            label="启用其他供应商"
+            description="显示其他供应商管理、授权和高级配置功能。关闭后保留已保存的配置。"
+            checked={settings.enableOtherProviders ?? false}
+            onCheckedChange={(enableOtherProviders) =>
+              void onAutoSave({ enableOtherProviders })
+            }
+          />
+        </SettingsCard>
+      </details>
     </>
   );
 }
