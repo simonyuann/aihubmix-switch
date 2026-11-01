@@ -381,7 +381,12 @@ export function ProviderCard({
         )}
 
         <ProviderIconBox
-          icon={resolveProviderIcon(appId, provider.icon, provider.iconColor)}
+          icon={resolveProviderIcon(
+            appId,
+            provider.icon,
+            provider.iconColor,
+            fixedService,
+          )}
           name={provider.name}
           color={provider.iconColor}
           className={cn(

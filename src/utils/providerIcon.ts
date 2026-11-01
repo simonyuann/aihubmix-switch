@@ -10,11 +10,13 @@ export function resolveProviderIcon(
   appId: AppId,
   icon?: string,
   iconColor?: string,
+  fixedService = false,
 ): string | undefined {
   const normalizedIcon = icon?.trim();
   if (!normalizedIcon) return undefined;
 
   if (
+    !fixedService &&
     appId === "grokbuild" &&
     normalizedIcon === "grok" &&
     !iconColor?.trim()

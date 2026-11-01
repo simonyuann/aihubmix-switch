@@ -6,15 +6,20 @@ export function groupBrandIcon(
   const brands: [RegExp, string][] = [
     [/deep\s*seek|深度求索/, "deepseek"],
     [/\bglm\b|chatglm|zhipu|智谱/, "zhipu"],
-    [/\bkimi\b|moonshot|月之暗面/, "kimi"],
+    [/kimi|moonshot|月之暗面/, "kimi"],
     [/\bqwen\b|通义|千问/, "qwen"],
-    [/minimax|海螺/, "minimax"],
+    [/mini[\s_-]*max|海螺/, "minimax"],
+    [/open[\s_-]*code/, "opencode"],
     [/\bgemini\b|google/, "gemini"],
     [/\bclaude\b|anthropic/, "claude"],
-    [/\bgrok\b|\bxai\b/, "grok"],
+    [/grok|\bx[.\s_-]?ai\b/, "grok"],
     [/\bdoubao\b|豆包/, "doubao"],
     [/\bmistral\b/, "mistral"],
-    [/\bopenai\b|\bchatgpt\b|\bgpt\b/, "openai"],
+    [
+      /(?:open[\s_-]*ai|chatgpt|gpt).*(?:订阅|訂閱|subscription|subscribe)|(?:订阅|訂閱|subscription|subscribe).*(?:open[\s_-]*ai|chatgpt|gpt)/,
+      "aihubmix",
+    ],
+    [/open[\s_-]*ai|chatgpt|\bgpt\b/, "openai"],
   ];
   return brands.find(([pattern]) => pattern.test(text))?.[1];
 }

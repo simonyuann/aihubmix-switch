@@ -191,11 +191,16 @@ export function ToolPage({
           )}
           {data?.cards.map((card) => {
             const current = card.provider.id === data.currentProviderId;
-            const brandIcon = groupBrandIcon(
-              card.provider.name,
-              groups.find((group) => group.id === card.groupId)?.name,
-              card.platform,
-            );
+            const group = groups.find((item) => item.id === card.groupId);
+            const brandIcon =
+              card.groupId == null
+                ? undefined
+                : groupBrandIcon(
+                    group?.name,
+                    group?.subscriptionType,
+                    card.provider.name,
+                    card.platform,
+                  );
             return (
               <ProviderCard
                 key={card.provider.id}
