@@ -201,6 +201,34 @@ fn claude_contract(
         }),
     );
     with_stack_models(&mut projection, stack);
+    let service_models = crate::aihubmix::claude_models::models(route);
+    if let Some(default_model) =
+        crate::aihubmix::claude_models::default_model(route).filter(|_| stack.is_empty())
+    {
+        let options: Vec<_> = service_models
+            .iter()
+            .map(|model| {
+                json!({
+                    "model": crate::aihubmix::claude_models::visible_id(&model.model),
+                    "label": model.display_name.as_deref().unwrap_or(&model.model),
+                })
+            })
+            .collect();
+        projection.top.insert(
+            CLAUDE_MODEL_PICKER.to_string(),
+            json!({ "replaceBuiltInOptions": true, "options": options }),
+        );
+        projection.top.insert(
+            "model".to_string(),
+            Value::String(crate::aihubmix::claude_models::visible_id(
+                &default_model.model,
+            )),
+        );
+        projection.exclusive.insert(
+            "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY".to_string(),
+            Value::String("1".to_string()),
+        );
+    }
     if !stack.is_empty() {
         let others: Vec<_> = others
             .iter()
@@ -2052,6 +2080,41 @@ mod tests {
             &stack_exclusive(&route, &[&with, &without]),
             "ENABLE_TOOL_SEARCH",
             None,
+        );
+    }
+
+    #[test]
+    fn service_route_publishes_the_active_groups_models_and_default() {
+        let mut route = stack_member("service", json!({}));
+        route
+            .meta
+            .get_or_insert_with(Default::default)
+            .service_models = Some(vec![
+            crate::provider::ClaudeStackModel {
+                model: "codex-auto-review".into(),
+                ..Default::default()
+            },
+            crate::provider::ClaudeStackModel {
+                model: "gpt-6-sol".into(),
+                display_name: Some("GPT 6 Sol".into()),
+                ..Default::default()
+            },
+        ]);
+        let (projection, _) = claude_contract(&route, "http://127.0.0.1:15721", &[], None, &[]);
+        assert_eq!(
+            projection.top["model"],
+            crate::aihubmix::claude_models::visible_id("gpt-6-sol")
+        );
+        assert_eq!(
+            projection.top["modelPicker"]["options"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            projection.exclusive["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"],
+            "1"
         );
     }
 

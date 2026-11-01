@@ -135,6 +135,21 @@ pub fn catalog(
             if let Some(env) = p.settings_config["env"].as_object_mut() {
                 env.retain(|key, _| !key.contains("MODEL"));
             }
+            if app == "claude" {
+                p.meta.get_or_insert_with(Default::default).service_models = Some(
+                    models
+                        .iter()
+                        .map(|m| crate::provider::ClaudeStackModel {
+                            model: m.id.clone(),
+                            display_name: Some(m.name.clone()),
+                            one_m: m.context_window.is_some_and(|n| n >= 1_000_000),
+                        })
+                        .collect(),
+                );
+            }
+            if app == "claude" && crate::aihubmix::claude_models::default_model(&p).is_none() {
+                return Err("此分组没有可用于对话的模型".into());
+            }
             if app == "claude" && platform != "anthropic" {
                 let meta = p.meta.get_or_insert_with(Default::default);
                 meta.api_format = Some(
@@ -300,6 +315,11 @@ mod tests {
                 )
                 .unwrap();
             } else {
+                if app == "claude" {
+                    let published = crate::aihubmix::claude_models::models(&p);
+                    assert_eq!(published.len(), 2);
+                    assert!(published.iter().any(|model| model.model == "second-model"));
+                }
                 assert!(
                     p.settings_config["env"]
                         .as_object()

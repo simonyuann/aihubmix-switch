@@ -130,6 +130,16 @@ pub fn apply_model_mapping(
     mut body: Value,
     provider: &Provider,
 ) -> (Value, Option<String>, Option<String>) {
+    if !crate::aihubmix::claude_models::models(provider).is_empty() {
+        let original = body.get("model").and_then(|m| m.as_str()).map(String::from);
+        let mapped = original
+            .as_deref()
+            .and_then(|m| crate::aihubmix::claude_models::resolve(provider, m));
+        if let Some(model) = mapped.as_ref() {
+            body["model"] = Value::String(model.clone());
+        }
+        return (body, original, mapped);
+    }
     let mapping = ModelMapping::from_provider(provider);
 
     // 如果没有配置映射，直接返回

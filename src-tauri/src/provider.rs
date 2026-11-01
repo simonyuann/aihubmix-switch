@@ -624,6 +624,13 @@ pub struct ProviderMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub stack_models: Option<Vec<ClaudeStackModel>>,
+    /// The current AIHubMix service group's model catalog for Claude Code.
+    #[serde(
+        rename = "serviceModels",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub service_models: Option<Vec<ClaudeStackModel>>,
 }
 
 /// Stack 模式下 Claude Code 供应商发布的一个模型。

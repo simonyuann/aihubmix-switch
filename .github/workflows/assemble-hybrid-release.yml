@@ -4,9 +4,7 @@ on:
     inputs:
       tag:
         required: true
-      cloud_run:
-        required: true
-      mac_run:
+      build_run:
         required: true
 permissions:
   contents: write
@@ -21,14 +19,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
-          run-id: ${{ inputs.cloud_run }}
-          pattern: desktop-*
-          path: artifacts
-          merge-multiple: true
-      - uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          run-id: ${{ inputs.mac_run }}
+          run-id: ${{ inputs.build_run }}
           pattern: desktop-*
           path: artifacts
           merge-multiple: true

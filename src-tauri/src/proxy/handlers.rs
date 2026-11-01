@@ -151,6 +151,15 @@ fn claude_model_discovery(state: &ProxyState) -> Value {
         log::warn!("[Claude] 读取 Stack 模型失败，返回空列表: {error}");
         Vec::new()
     });
+    if models.is_empty() {
+        if let Ok(Some(provider)) =
+            crate::mode::current::provider_in_use(&state.db, &AppType::Claude)
+        {
+            if !crate::aihubmix::claude_models::models(&provider).is_empty() {
+                return crate::aihubmix::claude_models::discovery(&provider);
+            }
+        }
+    }
     let data: Vec<Value> = models
         .into_iter()
         .map(|model| {

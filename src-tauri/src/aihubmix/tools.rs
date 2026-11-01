@@ -393,6 +393,7 @@ pub(super) async fn dispatch(
                 AppType::Claude | AppType::Codex | AppType::ClaudeDesktop
             )
             && (app == AppType::ClaudeDesktop
+                || app == AppType::Claude
                 || provider
                     .meta
                     .as_ref()
@@ -418,7 +419,12 @@ pub(super) async fn dispatch(
             .warnings;
         }
     }
-    Ok(json!({"providerId":id,"saved":true,"warnings":warnings}))
+    let selected_model = if command == "start-tool-card" && app == AppType::Claude {
+        crate::aihubmix::claude_models::default_model(&provider).map(|m| m.model.clone())
+    } else {
+        None
+    };
+    Ok(json!({"providerId":id,"saved":true,"warnings":warnings,"selectedModel":selected_model}))
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 //! Independent account state; native configuration and activation are delegated to CC.
+pub(crate) mod claude_models;
 mod draft;
 mod payments;
 mod service;

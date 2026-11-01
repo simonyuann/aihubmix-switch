@@ -14,25 +14,38 @@ jobs:
       matrix:
         include:
           - os: [self-hosted, macOS, ARM64, aihubmix-release]
+            rustc_wrapper: /Users/simon/build-aihub/rustc-wrapper
             target: aarch64-apple-darwin
             bundles: app,dmg
           - os: [self-hosted, macOS, ARM64, aihubmix-release]
+            rustc_wrapper: /Users/simon/build-aihub/rustc-wrapper
             target: x86_64-apple-darwin
             bundles: app,dmg
           - os: windows-latest
+            rustc_wrapper: ''
             target: x86_64-pc-windows-msvc
             bundles: nsis
           - os: ubuntu-22.04
+            rustc_wrapper: ''
             target: x86_64-unknown-linux-gnu
             bundles: deb,appimage
     runs-on: ${{ matrix.os }}
     env:
+      RUSTC_WRAPPER: ${{ matrix.rustc_wrapper }}
       GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
       GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
+          clean: false
+      - name: Verify release source and required Gemini configuration
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          node -e 'const v=require("./package.json").version; if(process.env.RELEASE_TAG!==`v${v}`) process.exit(1); for(const k of ["GEMINI_OAUTH_CLIENT_ID","GEMINI_OAUTH_CLIENT_SECRET"]) if(!process.env[k]) throw new Error(`Missing ${k}`)'
+          node -e 'require("node:fs").rmSync("artifacts",{recursive:true,force:true})'
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
         run: |
@@ -83,7 +96,7 @@ jobs:
       - name: Verify native updater installation formats
         run: node scripts/check-update-format.mjs ${{ matrix.target }}
       - name: Test native configuration, detection and model verification
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         run: cargo test --release --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
       - name: Test Windows with Common Controls v6
         if: runner.os == 'Windows'

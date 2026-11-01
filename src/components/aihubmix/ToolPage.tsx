@@ -105,19 +105,19 @@ export function ToolPage({
     setError("");
     setNotice("");
     try {
-      const result = await dispatch<{ warnings?: string[] }>(
-        start ? "start-tool-card" : "save-tool-key",
-        {
-          app,
-          providerId: card.provider.id,
-          ...(selectedKey ? { keyId: Number(selectedKey) } : {}),
-        },
-      );
+      const result = await dispatch<{
+        warnings?: string[];
+        selectedModel?: string | null;
+      }>(start ? "start-tool-card" : "save-tool-key", {
+        app,
+        providerId: card.provider.id,
+        ...(selectedKey ? { keyId: Number(selectedKey) } : {}),
+      });
       setEditing(null);
       setKeyId("");
       setNotice(
         start
-          ? `已切换到 ${card.provider.name}。在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。`
+          ? `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。`
           : "API Key 已保存。",
       );
       if (result?.warnings?.length)
