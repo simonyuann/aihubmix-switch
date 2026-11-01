@@ -41,7 +41,7 @@ export function RechargeDialog({
   onPaid: () => void;
 }) {
   const [overview, setOverview] = useState<RechargeOverview | null>(null),
-    [amount, setAmount] = useState("50"),
+    [amount, setAmount] = useState("10"),
     [method, setMethod] = useState(""),
     [order, setOrder] = useState<RechargeOrder | null>(null),
     [qr, setQr] = useState(""),
