@@ -1,4 +1,4 @@
-name: Retry macOS ARM release build
+name: Retry local macOS release builds
 on:
   workflow_dispatch:
     inputs:
@@ -16,8 +16,12 @@ jobs:
           - os: [self-hosted, macOS, ARM64, aihubmix-release]
             target: aarch64-apple-darwin
             bundles: app,dmg
+          - os: [self-hosted, macOS, ARM64, aihubmix-release]
+            target: x86_64-apple-darwin
+            bundles: app,dmg
     runs-on: ${{ matrix.os }}
     env:
+      RUSTC_WRAPPER: /Users/simon/build-aihub/rustc-wrapper
       GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
       GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
     steps:
