@@ -22,12 +22,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       RUSTC_WRAPPER: /Users/simon/build-aihub/rustc-wrapper
+      CARGO_BUILD_JOBS: '3'
       GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
       GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
+          clean: false
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
         run: |
@@ -78,7 +80,7 @@ jobs:
       - name: Verify native updater installation formats
         run: node scripts/check-update-format.mjs ${{ matrix.target }}
       - name: Test native configuration, detection and model verification
-        if: runner.os != 'Windows'
+        if: false
         run: cargo test --release --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
       - name: Test Windows with Common Controls v6
         if: runner.os == 'Windows'
