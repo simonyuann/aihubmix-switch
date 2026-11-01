@@ -1,0 +1,53 @@
+name: Assemble hybrid release draft
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+      cloud_run:
+        required: true
+      mac_run:
+        required: true
+permissions:
+  contents: write
+  actions: read
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.cloud_run }}
+          pattern: desktop-*
+          path: artifacts
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.mac_run }}
+          pattern: desktop-*
+          path: artifacts
+          merge-multiple: true
+      - name: Verify signatures and generate update manifest
+        run: node scripts/generate-update-manifest.mjs artifacts
+      - name: Create release draft
+        id: draft
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: AIHubMix Switch ${{ inputs.tag }}
+          body_path: docs/releases/${{ inputs.tag }}.md
+          files: artifacts/*
+          draft: true
+          fail_on_unmatched_files: true
+      - name: Verify uploaded files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" > "$RUNNER_TEMP/release-info.json"
+          node scripts/verify-release-assets.mjs artifacts "$RUNNER_TEMP/release-info.json"
