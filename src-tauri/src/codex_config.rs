@@ -2180,6 +2180,51 @@ fn codex_model_catalog_from_settings(
         return Ok(None);
     }
     let mut catalog = codex_catalog_from_specs_for_row(&specs, config_text, profile)?;
+    // The AIHubMix /v1/models endpoint currently returns IDs without Codex
+    // capability metadata. Restrict our gateway's Fast option to the Responses
+    // and Chat profiles that can forward service_tier, and keep Terra's known
+    // reasoning fallback scoped to its exact model.
+    let is_our_responses_gateway = matches!(
+        profile,
+        CodexCatalogToolProfile::NativeResponses | CodexCatalogToolProfile::ProxyChat
+    ) && extract_codex_base_url(config_text).is_some_and(|url| {
+        url.trim_end_matches('/') == format!("{}/v1", crate::aihubmix::DEFAULT_BASE)
+    });
+    if is_our_responses_gateway {
+        if let Some(entries) = catalog.get_mut("models").and_then(Value::as_array_mut) {
+            for entry in entries {
+                let is_terra = entry.get("slug").and_then(Value::as_str) == Some("gpt-6.1-terra");
+                if let Some(obj) = entry.as_object_mut() {
+                    if is_terra {
+                        let levels =
+                            ["low", "medium", "high", "xhigh", "max", "ultra"].map(str::to_string);
+                        obj.insert(
+                            "supported_reasoning_levels".into(),
+                            codex_supported_reasoning_levels(&levels),
+                        );
+                        // Windows users may have Codex Desktop without a `codex`
+                        // executable on PATH. In that case the generic fallback
+                        // template lacks Terra's native Ultra orchestration
+                        // metadata, even though Desktop understands it.
+                        if profile == CodexCatalogToolProfile::NativeResponses {
+                            obj.entry("multi_agent_version").or_insert(json!("v2"));
+                            obj.entry("multi_agent_reasoning_effort")
+                                .or_insert(json!("xhigh"));
+                            obj.entry("supports_reasoning_effort_updates")
+                                .or_insert(json!(true));
+                        }
+                    }
+                    obj.insert("additional_speed_tiers".into(), json!(["fast"]));
+                    obj.insert(
+                        "service_tiers".into(),
+                        json!([{
+                            "id": "priority", "name": "Fast", "description": "Fast mode"
+                        }]),
+                    );
+                }
+            }
+        }
+    }
     if let Some(model) = codex_card_auto_review_model(settings) {
         apply_codex_auto_review_model(&mut catalog, model);
     }
@@ -4031,6 +4076,52 @@ experimental_bearer_token = "stale-table-key"
                 .is_some_and(|value| value.is_null()),
             "generated third-party entries should not inherit GPT-5.5 launch messaging"
         );
+    }
+
+    #[test]
+    fn aihubmix_terra_exposes_full_reasoning_and_fast_only_on_our_gateway() {
+        let settings = json!({"modelCatalog": {"models": [
+            {"model": "gpt-6.1-terra"}, {"model": "other-model"}
+        ]}});
+        let config = |base: &str| {
+            format!(
+                "model_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"{base}\"\n"
+            )
+        };
+        let generate = |base: &str| {
+            codex_model_catalog_from_settings(
+                &settings,
+                &config(base),
+                CodexCatalogToolProfile::NativeResponses,
+            )
+            .unwrap()
+            .unwrap()
+        };
+        let ours = generate("https://csmy.fun:23457/v1");
+        let terra = &ours["models"][0];
+        let levels: Vec<&str> = terra["supported_reasoning_levels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v["effort"].as_str())
+            .collect();
+        assert_eq!(levels, ["low", "medium", "high", "xhigh", "max", "ultra"]);
+        assert_eq!(terra["additional_speed_tiers"], json!(["fast"]));
+        assert_eq!(terra["service_tiers"][0]["id"], "priority");
+        assert_eq!(terra["multi_agent_version"], "v2");
+        assert_eq!(terra["multi_agent_reasoning_effort"], "xhigh");
+        assert_eq!(terra["supports_reasoning_effort_updates"], true);
+        assert_eq!(ours["models"][1]["service_tiers"][0]["id"], "priority");
+        let chat = codex_model_catalog_from_settings(
+            &settings,
+            &config("https://csmy.fun:23457/v1"),
+            CodexCatalogToolProfile::ProxyChat,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(chat["models"][1]["service_tiers"][0]["id"], "priority");
+        let other = generate("https://example.com/v1");
+        assert_eq!(other["models"][0]["service_tiers"], json!([]));
     }
 
     #[test]

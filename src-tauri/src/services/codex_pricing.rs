@@ -73,30 +73,13 @@ pub(crate) fn split_tier_pricing_model(model: &str) -> Option<(&str, &str)> {
     (!base.is_empty() && !tier.is_empty()).then_some((base, tier))
 }
 
-/// Rates verified against the deployed pricing table on 2026-10-27. Do not
-/// assume every model or tier costs 2x: an exact custom tier price wins in the
-/// shared pricing lookup; unverified variants keep the standard estimate.
+/// Default Fast estimate follows our gateway's priority fallback. An exact
+/// custom tier price wins in the shared pricing lookup; actual group rates and
+/// server-side overrides remain authoritative on the gateway's bill.
 pub(crate) fn tier_price_multiplier(model: &str, tier: &str) -> Decimal {
-    if tier == "priority"
-        && matches!(
-            model,
-            "gpt-6.1-sol"
-                | "gpt-6.1-terra"
-                | "gpt-6-sol"
-                | "gpt-6-astra"
-                | "gpt-6-luna"
-                | "gpt-5.6-sol"
-                | "gpt-5.6-terra"
-                | "gpt-5.6-luna"
-                | "gpt-5.5"
-                | "gpt-5.4"
-                | "gpt-5.4-mini"
-                | "gpt-5.3-codex"
-                | "gpt-5.2"
-                | "gpt-5.2-codex"
-                | "gpt-5.1-codex"
-        )
-    {
+    if tier == "priority" && model == "gpt-5.5" {
+        Decimal::new(25, 1)
+    } else if tier == "priority" {
         Decimal::from(2)
     } else {
         Decimal::ONE
@@ -144,7 +127,6 @@ mod tests {
             "gpt-5.6-sol",
             "gpt-5.6-terra",
             "gpt-5.6-luna",
-            "gpt-5.5",
             "gpt-5.4",
             "gpt-5.4-mini",
             "gpt-5.3-codex",
@@ -172,11 +154,23 @@ mod tests {
                 base.cache_creation_cost_per_million * Decimal::from(2)
             );
         }
-        for (model, tier) in [
-            ("gpt-5.4-pro", "priority"),
-            ("gpt-6.1-sol", "flex"),
-            ("gpt-6.1-sol", "auto"),
-        ] {
+        let base = find_model_pricing(&conn, "gpt-5.5").unwrap();
+        let fast = find_model_pricing(&conn, "gpt-5.5:service-tier=priority").unwrap();
+        assert_eq!(
+            fast.input_cost_per_million,
+            base.input_cost_per_million * Decimal::new(25, 1)
+        );
+        assert_eq!(
+            fast.output_cost_per_million,
+            base.output_cost_per_million * Decimal::new(25, 1)
+        );
+        let base = find_model_pricing(&conn, "gpt-5.4-pro").unwrap();
+        let fast = find_model_pricing(&conn, "gpt-5.4-pro:service-tier=priority").unwrap();
+        assert_eq!(
+            fast.input_cost_per_million,
+            base.input_cost_per_million * Decimal::from(2)
+        );
+        for (model, tier) in [("gpt-6.1-sol", "flex"), ("gpt-6.1-sol", "auto")] {
             let base = find_model_pricing(&conn, model).unwrap();
             let estimate =
                 find_model_pricing(&conn, &format!("{model}{TIER_MARKER}{tier}")).unwrap();

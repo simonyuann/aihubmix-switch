@@ -8,6 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WhatsNewEntry } from "@/lib/whatsNew";
+import update117 from "@/whats-new/1.1.7.json";
 
 const mocks = vi.hoisted(() => ({
   getAll: vi.fn(),
@@ -91,6 +92,15 @@ describe("WhatsNewNotice", () => {
     mocks.save.mockReset().mockResolvedValue(true);
     mocks.openExternal.mockReset().mockResolvedValue(undefined);
     mocks.getAll.mockReset().mockResolvedValue({ p1: { id: "p1" } });
+  });
+
+  it("shows the Max, Ultra and paid Fast announcement after upgrading from v1.1.6", async () => {
+    mocks.version = "1.1.7";
+    mocks.settings!.whatsNewSeenVersion = "1.1.6";
+    mocks.entries = [update117 as WhatsNewEntry];
+    renderNotice();
+    expect(await screen.findByText(/Max.*Ultra/)).toBeInTheDocument();
+    expect(screen.getByText(/Fast.*费用更高/)).toBeInTheDocument();
   });
 
   it("lists every version since the last one seen and records the current version", async () => {

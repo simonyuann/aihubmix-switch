@@ -8,6 +8,7 @@ mod tools;
 mod types;
 use serde_json::Value;
 use tokio::sync::Mutex;
+pub(crate) use types::DEFAULT_BASE;
 pub struct Platform {
     backend: Mutex<Option<service::Backend>>,
     payments: payments::Payments,

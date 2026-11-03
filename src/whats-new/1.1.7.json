@@ -1,0 +1,19 @@
+{
+  "version": "1.1.7",
+  "items": [
+    {
+      "type": "new",
+      "zh": "Codex 的 GPT-6.1 Terra 支持 Max、Ultra 思考",
+      "zh-TW": "Codex 的 GPT-6.1 Terra 支援 Max、Ultra 思考",
+      "en": "GPT-6.1 Terra in Codex now supports Max and Ultra reasoning",
+      "ja": "Codex の GPT-6.1 Terra で Max と Ultra の推論レベルに対応"
+    },
+    {
+      "type": "new",
+      "zh": "新增 Fast 模式：速度更快，费用更高，实际速度以上游为准",
+      "zh-TW": "新增 Fast 模式：速度更快、費用更高，實際速度以上游為準",
+      "en": "Fast mode can be quicker and costs more; actual speed depends on the provider",
+      "ja": "Fast モードに対応。高速化と引き換えに料金が高くなります"
+    }
+  ]
+}
