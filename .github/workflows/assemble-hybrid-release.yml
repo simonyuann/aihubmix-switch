@@ -6,6 +6,8 @@ on:
         required: true
       build_run:
         required: true
+      mac_retry_run:
+        required: true
 permissions:
   contents: write
   actions: read
@@ -23,6 +25,13 @@ jobs:
           pattern: desktop-*
           path: artifacts
           merge-multiple: true
+      - name: Download retried Intel Mac artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.mac_retry_run }}
+          name: desktop-x86_64-apple-darwin
+          path: artifacts
       - name: Verify signatures and generate update manifest
         run: node scripts/generate-update-manifest.mjs artifacts
       - name: Create release draft
