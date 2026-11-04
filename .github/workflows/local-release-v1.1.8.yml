@@ -143,7 +143,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/collect-portable.mjs x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci
+          pnpm tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci --config .github/local-release-windows-v1.1.8.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/check-update-format.mjs x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
