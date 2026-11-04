@@ -2,12 +2,19 @@ name: Local v1.1.8 release build
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        options: [all, macos, linux, windows]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   macos:
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'macos' }}
     runs-on: [self-hosted, macOS, ARM64, aihubmix-v118-mac]
     timeout-minutes: 180
     env:
@@ -49,6 +56,7 @@ jobs:
           retention-days: 1
 
   linux:
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'linux' }}
     runs-on: [self-hosted, Linux, X64, aihubmix-v118-linux]
     container: ubuntu:22.04
     timeout-minutes: 180
@@ -65,7 +73,12 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential ca-certificates curl file git libayatana-appindicator3-dev libdbus-1-dev libfuse2 librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev patchelf pkg-config
-      - uses: actions/checkout@v4
+      - name: Check out the verified local source bundle
+        run: |
+          git init "$GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" fetch /__w/aihubmix-source.bundle main
+          git -C "$GITHUB_WORKSPACE" checkout --detach FETCH_HEAD
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: pnpm/action-setup@v4
         with:
           version: 10.12.3
@@ -91,6 +104,7 @@ jobs:
           retention-days: 1
 
   windows:
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'windows' }}
     runs-on: [self-hosted, Windows, X64, aihubmix-v118-windows]
     timeout-minutes: 180
     env:
@@ -101,7 +115,13 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       CI: 'true'
     steps:
-      - uses: actions/checkout@v4
+      - name: Extract the verified local source snapshot
+        shell: powershell
+        run: |
+          $snapshot = "\\host.lan\Data\aihubmix-source-$env:GITHUB_SHA.zip"
+          $checksum = (Get-Content "$snapshot.sha256" -Raw).Trim()
+          if ((Get-FileHash $snapshot -Algorithm SHA256).Hash -ne $checksum) { throw 'Source snapshot checksum mismatch' }
+          Expand-Archive -Path $snapshot -DestinationPath $env:GITHUB_WORKSPACE -Force
       - uses: pnpm/action-setup@v4
         with:
           version: 10.12.3
@@ -114,7 +134,7 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
       - run: pnpm install --frozen-lockfile
       - name: Build and sign Windows packages
-        shell: pwsh
+        shell: powershell
         run: |
           foreach ($name in @('GEMINI_OAUTH_CLIENT_ID', 'GEMINI_OAUTH_CLIENT_SECRET', 'TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')) {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing $name" }
