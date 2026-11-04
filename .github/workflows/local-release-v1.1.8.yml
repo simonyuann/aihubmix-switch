@@ -12,12 +12,15 @@ jobs:
     timeout-minutes: 180
     env:
       CARGO_BUILD_JOBS: '3'
+      CARGO_PROFILE_RELEASE_STRIP: none
       GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
       GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - name: Configure local Rust toolchain
         run: echo /Users/simon/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin >> "$GITHUB_PATH"
       - uses: pnpm/action-setup@v4
