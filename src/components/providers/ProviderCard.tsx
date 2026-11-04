@@ -240,8 +240,9 @@ export function ProviderCard({
   });
 
   const displayUrl = useMemo(() => {
+    if (fixedService && provider.category !== "official") return "AIHubMix API";
     return extractApiUrl(provider, fallbackUrlText);
-  }, [provider, fallbackUrlText]);
+  }, [provider, fallbackUrlText, fixedService]);
 
   const agyModel = useMemo(
     () => (appId === "agy" ? extractAgyModel(provider) : null),
@@ -249,6 +250,7 @@ export function ProviderCard({
   );
 
   const isClickableUrl = useMemo(() => {
+    if (fixedService && provider.category !== "official") return false;
     if (provider.notes?.trim()) {
       return false;
     }
@@ -256,7 +258,13 @@ export function ProviderCard({
       return false;
     }
     return true;
-  }, [provider.notes, displayUrl, fallbackUrlText]);
+  }, [
+    provider.notes,
+    provider.category,
+    displayUrl,
+    fallbackUrlText,
+    fixedService,
+  ]);
 
   const isBoundCodexOfficial = codexOfficialIdentity === "managed_account";
   const isOfficial = isOfficialProvider(provider, appId);

@@ -1,0 +1,216 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { ArrowLeft, Bell } from "lucide-react";
+import { useAccount } from "@/contexts/AccountContext";
+import { dispatch, type Announcement } from "@/lib/api/aihubmix";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+const Context = createContext<{ unread: number; open: () => void } | null>(
+  null,
+);
+
+export function AnnouncementBell() {
+  const announcements = useContext(Context);
+  if (!announcements) return null;
+  return (
+    <button
+      type="button"
+      aria-label={
+        announcements.unread
+          ? `平台公告，${announcements.unread} 条未读`
+          : "平台公告"
+      }
+      title="平台公告"
+      className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded text-fg-2 hover:bg-subtle hover:text-fg-1"
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      onClick={announcements.open}
+    >
+      <Bell className="h-4 w-4" aria-hidden="true" />
+      {announcements.unread > 0 && (
+        <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-action" />
+      )}
+    </button>
+  );
+}
+
+export function AnnouncementProvider({ children }: { children: ReactNode }) {
+  const account = useAccount();
+  const [items, setItems] = useState<Announcement[]>([]);
+  const [open, setOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const seenPopups = useRef(new Set<number>());
+  const generation = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const current = generation.current;
+    try {
+      const next = await dispatch<Announcement[]>("announcements");
+      if (generation.current !== current) return;
+      if (!Array.isArray(next)) throw new Error("公告数据格式异常");
+      setItems(next);
+      setError("");
+    } catch (e) {
+      if (generation.current === current) setError(String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    generation.current++;
+    seenPopups.current.clear();
+    setItems([]);
+    setOpen(false);
+    setSelectedId(null);
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 60_000);
+    return () => {
+      generation.current++;
+      window.clearInterval(timer);
+    };
+  }, [account.state?.account.userId, refresh]);
+
+  const markRead = useCallback((item: Announcement) => {
+    if (!item.readAt) {
+      const current = generation.current;
+      void dispatch("announcement-read", { id: item.id })
+        .then(() => {
+          if (generation.current !== current) return;
+          setItems((previous) =>
+            previous.map((entry) =>
+              entry.id === item.id
+                ? { ...entry, readAt: new Date().toISOString() }
+                : entry,
+            ),
+          );
+        })
+        .catch((e) => {
+          if (generation.current === current) setError(String(e));
+        });
+    }
+  }, []);
+
+  const view = useCallback(
+    (item: Announcement, mark = true) => {
+      setSelectedId(item.id);
+      setOpen(true);
+      if (mark) markRead(item);
+    },
+    [markRead],
+  );
+
+  useEffect(() => {
+    if (open) return;
+    const popup = items.find(
+      (item) =>
+        !item.readAt &&
+        item.notifyMode === "popup" &&
+        !seenPopups.current.has(item.id),
+    );
+    if (popup) {
+      seenPopups.current.add(popup.id);
+      view(popup, false);
+    }
+  }, [items, open, view]);
+
+  const selected = items.find((item) => item.id === selectedId);
+  const close = () => {
+    if (selected) markRead(selected);
+    setOpen(false);
+  };
+  const unread = items.filter((item) => !item.readAt).length;
+  return (
+    <Context.Provider
+      value={{
+        unread,
+        open: () => {
+          setSelectedId(null);
+          setOpen(true);
+          void refresh();
+        },
+      }}
+    >
+      {children}
+      <Dialog
+        open={open}
+        onOpenChange={(next) => (next ? setOpen(true) : close())}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selected && (
+                <Button
+                  variant="ghost"
+                  size="icon-compact"
+                  aria-label="返回公告列表"
+                  onClick={() => {
+                    if (selected) markRead(selected);
+                    setSelectedId(null);
+                  }}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              )}
+              {selected ? selected.title : "平台公告"}
+            </DialogTitle>
+            <DialogDescription>
+              {selected ? "平台公告" : "查看平台最新消息"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-24 min-w-0 flex-1 overflow-y-auto px-6 py-2">
+            {error && (
+              <p role="alert" className="mb-3 break-words text-destructive">
+                {error}
+              </p>
+            )}
+            {selected ? (
+              <div className="whitespace-pre-wrap break-words text-body leading-6">
+                {selected.content}
+              </div>
+            ) : items.length ? (
+              <div className="divide-y divide-border">
+                {items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => view(item)}
+                    className="flex w-full items-start gap-3 py-3 text-start hover:text-action-text"
+                  >
+                    <span
+                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.readAt ? "bg-transparent" : "bg-action"}`}
+                    />
+                    <span className="min-w-0 flex-1 break-words font-medium">
+                      {item.title}
+                    </span>
+                    <span className="shrink-0 text-caption text-fg-3">
+                      {item.createdAt ? item.createdAt.slice(0, 10) : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="py-4 text-fg-3">暂无公告</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={close}>关闭</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Context.Provider>
+  );
+}

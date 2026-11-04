@@ -24,6 +24,24 @@ import {
 } from "@/lib/api/aihubmix";
 const pending = (order: RechargeOrder) =>
   ["PENDING", "PAID", "RECHARGING"].includes(order.status);
+const orderStatus: Record<string, string> = {
+  PENDING: "待付款",
+  PAID: "已付款",
+  RECHARGING: "充值中",
+  COMPLETED: "已完成",
+  CANCELLED: "已取消",
+  EXPIRED: "已过期",
+  FAILED: "失败",
+};
+function orderDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "充值订单"
+    : new Intl.DateTimeFormat("zh-CN", {
+        dateStyle: "short",
+        timeStyle: "short",
+      }).format(date);
+}
 export function validAmount(amount: string, minimum: number, maximum: number) {
   return (
     /^\d{1,9}(\.\d{0,2})?$/.test(amount) &&
@@ -41,7 +59,7 @@ export function RechargeDialog({
   onPaid: () => void;
 }) {
   const [overview, setOverview] = useState<RechargeOverview | null>(null),
-    [amount, setAmount] = useState("10"),
+    [amount, setAmount] = useState("20"),
     [method, setMethod] = useState(""),
     [order, setOrder] = useState<RechargeOrder | null>(null),
     [qr, setQr] = useState(""),
@@ -324,8 +342,10 @@ export function RechargeDialog({
           {order && (
             <section className="space-y-3 rounded-panel border border-border p-3">
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                <p className="font-semibold">订单 #{order.id}</p>
-                <p className="text-fg-3">{order.status}</p>
+                <p className="font-semibold">充值订单</p>
+                <p className="text-fg-3">
+                  {orderStatus[order.status] ?? order.status}
+                </p>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                 <p className="tabular-nums">
@@ -417,9 +437,15 @@ export function RechargeDialog({
                   disabled={busy}
                 >
                   <span>
-                    #{o.id} · {o.currency} {o.amount ?? "—"}
+                    {orderDate(o.createdAt)} ·{" "}
+                    {o.method === "wxpay"
+                      ? "微信"
+                      : o.method === "alipay"
+                        ? "支付宝"
+                        : "充值"}{" "}
+                    · {o.currency} {o.amount ?? "—"}
                   </span>
-                  <span>{o.status}</span>
+                  <span>{orderStatus[o.status] ?? o.status}</span>
                 </button>
               ))}
               {overview && !overview.orders.length && (

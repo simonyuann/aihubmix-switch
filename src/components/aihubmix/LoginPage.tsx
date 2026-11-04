@@ -215,17 +215,8 @@ export function LoginPage() {
             {settings?.captchaRequired ? (
               <div className="space-y-4">
                 <p className="text-body text-fg-2">
-                  平台已开启安全验证，请在官网完成{title}。
+                  平台已开启当前客户端暂不支持的安全验证，请联系管理员。
                 </p>
-                <Button
-                  onClick={() =>
-                    void dispatch("open-account-page", {
-                      page: mode === "forgot" ? "forgot-password" : mode,
-                    }).catch((e) => setError(String(e)))
-                  }
-                >
-                  前往官网
-                </Button>
               </div>
             ) : (
               <form

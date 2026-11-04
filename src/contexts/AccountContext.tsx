@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTauriEvent } from "@/hooks/useTauriEvent";
 import {
   dispatch,
   type AccountState,
@@ -46,6 +47,19 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [walletError, setWalletError] = useState("");
   const revision = useRef(0);
   const walletRevision = useRef(0);
+  useTauriEvent<{ userId: string | number; wallet: WalletBalance | null }>(
+    "aihubmix-wallet-updated",
+    (payload) => {
+      if (
+        !state?.account.loggedIn ||
+        String(payload.userId) !== String(state.account.userId)
+      )
+        return;
+      walletRevision.current++;
+      setWallet(payload.wallet);
+      setWalletError(payload.wallet ? "" : "余额暂不可用");
+    },
+  );
   const refresh = useCallback(async () => {
     const rev = ++revision.current;
     try {
@@ -103,7 +117,6 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     // Revalidate the stored session rather than trusting the local loggedIn flag.
     const timer = window.setInterval(() => {
       void refresh();
-      void refreshWallet();
     }, 60_000);
     return () => window.clearInterval(timer);
   }, [state?.account.userId, state?.account.loggedIn, refresh, refreshWallet]);

@@ -89,8 +89,13 @@ impl Store {
     }
 
     fn credential() -> Result<keyring::Entry> {
-        keyring::Entry::new("fun.csmy.aihubmix-switch", "vault-v2-master")
-            .map_err(|_| "系统安全存储不可用".into())
+        let service = if cfg!(debug_assertions) && std::env::var_os("CC_SWITCH_TEST_HOME").is_some()
+        {
+            "fun.csmy.aihubmix-switch.preview"
+        } else {
+            "fun.csmy.aihubmix-switch"
+        };
+        keyring::Entry::new(service, "vault-v2-master").map_err(|_| "系统安全存储不可用".into())
     }
 
     fn load_vault(&mut self) -> Result<()> {

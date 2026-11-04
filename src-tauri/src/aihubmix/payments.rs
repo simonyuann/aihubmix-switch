@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 #[derive(Default)]
 pub struct Payments {
     create_gate: Mutex<()>,
+    wallet_gate: Mutex<()>,
 }
 
 #[derive(Clone)]
@@ -57,6 +58,11 @@ pub async fn dispatch(
     } else {
         None
     };
+    let _wallet = if command == "payment-balance" {
+        Some(payments.wallet_gate.lock().await)
+    } else {
+        None
+    };
     let mut session = backend
         .lock()
         .await
@@ -69,12 +75,22 @@ pub async fn dispatch(
         let mut guard = backend.lock().await;
         let state = guard.as_mut().ok_or("平台服务未初始化")?;
         if !session.matches(state) {
-            return Err("账号已切换，请重新打开充值窗口查看订单".into());
+            return Err(if command.starts_with("announcement") {
+                "账号已切换，请重新查看公告"
+            } else {
+                "账号已切换，请重新打开充值窗口查看订单"
+            }
+            .into());
         }
         if attempt == 0 && result.as_ref().err().is_some_and(|e| e.unauthorized) {
             let refreshed = state.refresh_payment_session().await?;
             if refreshed.user_id != session.user_id || refreshed.base != session.base {
-                return Err("充值账号发生变化，请重新打开充值窗口".into());
+                return Err(if command.starts_with("announcement") {
+                    "账号已切换，请重新查看公告"
+                } else {
+                    "充值账号发生变化，请重新打开充值窗口"
+                }
+                .into());
             }
             session = refreshed;
             continue;
@@ -95,6 +111,7 @@ impl Session {
                 == Some(self.base.as_str())
     }
     async fn request(&self, method: Method, path: &str, body: Option<Value>) -> Result<Value> {
+        let is_announcement = path.starts_with("/api/v1/announcements");
         let mut request = self
             .client
             .request(method, format!("{}{path}", self.base))
@@ -103,10 +120,13 @@ impl Session {
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|_| Failure::from("连接充值服务失败，请刷新充值记录确认订单后再操作"))?;
+        let response = request.send().await.map_err(|_| {
+            Failure::from(if is_announcement {
+                "连接公告服务失败，请稍后重试"
+            } else {
+                "连接充值服务失败，请刷新充值记录确认订单后再操作"
+            })
+        })?;
         let status = response.status().as_u16();
         if status == 401 {
             return Err(Failure {
@@ -114,18 +134,29 @@ impl Session {
                 unauthorized: true,
             });
         }
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|_| Failure::from("读取充值结果失败，请先刷新充值记录，勿重复下单"))?;
-        let value: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| Failure::from("充值服务响应异常，请先刷新充值记录，勿重复下单"))?;
+        let bytes = response.bytes().await.map_err(|_| {
+            Failure::from(if is_announcement {
+                "读取公告失败，请稍后重试"
+            } else {
+                "读取充值结果失败，请先刷新充值记录，勿重复下单"
+            })
+        })?;
+        let value: Value = serde_json::from_slice(&bytes).map_err(|_| {
+            Failure::from(if is_announcement {
+                "公告服务响应异常，请稍后重试"
+            } else {
+                "充值服务响应异常，请先刷新充值记录，勿重复下单"
+            })
+        })?;
         super::service::unwrap_response(status, value).map_err(|_| {
+            if is_announcement {
+                return Failure::from("公告服务暂时不可用，请稍后重试");
+            }
             Failure::from(match status {
                 403 => "当前账号或支付通道暂不支持此操作，请刷新后重试",
                 429 => "充值操作过于频繁，请稍后重试",
                 500..=599 => "充值服务暂时不可用，请先刷新充值记录，勿重复下单",
-                _ => "充值操作未完成，请刷新充值记录确认状态，或到网页查看处理结果",
+                _ => "充值操作未完成，请刷新充值记录确认状态，或联系管理员",
             })
         })
     }
@@ -151,6 +182,32 @@ impl Session {
     }
     async fn run(&self, command: &str, input: &Value) -> Result<Value> {
         match command {
+            "announcements" => {
+                let value = self
+                    .request(Method::GET, "/api/v1/announcements", None)
+                    .await?;
+                let items: Vec<Value> = value.as_array().ok_or("公告数据格式异常")?
+                    .iter().filter(|item| item["id"].as_i64().is_some_and(|id| id > 0))
+                    .map(|item| json!({
+                        "id": item["id"], "title": string(item, "title"),
+                        "content": string(item, "content"), "notifyMode": string(item, "notify_mode"),
+                        "readAt": item["read_at"], "createdAt": string(item, "created_at")
+                    })).collect();
+                Ok(json!(items))
+            }
+            "announcement-read" => {
+                let id = input["id"]
+                    .as_i64()
+                    .filter(|id| *id > 0)
+                    .ok_or("公告编号无效")?;
+                self.request(
+                    Method::POST,
+                    &format!("/api/v1/announcements/{id}/read"),
+                    None,
+                )
+                .await?;
+                Ok(Value::Null)
+            }
             "payment-overview" => {
                 let (configuration, user, orders) = tokio::join!(
                     self.configuration(),

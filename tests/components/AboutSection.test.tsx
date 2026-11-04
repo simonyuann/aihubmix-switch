@@ -27,11 +27,13 @@ describe("AboutSection", () => {
       .mockResolvedValue(undefined);
     render(<AboutSection isPortable={false} />);
     expect(screen.queryByText("settings.starPrompt")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /github/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /github/i }),
+    ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "settings.officialWebsite" }),
     );
-    expect(open).toHaveBeenCalledWith("https://csmy.fun:23457/");
+    expect(open).toHaveBeenCalledWith("https://dl.csmy.fun:23457/");
     fireEvent.click(
       screen.getByRole("button", { name: "settings.checkForUpdates" }),
     );

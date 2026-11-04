@@ -405,11 +405,10 @@ pub async fn set_app_config_dir_override(
 /// 设置开机自启
 #[tauri::command]
 pub async fn set_auto_launch(enabled: bool) -> Result<bool, String> {
-    if enabled {
-        crate::auto_launch::enable_auto_launch().map_err(|e| format!("启用开机自启失败: {e}"))?;
-    } else {
-        crate::auto_launch::disable_auto_launch().map_err(|e| format!("禁用开机自启失败: {e}"))?;
+    if cfg!(debug_assertions) && std::env::var_os("CC_SWITCH_TEST_HOME").is_some() {
+        return Err("测试版不会修改系统开机启动设置".into());
     }
+    crate::auto_launch::set_auto_launch(enabled).map_err(|e| format!("设置开机自启失败: {e}"))?;
     Ok(true)
 }
 

@@ -1,0 +1,134 @@
+name: Local v1.1.8 release build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: [self-hosted, macOS, ARM64, aihubmix-v118-mac]
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '3'
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure local Rust toolchain
+        run: echo /Users/simon/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin >> "$GITHUB_PATH"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - name: Build and sign both Mac architectures
+        env:
+          CI: 'true'
+        run: |
+          node -e 'for (const k of ["GEMINI_OAUTH_CLIENT_ID", "GEMINI_OAUTH_CLIENT_SECRET", "TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"]) if (!process.env[k]) throw new Error(`Missing ${k}`)'
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            pnpm tauri build --target "$target" --no-bundle -- --locked
+            pnpm tauri bundle --target "$target" --bundles app,dmg --ci --no-sign
+            node scripts/check-update-format.mjs "$target"
+            node scripts/collect-artifacts.mjs "$target"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-v118-macos
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 1
+
+  linux:
+    runs-on: [self-hosted, Linux, X64, aihubmix-v118-linux]
+    container: ubuntu:22.04
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '4'
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+      CI: 'true'
+    steps:
+      - name: Install Linux build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential ca-certificates curl file git libayatana-appindicator3-dev libdbus-1-dev libfuse2 librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev patchelf pkg-config
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - run: pnpm install --frozen-lockfile
+      - name: Build and sign Linux packages
+        run: |
+          node -e 'for (const k of ["GEMINI_OAUTH_CLIENT_ID", "GEMINI_OAUTH_CLIENT_SECRET", "TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"]) if (!process.env[k]) throw new Error(`Missing ${k}`)'
+          pnpm tauri build --target x86_64-unknown-linux-gnu --no-bundle -- --locked
+          pnpm tauri bundle --target x86_64-unknown-linux-gnu --bundles deb,appimage --ci
+          node scripts/check-update-format.mjs x86_64-unknown-linux-gnu
+          node scripts/collect-artifacts.mjs x86_64-unknown-linux-gnu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-v118-linux
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 1
+
+  windows:
+    runs-on: [self-hosted, Windows, X64, aihubmix-v118-windows]
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '4'
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: ilammy/msvc-dev-cmd@v1
+      - run: pnpm install --frozen-lockfile
+      - name: Build and sign Windows packages
+        shell: pwsh
+        run: |
+          foreach ($name in @('GEMINI_OAUTH_CLIENT_ID', 'GEMINI_OAUTH_CLIENT_SECRET', 'TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing $name" }
+          }
+          pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle -- --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/collect-portable.mjs x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/check-update-format.mjs x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/collect-artifacts.mjs x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-v118-windows
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 1

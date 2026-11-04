@@ -19,7 +19,11 @@ export interface LegacyMapping {
 export interface AccountState {
   legacyMappings?: LegacyMapping[];
   relayBaseUrl: string;
-  account: { loggedIn: boolean; email?: string; userId?: string | number };
+  account: {
+    loggedIn: boolean;
+    email?: string;
+    userId?: string | number;
+  };
   localKeys: KeyInfo[];
   legacyData: boolean;
   storageError: string | null;
@@ -90,4 +94,12 @@ export interface WalletBalance {
   email: string;
   balance: number | null;
   currency: string;
+}
+export interface Announcement {
+  id: number;
+  title: string;
+  content: string;
+  notifyMode: string;
+  readAt: string | null;
+  createdAt: string;
 }

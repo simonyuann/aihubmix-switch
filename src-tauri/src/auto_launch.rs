@@ -1,5 +1,8 @@
 use crate::error::AppError;
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
+use std::sync::Mutex;
+
+static AUTO_LAUNCH_GATE: Mutex<()> = Mutex::new(());
 
 /// 获取 macOS 上的 .app bundle 路径
 /// 将 `/path/to/CC Switch.app/Contents/MacOS/CC Switch` 转换为 `/path/to/CC Switch.app`
@@ -66,6 +69,50 @@ pub fn is_auto_launch_enabled() -> Result<bool, AppError> {
     auto_launch
         .is_enabled()
         .map_err(|e| AppError::Message(format!("检查开机自启状态失败: {e}")))
+}
+
+pub fn set_auto_launch(enabled: bool) -> Result<(), AppError> {
+    let _guard = AUTO_LAUNCH_GATE.lock().unwrap_or_else(|e| e.into_inner());
+    if enabled {
+        enable_auto_launch()
+    } else {
+        disable_auto_launch()
+    }
+}
+
+/// Register the default once, without overriding later system or user choices.
+pub fn initialize_default() {
+    if cfg!(debug_assertions) || std::env::var_os("CC_SWITCH_TEST_HOME").is_some() {
+        return;
+    }
+    let _guard = AUTO_LAUNCH_GATE.lock().unwrap_or_else(|e| e.into_inner());
+    let settings = crate::settings::get_settings();
+    if settings
+        .local_migrations
+        .as_ref()
+        .and_then(|m| m.auto_launch_default_initialized)
+        == Some(true)
+    {
+        return;
+    }
+    if settings.launch_on_startup {
+        match is_auto_launch_enabled() {
+            Ok(true) => {}
+            Ok(false) => {
+                if let Err(error) = enable_auto_launch() {
+                    log::warn!("初始化开机自启失败: {error}");
+                    return;
+                }
+            }
+            Err(error) => {
+                log::warn!("检查开机自启失败: {error}");
+                return;
+            }
+        }
+    }
+    if let Err(error) = crate::settings::mark_auto_launch_default_initialized() {
+        log::warn!("保存开机自启初始化状态失败: {error}");
+    }
 }
 
 #[cfg(test)]

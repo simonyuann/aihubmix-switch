@@ -202,7 +202,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           type="button"
           variant="neutral"
           size="compact"
-          onClick={() => settingsApi.openExternal("https://csmy.fun:23457/")}
+          onClick={() => settingsApi.openExternal("https://dl.csmy.fun:23457/")}
         >
           <Globe className="h-3.5 w-3.5" />
           {t("settings.officialWebsite")}

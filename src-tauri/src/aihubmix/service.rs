@@ -422,15 +422,6 @@ impl Backend {
                 unwrap_response(status, value)?;
                 Ok(json!({"sent":true}))
             }
-            "open-account-page" => {
-                let path = match string(&input, "page").as_str() {
-                    "register" => "/register",
-                    "forgot-password" => "/forgot-password",
-                    _ => "/login",
-                };
-                open::that(format!("{DEFAULT_BASE}{path}")).map_err(|_| "无法打开平台官网")?;
-                Ok(Value::Null)
-            }
             "state" => self.state(),
             "refresh" => self.state(),
             "login" | "register" => {
@@ -676,6 +667,65 @@ impl Backend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn announcements_use_current_session_and_only_mark_a_valid_id() {
+        use axum::{
+            extract::Path,
+            http::HeaderMap,
+            routing::{get, post},
+            Json, Router,
+        };
+        let app = Router::new()
+            .route("/api/v1/announcements", get(|headers: HeaderMap| async move {
+                assert_eq!(headers.get("authorization").unwrap(), "Bearer test-token");
+                Json(json!({"code": 0, "data": [{"id": 3, "title": "Notice", "content": "Body", "notify_mode": "popup", "read_at": null, "created_at": "2026-11-04"}]}))
+            }))
+            .route("/api/v1/announcements/:id/read", post(|headers: HeaderMap, Path(id): Path<i64>| async move {
+                assert_eq!(headers.get("authorization").unwrap(), "Bearer test-token");
+                assert_eq!(id, 3);
+                Json(json!({"code": 0, "data": {}}))
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(root.path().into())).unwrap();
+        backend.client = Client::builder().no_proxy().build().unwrap();
+        backend.store.settings.relay_base_url = base;
+        backend.store.settings.account = Account {
+            logged_in: true,
+            email: Some("test@example.test".into()),
+            user_id: Some(1),
+            expires_at: now() + 3600,
+        };
+        backend.store.memory_secret("access", "test-token");
+        let backend = tokio::sync::Mutex::new(Some(backend));
+        let payments = super::super::payments::Payments::default();
+        let list =
+            super::super::payments::dispatch(&backend, &payments, "announcements", Value::Null)
+                .await
+                .unwrap();
+        assert_eq!(list[0]["notifyMode"], "popup");
+        assert_eq!(list[0]["content"], "Body");
+        assert!(super::super::payments::dispatch(
+            &backend,
+            &payments,
+            "announcement-read",
+            json!({"id": 0})
+        )
+        .await
+        .is_err());
+        super::super::payments::dispatch(
+            &backend,
+            &payments,
+            "announcement-read",
+            json!({"id": 3}),
+        )
+        .await
+        .unwrap();
+        task.abort();
+    }
     #[test]
     fn imports_explicit_snapshot_idempotently_and_preserves_original() {
         let source = tempfile::tempdir().unwrap();

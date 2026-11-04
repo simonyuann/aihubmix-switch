@@ -309,6 +309,8 @@ impl S3SyncSettings {
 #[serde(rename_all = "camelCase")]
 pub struct LocalMigrations {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_launch_default_initialized: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_third_party_history_provider_bucket_v1:
         Option<CodexThirdPartyHistoryProviderBucketMigration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -422,10 +424,10 @@ pub struct AppSettings {
     #[serde(default)]
     pub skip_claude_onboarding: bool,
     /// 是否开机自启
-    #[serde(default)]
+    #[serde(default = "default_startup_enabled")]
     pub launch_on_startup: bool,
     /// 静默启动（程序启动时不显示主窗口，仅托盘运行）
-    #[serde(default)]
+    #[serde(default = "default_startup_enabled")]
     pub silent_startup: bool,
     /// 退出时是否处于轻量模式（主窗口已销毁、只留托盘）；下次启动按它恢复。
     /// 只经 [`set_lightweight_mode`] 写，前端全量保存不透传。
@@ -636,6 +638,10 @@ fn default_show_in_tray() -> bool {
     true
 }
 
+fn default_startup_enabled() -> bool {
+    true
+}
+
 fn default_minimize_to_tray_on_close() -> bool {
     true
 }
@@ -653,8 +659,8 @@ impl Default for AppSettings {
             use_app_window_controls: false,
             enable_claude_plugin_integration: false,
             skip_claude_onboarding: false,
-            launch_on_startup: false,
-            silent_startup: false,
+            launch_on_startup: true,
+            silent_startup: true,
             lightweight_mode: false,
             enable_local_proxy: false,
             enable_stack_mode: false,
@@ -1203,6 +1209,21 @@ pub fn set_lightweight_mode(enabled: bool) -> Result<(), AppError> {
     mutate_settings(|settings| settings.lightweight_mode = enabled)
 }
 
+pub fn mark_auto_launch_default_initialized() -> Result<(), AppError> {
+    mutate_settings(|settings| {
+        settings
+            .local_migrations
+            .get_or_insert_with(Default::default)
+            .auto_launch_default_initialized = Some(true);
+    })
+}
+
+pub fn should_start_silently(settings: &AppSettings) -> bool {
+    settings.silent_startup
+        && settings.show_in_tray
+        && settings.first_run_notice_confirmed == Some(true)
+}
+
 /// 客户端地址（见 [`AppSettings::proxy_client_host`]），去掉首尾空白；没设或为空时是 `None`。
 pub fn get_proxy_client_host() -> Option<String> {
     get_settings()
@@ -1565,6 +1586,23 @@ pub fn update_s3_sync_status(status: WebDavSyncStatus) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::app_config::AppType;
+
+    #[test]
+    fn background_defaults_keep_explicit_choices_and_show_first_run() {
+        let fresh = AppSettings::default();
+        assert!(fresh.launch_on_startup && fresh.silent_startup);
+        assert!(!should_start_silently(&fresh));
+        let mut configured = fresh.clone();
+        configured.first_run_notice_confirmed = Some(true);
+        assert!(should_start_silently(&configured));
+        configured.show_in_tray = false;
+        assert!(!should_start_silently(&configured));
+        let opted_out: AppSettings = serde_json::from_value(serde_json::json!({
+            "launchOnStartup": false, "silentStartup": false
+        }))
+        .unwrap();
+        assert!(!opted_out.launch_on_startup && !opted_out.silent_startup);
+    }
 
     #[test]
     fn codex_stack_classic_tools_default_on_and_ignore_the_old_off_key() {

@@ -465,7 +465,7 @@ pub fn run() {
                 && payload.event() == tauri::webview::PageLoadEvent::Finished
                 && payload.url().scheme() != "about"
                 && !startup_page_handled.swap(true, Ordering::Relaxed)
-                && !crate::settings::get_settings().silent_startup
+                && !crate::settings::should_start_silently(&crate::settings::get_settings())
             {
                 let _ = webview.window().show();
                 log::info!("主页面加载完成，主窗口已显示");
@@ -1282,6 +1282,8 @@ pub fn run() {
             // 将同一个实例注入到全局状态，避免重复创建导致的不一致
             app.manage(app_state);
             app.manage(aihubmix::Platform::default());
+            aihubmix::start_wallet_worker(app.handle().clone());
+            tauri::async_runtime::spawn_blocking(crate::auto_launch::initialize_default);
             app.manage(services::kimi_oauth::KimiOAuthManager::default());
 
             // 初始化 SkillService
@@ -1521,7 +1523,7 @@ pub fn run() {
                     } else {
                         log::info!("上次退出时在轻量模式，启动后已恢复");
                     }
-                } else if settings.silent_startup {
+                } else if crate::settings::should_start_silently(&settings) && !startup_deeplink {
                     // 静默启动模式：保持窗口隐藏
                     let _ = window.hide();
                     #[cfg(target_os = "windows")]

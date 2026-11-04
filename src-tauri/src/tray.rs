@@ -2455,8 +2455,7 @@ pub fn base_tray_icon(app: &tauri::AppHandle) -> Option<(Image<'static>, bool)> 
     BASE.get_or_init(|| {
         #[cfg(target_os = "macos")]
         {
-            const ICON_BYTES: &[u8] =
-                include_bytes!("../icons/32x32.png");
+            const ICON_BYTES: &[u8] = include_bytes!("../icons/32x32.png");
             match Image::from_bytes(ICON_BYTES) {
                 Ok(icon) => return Some((icon, false)),
                 Err(err) => {
@@ -2530,6 +2529,103 @@ fn tray_tooltip(texts: &TrayTexts, problems: &[TrayProblem]) -> String {
 
 /// 现在托盘上的（有没有圆点，悬停提示）；`None` = 托盘图标还没建好，还是建图标时的样子。
 static APPLIED_INDICATOR: Lazy<Mutex<Option<(bool, String)>>> = Lazy::new(|| Mutex::new(None));
+static WALLET_BALANCE: Lazy<Mutex<Option<(String, f64)>>> = Lazy::new(|| Mutex::new(None));
+
+fn wallet_label(currency: &str, amount: f64) -> String {
+    let unit = match currency {
+        "CNY" => "¥",
+        "USD" => "$",
+        _ => currency,
+    };
+    format!("{unit}{amount:.2}")
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux", test))]
+fn balance_icon(amount: f64) -> Image<'static> {
+    const DIGITS: [[u8; 5]; 10] = [
+        [7, 5, 5, 5, 7],
+        [2, 6, 2, 2, 7],
+        [7, 1, 7, 4, 7],
+        [7, 1, 7, 1, 7],
+        [5, 5, 7, 1, 1],
+        [7, 4, 7, 1, 7],
+        [7, 4, 7, 5, 7],
+        [7, 1, 1, 1, 1],
+        [7, 5, 7, 5, 7],
+        [7, 5, 7, 1, 7],
+    ];
+    let rounded = format!("{amount:.2}");
+    let (integer, cents) = rounded.split_once('.').unwrap_or((&rounded, "00"));
+    let (top, bottom) = if integer.len() <= 4 {
+        (integer.to_string(), format!(".{cents}"))
+    } else if amount.abs() < 1_000_000.0 {
+        (format!("{:.0}k", amount / 1_000.0), String::new())
+    } else {
+        (format!("{:.0}m", amount / 1_000_000.0), String::new())
+    };
+    let mut pixels = vec![0; 32 * 32 * 4];
+    for y in 0..32usize {
+        for x in 0..32usize {
+            if (x < 2 || x > 29) && (y < 2 || y > 29) {
+                continue;
+            }
+            let at = (y * 32 + x) * 4;
+            pixels[at..at + 4].copy_from_slice(&[42, 49, 50, 255]);
+        }
+    }
+    let mut line = |text: &str, y0: usize| {
+        let chars: Vec<_> = text.chars().take(4).collect();
+        let width = chars.len().saturating_mul(8).saturating_sub(2);
+        let x0 = (32usize.saturating_sub(width)) / 2;
+        for (index, c) in chars.iter().enumerate() {
+            let glyph = match c {
+                '0'..='9' => DIGITS[*c as usize - '0' as usize],
+                '.' => [0, 0, 0, 0, 2],
+                '-' => [0, 0, 7, 0, 0],
+                'k' => [4, 5, 6, 5, 5],
+                'm' => [0, 7, 7, 5, 5],
+                _ => [0; 5],
+            };
+            for (row, bits) in glyph.iter().enumerate() {
+                for col in 0..3 {
+                    if bits & (1 << (2 - col)) == 0 {
+                        continue;
+                    }
+                    for dy in 0..2 {
+                        for dx in 0..2 {
+                            let x = x0 + index * 8 + col * 2 + dx;
+                            let y = y0 + row * 2 + dy;
+                            let at = (y * 32 + x) * 4;
+                            pixels[at..at + 4].copy_from_slice(&[255, 255, 255, 255]);
+                        }
+                    }
+                }
+            }
+        }
+    };
+    if bottom.is_empty() {
+        line(&top, 11);
+    } else {
+        line(&top, 4);
+        line(&bottom, 18);
+    }
+    Image::new_owned(pixels, 32, 32)
+}
+
+pub fn set_wallet_balance(app: &tauri::AppHandle, balance: Option<(String, f64)>) {
+    let balance =
+        balance.filter(|(_, amount)| amount.is_finite() && amount.abs() < 1_000_000_000.0);
+    {
+        let mut current = lock(&WALLET_BALANCE);
+        if *current == balance {
+            return;
+        }
+        *current = balance;
+    }
+    *lock(&APPLIED_INDICATOR) = None;
+    let problems = lock(&LAST_STATUS).problems.clone();
+    update_problem_indicator(app, &TrayTexts::current(), &problems);
+}
 
 /// 问题区有内容时托盘图标加圆点、悬停提示写第一条问题；问题都消失后换回原图标和提示。只在
 /// 变了时才动（Linux 每次换图标都要写临时文件）。
@@ -2539,31 +2635,79 @@ fn update_problem_indicator(app: &tauri::AppHandle, texts: &TrayTexts, problems:
         return;
     };
     let has_dot = !problems.is_empty();
-    let tooltip = tray_tooltip(texts, problems);
+    let balance = lock(&WALLET_BALANCE).clone();
+    let mut tooltip = tray_tooltip(texts, problems);
+    if let Some((currency, amount)) = &balance {
+        tooltip = truncate_chars(
+            &format!("{} · {}", tooltip, wallet_label(currency, *amount)),
+            MAX_TOOLTIP_CHARS,
+        );
+    }
     // 只在锁里比对和记账：换图标要回主线程执行，不能拿着锁等。
     let icon_changed = {
         let mut applied = lock(&APPLIED_INDICATOR);
         if applied.as_ref() == Some(&(has_dot, tooltip.clone())) {
             return;
         }
-        let changed = applied.as_ref().map_or(has_dot, |(dot, _)| *dot != has_dot);
+        let changed = applied.as_ref().map_or(true, |(dot, _)| *dot != has_dot);
         *applied = Some((has_dot, tooltip.clone()));
         changed
     };
     if icon_changed {
-        if let Some((base, template)) = base_tray_icon(app) {
+        #[cfg(target_os = "macos")]
+        if let Some((currency, amount)) = &balance {
+            if let Err(e) = tray.set_title(Some(wallet_label(currency, *amount))) {
+                log::warn!("[Tray] 更新余额标题失败: {e}");
+            }
+            if let Err(e) = tray.set_icon(None) {
+                log::warn!("[Tray] 隐藏图标失败: {e}");
+            }
+        } else {
+            let _ = tray.set_title(None::<&str>);
+            if let Some((base, template)) = base_tray_icon(app) {
+                let icon = if has_dot {
+                    icon_with_problem_dot(&base, template)
+                } else {
+                    base
+                };
+                let _ = tray.set_icon(Some(icon));
+                if template {
+                    let _ = tray.set_icon_as_template(true);
+                }
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        if let Some((currency, amount)) = &balance {
+            let icon = balance_icon(*amount);
             let icon = if has_dot {
-                icon_with_problem_dot(&base, template)
+                icon_with_problem_dot(&icon, false)
             } else {
-                base
+                icon
             };
             if let Err(e) = tray.set_icon(Some(icon)) {
-                log::warn!("[Tray] 更新托盘图标失败: {e}");
+                log::warn!("[Tray] 更新余额图标失败: {e}");
             }
-            // macOS 上 set_icon 会把模板标记清掉，要再设一次，否则深色菜单栏里是黑图标。
-            if template {
-                if let Err(e) = tray.set_icon_as_template(true) {
-                    log::warn!("[Tray] 恢复模板图标标记失败: {e}");
+            #[cfg(target_os = "linux")]
+            let _ = tray.set_title(Some(wallet_label(currency, *amount)));
+            #[cfg(not(target_os = "linux"))]
+            let _ = currency;
+        } else {
+            #[cfg(target_os = "linux")]
+            let _ = tray.set_title(None::<&str>);
+            if let Some((base, template)) = base_tray_icon(app) {
+                let icon = if has_dot {
+                    icon_with_problem_dot(&base, template)
+                } else {
+                    base
+                };
+                if let Err(e) = tray.set_icon(Some(icon)) {
+                    log::warn!("[Tray] 更新托盘图标失败: {e}");
+                }
+                // macOS 上 set_icon 会把模板标记清掉，要再设一次，否则深色菜单栏里是黑图标。
+                if template {
+                    if let Err(e) = tray.set_icon_as_template(true) {
+                        log::warn!("[Tray] 恢复模板图标标记失败: {e}");
+                    }
                 }
             }
         }
@@ -3318,6 +3462,20 @@ pub(crate) async fn refresh_panel_provider_usage(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wallet_icon_and_label_change_with_balance() {
+        assert_eq!(wallet_label("CNY", 95.31), "¥95.31");
+        assert_eq!(wallet_label("USD", 2.5), "$2.50");
+        let first = balance_icon(95.31);
+        let second = balance_icon(95.32);
+        assert_eq!((first.width(), first.height()), (32, 32));
+        assert_ne!(first.rgba(), second.rgba());
+        assert!(first
+            .rgba()
+            .chunks_exact(4)
+            .any(|pixel| pixel == [255, 255, 255, 255]));
+    }
     use crate::provider::{UsageData, UsageResult};
     use crate::services::subscription::{
         CredentialStatus, QuotaTier, SubscriptionQuota, TIER_FIVE_HOUR, TIER_GEMINI_FLASH,

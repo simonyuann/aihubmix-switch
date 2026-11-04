@@ -91,7 +91,7 @@ describe("AIHubMix account integration", () => {
       expiresAt: new Date(Date.now() + 600000).toISOString(),
       tradeNo: "a",
     };
-    const historical = { ...pending, id: 2, status: "FAILED" };
+    const historical = { ...pending, id: 2, amount: 20, status: "FAILED" };
     mocks.dispatch.mockImplementation(
       (command: string, payload?: { id?: number }) => {
         if (command === "payment-overview")
@@ -114,16 +114,17 @@ describe("AIHubMix account integration", () => {
       screen.queryByRole("button", { name: "创建充值订单" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /#2 ·/ }),
+      screen.queryByRole("button", { name: /CNY 20/ }),
     ).not.toBeInTheDocument();
     const history = screen.getByRole("button", { name: /^充值记录/ });
     expect(history).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(history);
-    fireEvent.click(screen.getByRole("button", { name: /#2 ·/ }));
+    expect(screen.queryByText(/#\d+/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /CNY 20/ }));
     await waitFor(() =>
       expect(screen.queryByAltText("订单付款二维码")).not.toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /#1 ·/ }));
+    fireEvent.click(screen.getByRole("button", { name: /CNY 50/ }));
     expect(await screen.findByAltText("订单付款二维码")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "打开支付页面" }),

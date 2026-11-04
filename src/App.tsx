@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import { AccountProvider, useAccount } from "@/contexts/AccountContext";
 import { LoginPage } from "@/components/aihubmix/LoginPage";
 import { WalletActionsProvider } from "@/components/aihubmix/WalletPanel";
+import { AnnouncementProvider } from "@/components/aihubmix/Announcements";
 import CcWorkspace from "@/CcWorkspace";
 
 function LoadingScreen() {
@@ -24,9 +25,11 @@ export default function App() {
   return (
     <AccountProvider>
       <AccountBoundary>
-        <WalletActionsProvider>
-          <CcWorkspace />
-        </WalletActionsProvider>
+        <AnnouncementProvider>
+          <WalletActionsProvider>
+            <CcWorkspace />
+          </WalletActionsProvider>
+        </AnnouncementProvider>
       </AccountBoundary>
     </AccountProvider>
   );

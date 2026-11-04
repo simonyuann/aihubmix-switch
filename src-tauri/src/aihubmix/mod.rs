@@ -7,6 +7,7 @@ mod store;
 mod tools;
 mod types;
 use serde_json::Value;
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 pub(crate) use types::DEFAULT_BASE;
 pub struct Platform {
@@ -28,6 +29,7 @@ pub fn legacy_dir() -> std::path::PathBuf {
 }
 #[tauri::command]
 pub async fn aihubmix_dispatch(
+    app: AppHandle,
     app_state: tauri::State<'_, crate::store::AppState>,
     state: tauri::State<'_, Platform>,
     command: String,
@@ -50,7 +52,6 @@ pub async fn aihubmix_dispatch(
                 | "auth-settings"
                 | "send-code"
                 | "forgot-password"
-                | "open-account-page"
         )
     {
         crate::product_policy::require_session()?;
@@ -67,16 +68,25 @@ pub async fn aihubmix_dispatch(
         )
         .await;
     }
-    // Payments release the account lock while waiting for the network.
-    if command.starts_with("payment-") {
+    // These requests release the account lock while waiting for the network.
+    if command.starts_with("payment-")
+        || matches!(command.as_str(), "announcements" | "announcement-read")
+    {
+        let owner_id = guard
+            .as_ref()
+            .and_then(|backend| backend.store.settings.account.user_id);
         drop(guard);
-        return payments::dispatch(
+        let result = payments::dispatch(
             &state.backend,
             &state.payments,
             &command,
             payload.unwrap_or(Value::Null),
         )
         .await;
+        if command == "payment-balance" {
+            update_current_tray_balance(&app, &state.backend, owner_id, result.as_ref().ok()).await;
+        }
+        return result;
     }
     let result = guard
         .as_mut()
@@ -85,10 +95,119 @@ pub async fn aihubmix_dispatch(
         .await;
     if command == "logout" {
         crate::product_policy::set_session(0);
+        crate::tray::set_wallet_balance(&app, None);
         drop(guard);
         let _ = app_state.proxy_service.stop().await;
     }
     result
+}
+
+fn update_tray_balance(app: &AppHandle, value: Option<&Value>) {
+    let balance = value.and_then(|value| {
+        Some((
+            value["currency"].as_str()?.to_string(),
+            value["balance"].as_f64()?,
+        ))
+    });
+    crate::tray::set_wallet_balance(app, balance);
+}
+
+async fn update_current_tray_balance(
+    app: &AppHandle,
+    backend: &Mutex<Option<service::Backend>>,
+    owner_id: Option<i64>,
+    value: Option<&Value>,
+) {
+    let guard = backend.lock().await;
+    let current = guard
+        .as_ref()
+        .map(|backend| &backend.store.settings.account);
+    if let Some(account) = current.filter(|account| wallet_belongs_to(account, owner_id, value)) {
+        update_tray_balance(app, value);
+        let _ = app.emit(
+            "aihubmix-wallet-updated",
+            serde_json::json!({"userId": account.user_id, "wallet": value.cloned()}),
+        );
+    }
+}
+
+fn wallet_belongs_to(
+    account: &types::Account,
+    owner_id: Option<i64>,
+    value: Option<&Value>,
+) -> bool {
+    if !account.logged_in || owner_id.is_none() || account.user_id != owner_id {
+        return false;
+    }
+    value.is_none_or(|value| {
+        account
+            .email
+            .as_deref()
+            .is_some_and(|email| value["email"].as_str() == Some(email))
+    })
+}
+
+/// Keep the balance fresh even when the main webview is hidden or destroyed.
+pub fn start_wallet_worker(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let state = app.state::<Platform>();
+            let owner_id = {
+                let mut guard = state.backend.lock().await;
+                if guard.is_none() {
+                    match store::Store::load(crate::config::get_app_config_dir().join("platform"))
+                        .and_then(service::Backend::new)
+                    {
+                        Ok(backend) => *guard = Some(backend),
+                        Err(_) => {
+                            update_tray_balance(&app, None);
+                            continue;
+                        }
+                    }
+                }
+                guard
+                    .as_ref()
+                    .and_then(|backend| backend.store.settings.account.user_id)
+            };
+            let result = payments::dispatch(
+                &state.backend,
+                &state.payments,
+                "payment-balance",
+                Value::Null,
+            )
+            .await;
+            update_current_tray_balance(&app, &state.backend, owner_id, result.as_ref().ok()).await;
+        }
+    });
+}
+
+#[cfg(test)]
+mod wallet_tests {
+    use super::*;
+
+    #[test]
+    fn previous_account_failure_does_not_clear_current_balance() {
+        let account = types::Account {
+            logged_in: true,
+            email: Some("current@example.test".into()),
+            user_id: Some(2),
+            ..Default::default()
+        };
+        assert!(!wallet_belongs_to(&account, Some(1), None));
+        assert!(wallet_belongs_to(&account, Some(2), None));
+        assert!(!wallet_belongs_to(
+            &account,
+            Some(2),
+            Some(&serde_json::json!({"email": "previous@example.test"}))
+        ));
+        assert!(wallet_belongs_to(
+            &account,
+            Some(2),
+            Some(&serde_json::json!({"email": "current@example.test"}))
+        ));
+    }
 }
 
 #[cfg(test)]
