@@ -2540,7 +2540,7 @@ fn wallet_label(currency: &str, amount: f64) -> String {
     format!("{unit}{amount:.2}")
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux", test))]
+#[cfg(any(target_os = "linux", test))]
 fn balance_icon(amount: f64) -> Image<'static> {
     const DIGITS: [[u8; 5]; 10] = [
         [7, 5, 5, 5, 7],
@@ -2615,6 +2615,13 @@ fn balance_icon(amount: f64) -> Image<'static> {
 pub fn set_wallet_balance(app: &tauri::AppHandle, balance: Option<(String, f64)>) {
     let balance =
         balance.filter(|(_, amount)| amount.is_finite() && amount.abs() < 1_000_000_000.0);
+    #[cfg(target_os = "windows")]
+    {
+        let label = balance
+            .as_ref()
+            .map(|(currency, amount)| wallet_label(currency, *amount));
+        crate::windows_wallet_display::set(label.as_deref());
+    }
     {
         let mut current = lock(&WALLET_BALANCE);
         if *current == balance {
@@ -2649,7 +2656,7 @@ fn update_problem_indicator(app: &tauri::AppHandle, texts: &TrayTexts, problems:
         if applied.as_ref() == Some(&(has_dot, tooltip.clone())) {
             return;
         }
-        let changed = applied.as_ref().map_or(true, |(dot, _)| *dot != has_dot);
+        let changed = applied.as_ref().is_none_or(|(dot, _)| *dot != has_dot);
         *applied = Some((has_dot, tooltip.clone()));
         changed
     };
@@ -2678,6 +2685,17 @@ fn update_problem_indicator(app: &tauri::AppHandle, texts: &TrayTexts, problems:
         }
         #[cfg(not(target_os = "macos"))]
         if let Some((currency, amount)) = &balance {
+            #[cfg(target_os = "windows")]
+            let icon = base_tray_icon(app)
+                .map(|(base, _)| base)
+                .unwrap_or_else(|| {
+                    crate::windows_wallet_icon::render(
+                        currency,
+                        *amount,
+                        crate::windows_wallet_icon::taskbar_is_light(),
+                    )
+                });
+            #[cfg(not(target_os = "windows"))]
             let icon = balance_icon(*amount);
             let icon = if has_dot {
                 icon_with_problem_dot(&icon, false)
