@@ -60,11 +60,29 @@ fn err(error: impl std::fmt::Display) -> String {
 }
 
 fn provider(state: &AppState, app: &AppType, id: &str) -> Result<Option<Provider>, String> {
-    state.db.get_provider_by_id(id, app.as_str()).map_err(err)
+    let provider = state.db.get_provider_by_id(id, app.as_str()).map_err(err)?;
+    if let Some(ref p) = provider {
+        if crate::product_policy::active()
+            && crate::product_policy::reserved_platform_id(&p.id)
+            && !crate::product_policy::visible_provider(app, p)
+        {
+            return Err("平台供应商不属于当前账号".into());
+        }
+    }
+    Ok(provider)
 }
 
 fn direct_provider(state: &AppState, app: &AppType) -> Result<Option<Provider>, String> {
-    current::direct_provider(&state.db, app).map_err(err)
+    let provider = current::direct_provider(&state.db, app).map_err(err)?;
+    if let Some(ref p) = provider {
+        if crate::product_policy::active()
+            && crate::product_policy::reserved_platform_id(&p.id)
+            && !crate::product_policy::visible_provider(app, p)
+        {
+            return Err("平台供应商不属于当前账号".into());
+        }
+    }
+    Ok(provider)
 }
 
 fn route_provider(
@@ -938,6 +956,25 @@ pub async fn exit(state: &AppState, app: &AppType) -> Result<(), String> {
     Ok(())
 }
 
+/// Detach the old owner's route after authentication has expired. The scoped
+/// owner applies only to this synchronous operation, never to async requests.
+pub(crate) async fn exit_for_account_recovery(
+    state: &AppState,
+    app: &AppType,
+    user: i64,
+) -> Result<(), String> {
+    require_proxy_app(app)?;
+    {
+        let _guard = lock_settled(state, app).await.map_err(|e| e.to_string())?;
+        crate::product_policy::with_account_recovery(user, || exit_locked(state, app, false))?;
+    }
+    if let Err(error) = state.db.clear_provider_health_for_app(app.as_str()).await {
+        log::warn!("清除 {} 健康状态失败: {error}", app.as_str());
+    }
+    stop_server_if_unused(state).await;
+    Ok(())
+}
+
 /// 设置里在路由和 Stack 之间换：处于另一种模式（`stack` 为真是 Stack 模式）的 Claude Code、
 /// Codex 退回直连，名单留着。返回退回直连的应用。
 pub async fn exit_apps_in_mode(state: &AppState, stack: bool) -> Result<Vec<String>, String> {
@@ -1026,7 +1063,7 @@ fn write_direct_for_exit(
 }
 
 /// 没有应用在代理模式（含 Claude Desktop 的路由模式）时，停掉代理服务。
-async fn stop_server_if_unused(state: &AppState) {
+pub(crate) async fn stop_server_if_unused(state: &AppState) {
     if current::proxy_flags(PROXY_APPS).contains(&true) {
         return;
     }
@@ -2736,48 +2773,95 @@ mod mode_tests {
             "last_refresh":"2026-01-01T00:00:00Z"});
         crate::codex_config::write_codex_live_atomic(&login, Some("model = 'gpt-5.5'\n")).unwrap();
         crate::settings::update_settings(crate::settings::AppSettings {
-            preserve_codex_official_auth_on_switch: true, ..Default::default()
-        }).unwrap();
+            preserve_codex_official_auth_on_switch: true,
+            ..Default::default()
+        })
+        .unwrap();
         let mut own = Provider::with_id(
-            "aihubmix-codex-account-17-service-5".into(), "AIHubMix · OpenAI".into(),
+            "aihubmix-codex-account-17-service-5".into(),
+            "AIHubMix · OpenAI".into(),
             json!({"auth":{"OPENAI_API_KEY":"fixture-own"},
                 "config":"model_provider = 'custom'\nmodel = 'gpt-5.5'\n[model_providers.custom]\nname = 'AIHubMix'\nbase_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\nrequires_openai_auth = true\n"}),
             Some(crate::product_policy::ORIGIN.into()),
         );
         own.category = Some("custom".into());
-        let mut other = Provider::with_id("other".into(), "Other".into(),
+        let mut other = Provider::with_id(
+            "other".into(),
+            "Other".into(),
             json!({"auth":{"OPENAI_API_KEY":"fixture-other"},
-                "config":"model_provider = 'other'\nmodel = 'gpt-5.5'\n[model_providers.other]\nname = 'Other'\nbase_url = 'https://other.example/v1'\nwire_api = 'responses'\n"}), None);
+                "config":"model_provider = 'other'\nmodel = 'gpt-5.5'\n[model_providers.other]\nname = 'Other'\nbase_url = 'https://other.example/v1'\nwire_api = 'responses'\n"}),
+            None,
+        );
         other.category = Some("custom".into());
-        let mut official = Provider::with_id(crate::database::CODEX_OFFICIAL_PROVIDER_ID.into(),
-            "OpenAI Official".into(), json!({"auth":{},"config":"model = 'gpt-5.5'\n"}), None);
+        let mut official = Provider::with_id(
+            crate::database::CODEX_OFFICIAL_PROVIDER_ID.into(),
+            "OpenAI Official".into(),
+            json!({"auth":{},"config":"model = 'gpt-5.5'\n"}),
+            None,
+        );
         official.category = Some("official".into());
-        let state = state_with(AppType::Codex, &[own.clone(), other.clone(), official.clone()], &own.id).await;
+        let state = state_with(
+            AppType::Codex,
+            &[own.clone(), other.clone(), official.clone()],
+            &own.id,
+        )
+        .await;
         ProviderService::switch(&state, AppType::Codex, &own.id).unwrap();
         let read = || fs::read_to_string(crate::codex_config::get_codex_config_path()).unwrap();
         let native = read();
         assert!(native.contains("local-image-extension"));
         assert!(native.contains("requires_openai_auth = false"));
         assert!(native.contains("fixture-own"));
-        assert_eq!(toml::from_str::<toml::Value>(&native).unwrap()["cli_auth_credentials_store"].as_str(), Some("ephemeral"));
-        assert_eq!(crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path()).unwrap(), login);
+        assert_eq!(
+            toml::from_str::<toml::Value>(&native).unwrap()["cli_auth_credentials_store"].as_str(),
+            Some("ephemeral")
+        );
+        assert_eq!(
+            crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path())
+                .unwrap(),
+            login
+        );
         // A previous installation has the same active URL and key but no marker.
-        let legacy = native.lines().filter(|line| !line.contains("x-openai-actor-authorization")
-                && !line.contains("cli_auth_credentials_store"))
-            .collect::<Vec<_>>().join("\n").replace("requires_openai_auth = false", "requires_openai_auth = true") + "\n";
+        let legacy = native
+            .lines()
+            .filter(|line| {
+                !line.contains("x-openai-actor-authorization")
+                    && !line.contains("cli_auth_credentials_store")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            .replace(
+                "requires_openai_auth = false",
+                "requires_openai_auth = true",
+            )
+            + "\n";
         fs::write(crate::codex_config::get_codex_config_path(), &legacy).unwrap();
         crate::aihubmix::native_imagegen::migrate_current(&state, 99).unwrap();
-        assert_eq!(read(), legacy, "another account must not migrate this route");
+        assert_eq!(
+            read(),
+            legacy,
+            "another account must not migrate this route"
+        );
         crate::aihubmix::native_imagegen::migrate_current(&state, 17).unwrap();
         assert!(read().contains("local-image-extension"));
         assert!(read().contains("requires_openai_auth = false"));
-        assert_eq!(toml::from_str::<toml::Value>(&read()).unwrap()["cli_auth_credentials_store"].as_str(), Some("ephemeral"));
-        assert_eq!(crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path()).unwrap(), login);
+        assert_eq!(
+            toml::from_str::<toml::Value>(&read()).unwrap()["cli_auth_credentials_store"].as_str(),
+            Some("ephemeral")
+        );
+        assert_eq!(
+            crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path())
+                .unwrap(),
+            login
+        );
         ProviderService::switch(&state, AppType::Codex, &other.id).unwrap();
         let switched = read();
         assert!(!switched.contains("local-image-extension"));
         assert!(!switched.contains("aihubmix-previous-auth-store"));
-        assert!(toml::from_str::<toml::Value>(&switched).unwrap().get("cli_auth_credentials_store").is_none());
+        assert!(toml::from_str::<toml::Value>(&switched)
+            .unwrap()
+            .get("cli_auth_credentials_store")
+            .is_none());
         assert!(!switched.contains("fixture-own"));
         assert!(switched.contains("fixture-other"));
         ProviderService::switch(&state, AppType::Codex, &own.id).unwrap();
@@ -2794,7 +2878,11 @@ mod mode_tests {
         let official_config = read();
         assert!(!official_config.contains("local-image-extension"));
         assert!(!official_config.contains("fixture-own"));
-        assert_eq!(crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path()).unwrap(), login);
+        assert_eq!(
+            crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path())
+                .unwrap(),
+            login
+        );
     }
 
     fn settings_path() -> std::path::PathBuf {

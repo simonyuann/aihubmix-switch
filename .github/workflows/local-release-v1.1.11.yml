@@ -1,0 +1,143 @@
+name: Local v1.1.11 release build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        options: [macos, linux, windows]
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    if: ${{ inputs.platform == 'macos' }}
+    runs-on: [self-hosted, macOS, ARM64, aihubmix-v111-mac]
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '3'
+      CARGO_PROFILE_RELEASE_STRIP: none
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+      - name: Configure local Rust toolchain
+        run: echo /Users/simon/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin >> "$GITHUB_PATH"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - name: Use the temporary build cache
+        run: ln -s /Users/simon/build-aihub/v1.1.11/target src-tauri/target
+      - name: Build and sign both Mac architectures
+        run: |
+          node -e 'for (const k of ["GEMINI_OAUTH_CLIENT_ID", "GEMINI_OAUTH_CLIENT_SECRET", "TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"]) if (!process.env[k]) throw new Error(`Missing ${k}`)'
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            pnpm tauri build --target "$target" --no-bundle -- --locked
+            pnpm tauri bundle --target "$target" --bundles app,dmg --ci --no-sign
+            node scripts/check-update-format.mjs "$target"
+            node scripts/collect-artifacts.mjs "$target"
+          done
+      - name: Preserve signed Mac artifacts locally
+        run: |
+          mkdir -p /Users/simon/build-aihub/v1.1.11/artifacts-macos
+          cp artifacts/* /Users/simon/build-aihub/v1.1.11/artifacts-macos/
+  linux:
+    if: ${{ inputs.platform == 'linux' }}
+    runs-on: [self-hosted, Linux, X64, aihubmix-v111-linux]
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '4'
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+      LINUXDEPLOY_EXCLUDED_LIBRARIES: 'libwayland-client.so*'
+      CI: 'true'
+    steps:
+      - name: Extract the verified local source snapshot
+        run: |
+          snapshot="/__w/aihubmix-source-$GITHUB_SHA.tar.gz"
+          printf '%s  %s\n' "$(cat "$snapshot.sha256")" "$snapshot" | sha256sum -c -
+          tar -xzf "$snapshot" -C "$GITHUB_WORKSPACE"
+          mkdir -p /__w/aihubmix-build-target
+          ln -s /__w/aihubmix-build-target "$GITHUB_WORKSPACE/src-tauri/target"
+      - run: pnpm install --frozen-lockfile
+      - name: Build and sign Linux packages
+        run: |
+          node -e 'for (const k of ["GEMINI_OAUTH_CLIENT_ID", "GEMINI_OAUTH_CLIENT_SECRET", "TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"]) if (!process.env[k]) throw new Error(`Missing ${k}`)'
+          pnpm tauri build --target x86_64-unknown-linux-gnu --no-bundle -- --locked
+          pnpm tauri bundle --target x86_64-unknown-linux-gnu --bundles deb,appimage --ci
+          node scripts/check-update-format.mjs x86_64-unknown-linux-gnu
+          node scripts/collect-artifacts.mjs x86_64-unknown-linux-gnu
+      - name: Preserve signed Linux artifacts locally
+        run: |
+          mkdir -p /__w/aihubmix-output-linux
+          cp artifacts/* /__w/aihubmix-output-linux/
+  windows:
+    if: ${{ inputs.platform == 'windows' }}
+    runs-on: [self-hosted, Windows, X64, aihubmix-v111-windows]
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '4'
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      CI: 'true'
+    steps:
+      - name: Extract the verified local source snapshot
+        shell: powershell
+        run: |
+          $snapshot = "\\host.lan\Data\aihubmix-source-$env:GITHUB_SHA.zip"
+          $checksum = (Get-Content "$snapshot.sha256" -Raw).Trim()
+          if ((Get-FileHash $snapshot -Algorithm SHA256).Hash -ne $checksum) { throw 'Source snapshot checksum mismatch' }
+          Expand-Archive -Path $snapshot -DestinationPath $env:GITHUB_WORKSPACE -Force
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: ilammy/msvc-dev-cmd@v1
+      - run: pnpm install --frozen-lockfile
+      - name: Make 7-Zip available for installer verification
+        shell: powershell
+        run: Add-Content $env:GITHUB_PATH 'C:\Program Files\7-Zip'
+      - name: Build and sign Windows packages
+        shell: powershell
+        run: |
+          foreach ($name in @('GEMINI_OAUTH_CLIENT_ID', 'GEMINI_OAUTH_CLIENT_SECRET', 'TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing $name" }
+          }
+          node .\node_modules\@tauri-apps\cli\tauri.js build --target x86_64-pc-windows-msvc --no-bundle -- --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/collect-portable.mjs x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci --config .github/local-release-windows-v1.1.11.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/check-update-format.mjs x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/collect-artifacts.mjs x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve signed Windows artifacts locally
+        shell: powershell
+        run: |
+          $dest = "\\host.lan\Data\aihubmix-output-windows"
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Copy-Item artifacts\* $dest

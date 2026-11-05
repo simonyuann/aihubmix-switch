@@ -309,6 +309,353 @@ impl LivePatch for UpgradePatch {
     }
 }
 
+/// Remove only the exact direct route installed for the account being signed
+/// out. Ambiguous profiles or user-modified routes are deliberately untouched.
+struct LogoutPatch {
+    expected_url: String,
+    expected_token: String,
+    legacy_auth_path: Option<PathBuf>,
+}
+
+/// Legacy auth.json is only edited when it still contains the exact saved key.
+struct LegacyAuthLogoutPatch {
+    expected_token: String,
+}
+impl LivePatch for LegacyAuthLogoutPatch {
+    fn apply(&self, path: &Path, pre: Option<&[u8]>) -> Result<Vec<u8>, LiveWriteError> {
+        let mut auth: serde_json::Value = pre
+            .and_then(|bytes| serde_json::from_slice(bytes).ok())
+            .ok_or_else(|| LiveWriteError::Conflict {
+                path: path.to_path_buf(),
+            })?;
+        if crate::codex_config::extract_codex_auth_api_key(&auth).as_deref()
+            != Some(self.expected_token.as_str())
+        {
+            return Err(LiveWriteError::Conflict {
+                path: path.to_path_buf(),
+            });
+        }
+        auth.as_object_mut()
+            .ok_or_else(|| LiveWriteError::Conflict {
+                path: path.to_path_buf(),
+            })?
+            .remove("OPENAI_API_KEY");
+        serde_json::to_vec_pretty(&auth).map_err(|_| LiveWriteError::Conflict {
+            path: path.to_path_buf(),
+        })
+    }
+}
+
+/// Detach the active route only when it still points to the matching platform.
+struct LegacyConfigLogoutPatch {
+    expected_url: String,
+    expected_token: String,
+}
+impl LivePatch for LegacyConfigLogoutPatch {
+    fn apply(&self, path: &Path, pre: Option<&[u8]>) -> Result<Vec<u8>, LiveWriteError> {
+        let mut doc = toml::parse(path, pre)?;
+        let invalid = || LiveWriteError::Conflict {
+            path: path.to_path_buf(),
+        };
+        if doc.get("profile").is_some() || doc.get("openai_base_url").is_some() {
+            return Err(invalid());
+        }
+        let id = doc
+            .get("model_provider")
+            .and_then(Item::as_str)
+            .ok_or_else(invalid)?
+            .to_owned();
+        let table = doc
+            .get_mut("model_providers")
+            .and_then(Item::as_table_like_mut)
+            .and_then(|providers| providers.get_mut(&id))
+            .and_then(Item::as_table_like_mut)
+            .ok_or_else(invalid)?;
+        if has_alternate_auth(table)
+            || table.get("base_url").and_then(Item::as_str) != Some(self.expected_url.as_str())
+            || table
+                .get("experimental_bearer_token")
+                .is_some_and(|token| token.as_str() != Some(self.expected_token.as_str()))
+        {
+            return Err(invalid());
+        }
+        table.remove("experimental_bearer_token");
+        doc.as_table_mut().remove("model_provider");
+        AuthStorePatch(false).apply_to(path, &mut doc)?;
+        Ok(doc.to_string().into_bytes())
+    }
+}
+
+impl LivePatch for LogoutPatch {
+    fn apply(&self, path: &Path, pre: Option<&[u8]>) -> Result<Vec<u8>, LiveWriteError> {
+        let mut doc = toml::parse(path, pre)?;
+        if let Some(auth_path) = &self.legacy_auth_path {
+            match std::fs::read(auth_path) {
+                Ok(bytes) => {
+                    let Ok(auth) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+                        return Ok(doc.to_string().into_bytes());
+                    };
+                    if crate::codex_config::extract_codex_auth_api_key(&auth).is_some() {
+                        return Ok(doc.to_string().into_bytes());
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Ok(doc.to_string().into_bytes()),
+            }
+        }
+        if doc.get("profile").is_some() {
+            return Ok(doc.to_string().into_bytes());
+        }
+        let Some(id) = doc
+            .get("model_provider")
+            .and_then(Item::as_str)
+            .map(str::to_owned)
+        else {
+            return Ok(doc.to_string().into_bytes());
+        };
+        let has_global_openai_endpoint = doc.get("openai_base_url").is_some();
+        let Some(table) = doc
+            .get_mut("model_providers")
+            .and_then(Item::as_table_like_mut)
+            .and_then(|providers| providers.get_mut(&id))
+            .and_then(Item::as_table_like_mut)
+        else {
+            return Ok(doc.to_string().into_bytes());
+        };
+        if has_alternate_auth(table)
+            || table.get("base_url").and_then(Item::as_str) != Some(self.expected_url.as_str())
+            || table
+                .get("experimental_bearer_token")
+                .and_then(Item::as_str)
+                != Some(self.expected_token.as_str())
+        {
+            return Ok(doc.to_string().into_bytes());
+        }
+        // Removing the selected provider would reactivate a user-supplied global
+        // OpenAI endpoint. Never allow official credentials to flow there.
+        if has_global_openai_endpoint {
+            return Err(LiveWriteError::Conflict {
+                path: path.to_path_buf(),
+            });
+        }
+        table.remove("experimental_bearer_token");
+        doc.as_table_mut().remove("model_provider");
+        AuthStorePatch(false).apply_to(path, &mut doc)?;
+        Ok(doc.to_string().into_bytes())
+    }
+
+    fn apply_file(
+        &self,
+        path: &Path,
+        pre: Option<&[u8]>,
+    ) -> Result<Option<Vec<u8>>, LiveWriteError> {
+        match pre {
+            Some(bytes) => self.apply(path, Some(bytes)).map(Some),
+            None => Ok(None),
+        }
+    }
+}
+
+pub(crate) fn cleanup_current_on_logout(state: &AppState, user: i64) -> Result<(), AppError> {
+    let app = AppType::Codex;
+    let _guard = crate::mode::controller::lock_settled_blocking(state, &app)?;
+    if crate::mode::current::is_proxy(&app) {
+        return Ok(());
+    }
+    let Some(provider) = crate::mode::current::provider_in_use(&state.db, &app)? else {
+        return Ok(());
+    };
+    if account_id(&provider.id) != Some(user)
+        || !crate::product_policy::own_provider(&app, &provider)
+    {
+        return Ok(());
+    }
+    let Some(expected_url) = provider
+        .settings_config
+        .get("config")
+        .and_then(|v| v.as_str())
+        .and_then(crate::codex_config::extract_codex_base_url)
+        .filter(|v| platform_url(v))
+    else {
+        return Ok(());
+    };
+    let Some(expected_token) = provider
+        .settings_config
+        .get("auth")
+        .and_then(crate::codex_config::extract_codex_auth_api_key)
+        .filter(|v| !v.is_empty())
+    else {
+        return Ok(());
+    };
+    let patch = LogoutPatch {
+        expected_url,
+        expected_token,
+        legacy_auth_path: Some(crate::codex_config::get_codex_auth_path()),
+    };
+    let write = crate::mode::operation::AppWrite::begin(&state.db, app.as_str())?;
+    let auth_path = crate::codex_config::get_codex_auth_path();
+    let legacy = match std::fs::read(&auth_path) {
+        Ok(bytes) => {
+            let auth = serde_json::from_slice::<serde_json::Value>(&bytes)
+                .map_err(|_| AppError::Config("Codex 登录配置无法验证".into()))?;
+            crate::codex_config::extract_codex_auth_api_key(&auth)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err(AppError::Config("无法安全读取 Codex 登录配置".into())),
+    };
+    if let Some(token) = legacy {
+        if token != patch.expected_token {
+            return Err(AppError::Config("Codex 登录配置归属不明".into()));
+        }
+        let config_patch = LegacyConfigLogoutPatch {
+            expected_url: patch.expected_url.clone(),
+            expected_token: patch.expected_token.clone(),
+        };
+        let auth_patch = LegacyAuthLogoutPatch {
+            expected_token: patch.expected_token.clone(),
+        };
+        write.run(
+            "codex-legacy-account-logout",
+            &[
+                crate::mode::operation::FileChange {
+                    file: crate::live::engine::LiveFile::private(
+                        crate::codex_config::get_codex_config_path(),
+                    ),
+                    patch: &config_patch,
+                },
+                crate::mode::operation::FileChange {
+                    file: crate::live::engine::LiveFile::private(auth_path),
+                    patch: &auth_patch,
+                },
+            ],
+            crate::mode::state::PendingTarget::default(),
+        )?;
+        return Ok(());
+    }
+    write.run(
+        "codex-account-logout",
+        &[crate::mode::operation::FileChange {
+            file: crate::live::engine::LiveFile::private(
+                crate::codex_config::get_codex_config_path(),
+            ),
+            patch: &patch,
+        }],
+        crate::mode::state::PendingTarget::default(),
+    )?;
+    Ok(())
+}
+
+/// Do not let a subsequent account inherit a known old platform token when a
+/// custom profile, edited file, or legacy auth prevented automatic detachment.
+pub(crate) fn cleanup_and_verify_account(state: &AppState, user: i64) -> Result<(), AppError> {
+    cleanup_current_on_logout(state, user)?;
+    let providers = state.db.get_all_providers("codex")?;
+    let keys: Vec<String> = providers
+        .values()
+        .filter(|provider| account_id(&provider.id) == Some(user))
+        .filter_map(|provider| {
+            provider
+                .settings_config
+                .get("auth")
+                .and_then(crate::codex_config::extract_codex_auth_api_key)
+        })
+        .filter(|key| !key.is_empty())
+        .collect();
+    let mut files = Vec::new();
+    for path in [
+        crate::codex_config::get_codex_config_path(),
+        crate::codex_config::get_codex_auth_path(),
+    ] {
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => {
+                return Err(AppError::Config(
+                    "无法确认旧 Codex 配置，请检查后重试".into(),
+                ))
+            }
+        };
+        if bytes.as_ref().is_some_and(|bytes| {
+            keys.iter()
+                .any(|key| bytes.windows(key.len()).any(|part| part == key.as_bytes()))
+        }) {
+            return Err(AppError::Config(
+                "Codex 仍包含旧账号配置，请检查后重试".into(),
+            ));
+        }
+        files.push(bytes);
+    }
+    if unresolved_platform_auth(files[0].as_deref(), files[1].as_deref()) {
+        return Err(AppError::Config(
+            "Codex 平台配置归属无法确认，请检查后重试".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn unresolved_platform_auth(config: Option<&[u8]>, auth: Option<&[u8]>) -> bool {
+    let Some(raw) = config else {
+        return false;
+    };
+    let lower = raw.to_ascii_lowercase();
+    if !lower
+        .windows(b"csmy.fun".len())
+        .any(|window| window == b"csmy.fun")
+    {
+        return false;
+    }
+    let Ok(text) = std::str::from_utf8(raw) else {
+        return true;
+    };
+    let Ok(doc) = text.parse::<DocumentMut>() else {
+        return true;
+    };
+    if doc.get("profile").is_some() {
+        return true;
+    }
+    let global = doc
+        .get("openai_base_url")
+        .and_then(Item::as_str)
+        .is_some_and(crate::product_policy::own_url);
+    let table = match doc.get("model_provider").and_then(Item::as_str) {
+        Some(id) => match doc
+            .get("model_providers")
+            .and_then(Item::as_table_like)
+            .and_then(|providers| providers.get(id))
+            .and_then(Item::as_table_like)
+        {
+            Some(table) => Some(table),
+            None => return true,
+        },
+        None => None,
+    };
+    let active_platform = table.is_some_and(|table| {
+        table
+            .get("base_url")
+            .and_then(Item::as_str)
+            .is_some_and(crate::product_policy::own_url)
+    });
+    if !global && !active_platform {
+        return false;
+    }
+    let auth_key = match auth {
+        Some(bytes) => match serde_json::from_slice::<serde_json::Value>(bytes) {
+            Ok(value) => crate::codex_config::extract_codex_auth_api_key(&value).is_some(),
+            Err(_) => return true,
+        },
+        None => false,
+    };
+    if global && auth_key {
+        return true;
+    }
+    active_platform
+        && table.is_some_and(|table| {
+            auth_key
+                || table.get("experimental_bearer_token").is_some()
+                || has_alternate_auth(table)
+        })
+}
+
 pub(crate) fn migrate_current(state: &AppState, user: i64) -> Result<(), AppError> {
     let app = AppType::Codex;
     let _switch_guard = crate::mode::controller::lock_settled_blocking(state, &app)?;
@@ -362,6 +709,135 @@ pub(crate) fn migrate_current(state: &AppState, user: i64) -> Result<(), AppErro
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn logout_refuses_reactivating_custom_global_openai_endpoint() {
+        let patch = LogoutPatch {
+            expected_url: "https://csmy.fun:23457/v1".into(),
+            expected_token: "fixture-key".into(),
+            legacy_auth_path: None,
+        };
+        let input = "openai_base_url = 'https://other.example/v1'\nmodel_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\nexperimental_bearer_token = 'fixture-key'\n";
+        assert!(patch
+            .apply(Path::new("config.toml"), Some(input.as_bytes()))
+            .is_err());
+    }
+
+    #[test]
+    fn recovery_rejects_unowned_platform_auth_without_blocking_unrelated_configs() {
+        let active = b"model_provider = 'unknown'\n[model_providers.unknown]\nbase_url = 'https://csmy.fun:23457/v1'\nexperimental_bearer_token = 'unknown-fixture'\n";
+        assert!(unresolved_platform_auth(Some(active), None));
+        let legacy = b"model_provider = 'unknown'\n[model_providers.unknown]\nbase_url = 'https://csmy.fun:23457/v1'\n";
+        assert!(unresolved_platform_auth(
+            Some(legacy),
+            Some(br#"{"OPENAI_API_KEY":"unknown-fixture"}"#)
+        ));
+        let official = b"[model_providers.stale]\nbase_url = 'https://csmy.fun:23457/v1'\n";
+        assert!(!unresolved_platform_auth(
+            Some(official),
+            Some(br#"{"tokens":{"access_token":"official"}}"#)
+        ));
+        let custom = b"model_provider = 'other'\n[model_providers.other]\nbase_url = 'https://other.example/v1'\nexperimental_bearer_token = 'custom'\n";
+        assert!(!unresolved_platform_auth(Some(custom), None));
+        assert!(unresolved_platform_auth(Some(b"csmy.fun = [broken"), None));
+    }
+
+    #[test]
+    fn legacy_cleanup_only_clears_exact_key_and_preserves_official_tokens() {
+        let patch = LegacyAuthLogoutPatch {
+            expected_token: "fixture-key".into(),
+        };
+        let input =
+            br#"{"OPENAI_API_KEY":"fixture-key","tokens":{"access_token":"official-fixture"}}"#;
+        let output = patch.apply(Path::new("auth.json"), Some(input)).unwrap();
+        let auth: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        assert!(auth.get("OPENAI_API_KEY").is_none());
+        assert_eq!(auth["tokens"]["access_token"], "official-fixture");
+        assert!(patch
+            .apply(
+                Path::new("auth.json"),
+                Some(br#"{"OPENAI_API_KEY":"someone-else"}"#)
+            )
+            .is_err());
+        let config = LegacyConfigLogoutPatch {
+            expected_url: "https://csmy.fun:23457/v1".into(),
+            expected_token: "fixture-key".into(),
+        };
+        let before = "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\n";
+        assert!(!String::from_utf8(
+            config
+                .apply(Path::new("config.toml"), Some(before.as_bytes()))
+                .unwrap()
+        )
+        .unwrap()
+        .contains("model_provider ="));
+        let with_other = format!("openai_base_url = 'https://other.example/v1'\n{before}");
+        assert!(config
+            .apply(Path::new("config.toml"), Some(with_other.as_bytes()))
+            .is_err());
+    }
+
+    #[test]
+    fn logout_only_removes_matching_bearer_and_preserves_other_settings() {
+        let patch = LogoutPatch {
+            expected_url: "https://csmy.fun:23457/v1".into(),
+            expected_token: "fixture-key".into(),
+            legacy_auth_path: None,
+        };
+        let input = "model_provider = 'custom'\ncli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:keyring]\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\nexperimental_bearer_token = 'fixture-key'\n[mcp_servers.example]\ncommand = 'keep'\n";
+        let output = String::from_utf8(
+            patch
+                .apply(Path::new("config.toml"), Some(input.as_bytes()))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(!output.contains("fixture-key"));
+        assert!(!output.contains("model_provider ="));
+        assert!(output.contains("keyring"));
+        assert!(output.contains("command = 'keep'"));
+        for modified in [
+            input.replace("fixture-key", "other-key"),
+            input.replace("https://csmy.fun:23457/v1", "https://other.example/v1"),
+            format!("profile = 'work'\n{input}"),
+            input.replace(
+                "experimental_bearer_token = 'fixture-key'",
+                "experimental_bearer_token = 'fixture-key'\nenv_key = 'OWN_KEY'",
+            ),
+        ] {
+            let result = patch
+                .apply(Path::new("config.toml"), Some(modified.as_bytes()))
+                .unwrap();
+            assert_eq!(result, modified.as_bytes());
+        }
+    }
+
+    #[test]
+    fn logout_preserves_official_auth_and_does_not_guess_about_legacy_keys() {
+        let temp = tempfile::tempdir().unwrap();
+        let auth = temp.path().join("auth.json");
+        let input = "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\nexperimental_bearer_token = 'fixture-key'\n";
+        let patch = LogoutPatch {
+            expected_url: "https://csmy.fun:23457/v1".into(),
+            expected_token: "fixture-key".into(),
+            legacy_auth_path: Some(auth.clone()),
+        };
+        let official = br#"{"tokens":{"access_token":"official-fixture"}}"#;
+        std::fs::write(&auth, official).unwrap();
+        let output = patch
+            .apply(Path::new("config.toml"), Some(input.as_bytes()))
+            .unwrap();
+        assert!(!String::from_utf8(output).unwrap().contains("fixture-key"));
+        assert_eq!(std::fs::read(&auth).unwrap(), official);
+        let legacy = br#"{"OPENAI_API_KEY":"fixture-key"}"#;
+        std::fs::write(&auth, legacy).unwrap();
+        assert_eq!(
+            patch
+                .apply(Path::new("config.toml"), Some(input.as_bytes()))
+                .unwrap(),
+            input.as_bytes()
+        );
+        assert_eq!(std::fs::read(&auth).unwrap(), legacy);
+    }
 
     fn provider(platform: &str, model: &str) -> Provider {
         let models = vec![crate::aihubmix::types::Model {

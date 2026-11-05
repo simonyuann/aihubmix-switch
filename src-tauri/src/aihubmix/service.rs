@@ -23,6 +23,16 @@ pub fn unwrap_response(status: u16, value: Value) -> Result<Value> {
         value
     })
 }
+fn public_contact(value: &Value) -> Value {
+    let contact: String = value["contact_info"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .take(512)
+        .collect();
+    json!({"contactInfo":contact})
+}
 pub fn parse_models(value: &Value) -> Vec<Model> {
     let list = value["data"]
         .as_array()
@@ -115,12 +125,7 @@ fn key_info(value: &Value) -> KeyInfo {
 impl Backend {
     pub fn new(mut store: Store) -> Result<Self> {
         if crate::product_policy::active() && store.settings.relay_base_url != DEFAULT_BASE {
-            // Never send a stored session from a different origin to the product service.
-            store.set_secrets(&[("access", ""), ("refresh", "")])?;
-            store.settings.account = Account::default();
-            store.settings.relay_base_url = DEFAULT_BASE.into();
-            store.settings.selected_key = None;
-            store.save()?;
+            discard_cross_origin_session(&mut store)?;
         }
         Ok(Self {
             store,
@@ -205,7 +210,10 @@ impl Backend {
         );
         crate::product_policy::require_url(&url)?;
         let mut request = self.client.request(method, url);
-        if path.contains("client_version=") || path == "/v1/usage" || path == "/v1/sub2api/billing"
+        if path.contains("client_version=")
+            || path == "/v1/usage"
+            || path == "/v1/sub2api/billing"
+            || path == "/api/v1/auth/logout"
         {
             request = request.timeout(Duration::from_secs(6));
         }
@@ -237,12 +245,22 @@ impl Backend {
         let user = match self.request(Method::GET, "/api/v1/auth/me", None).await {
             Ok(user) => user,
             Err(e) => {
-                crate::product_policy::set_session(0);
+                // A transport/server failure is not proof that a verified
+                // session was revoked. Its original expiry still applies.
+                // request()/refresh_access() clear logged_in for a confirmed
+                // authentication failure, which must reach the UI distinctly.
+                if !self.store.settings.account.logged_in {
+                    crate::product_policy::set_session(0);
+                    return Err("AUTH_REQUIRED: 登录已过期，请重新登录".into());
+                }
                 return Err(e);
             }
         };
-        if user["id"].as_i64() != self.store.settings.account.user_id {
-            crate::product_policy::set_session(0);
+        let Some(id) = user["id"].as_i64() else {
+            return Err("服务未返回有效账号信息，请稍后重试".into());
+        };
+        if Some(id) != self.store.settings.account.user_id {
+            self.invalidate_local_auth()?;
             return Err("AUTH_REQUIRED: 登录信息已变更，请重新登录".into());
         }
         crate::product_policy::set_account(self.store.settings.account.user_id.unwrap_or_default());
@@ -263,13 +281,39 @@ impl Backend {
             )
             .await?;
         if status == 401 || status == 403 {
-            self.store.settings.account.logged_in = false;
-            crate::product_policy::set_session(0);
-            self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
-            self.store.save()?;
+            self.invalidate_local_auth()?;
+            return Err("AUTH_REQUIRED: 登录已失效，请重新登录".into());
         }
         let value = unwrap_response(status, value)?;
+        if value["user"]["id"]
+            .as_i64()
+            .is_some_and(|id| Some(id) != self.store.settings.account.user_id)
+        {
+            self.invalidate_local_auth()?;
+            return Err("AUTH_REQUIRED: 登录信息已变更，请重新登录".into());
+        }
         self.save_auth(value, None)
+    }
+    /// Retain the old owner ID until native configuration has been safely
+    /// detached. Empty credentials alone are never proof that cleanup happened.
+    fn invalidate_local_auth(&mut self) -> Result<()> {
+        self.store.settings.account.logged_in = false;
+        self.ephemeral_keys.clear();
+        crate::product_policy::set_session(0);
+        self.store.save()?;
+        self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
+        Ok(())
+    }
+
+    pub(super) fn finish_account_recovery(&mut self) -> Result<()> {
+        self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
+        self.store.settings.account = Account::default();
+        self.store.settings.selected_key = None;
+        self.ephemeral_keys.clear();
+        self.store.save()?;
+        crate::product_policy::set_session(0);
+        crate::product_policy::set_account(0);
+        Ok(())
     }
     fn save_auth(&mut self, value: Value, email: Option<&str>) -> Result<()> {
         if value["requires_2fa"].as_bool() == Some(true) {
@@ -320,10 +364,8 @@ impl Backend {
                 continue;
             }
             if status == 401 {
-                self.store.settings.account.logged_in = false;
-                crate::product_policy::set_session(0);
-                self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
-                self.store.save()?;
+                self.invalidate_local_auth()?;
+                return Err("AUTH_REQUIRED: 登录已失效，请重新登录".into());
             }
             return unwrap_response(status, value)
                 .map_err(|error| error.replace(&token, "[已隐藏]"));
@@ -406,6 +448,12 @@ impl Backend {
                     json!({"registrationEnabled":value["registration_enabled"].as_bool().unwrap_or(false),"emailVerifyEnabled":value["email_verify_enabled"].as_bool().unwrap_or(false),"passwordResetEnabled":value["password_reset_enabled"].as_bool().unwrap_or(false),"invitationCodeEnabled":value["invitation_code_enabled"].as_bool().unwrap_or(false),"captchaRequired": (["turnstile_enabled", "tencent_captcha_enabled", "aliyun_captcha_enabled"].iter().any(|k|value[*k].as_bool()==Some(true)))}),
                 )
             }
+            "support-contact" => {
+                let (status, value) = self
+                    .raw(Method::GET, "/api/v1/settings/public", None, None)
+                    .await?;
+                Ok(public_contact(&unwrap_response(status, value)?))
+            }
             "send-code" | "forgot-password" => {
                 let email = string(&input, "email").trim().to_string();
                 if email.is_empty() || !email.contains('@') {
@@ -450,9 +498,24 @@ impl Backend {
                 self.state()
             }
             "logout" => {
-                let _ = self
-                    .request(Method::POST, "/api/v1/auth/logout", None)
-                    .await;
+                // The server only revokes a refresh token when the request body
+                // contains it. Do not refresh first: that would rotate the token
+                // after the logout body had already been constructed.
+                let refresh = self.store.secret("refresh");
+                let access = self.store.secret("access");
+                let remote_failed = if refresh.is_empty() {
+                    false
+                } else {
+                    self.raw(
+                        Method::POST,
+                        "/api/v1/auth/logout",
+                        Some(json!({"refresh_token": refresh})),
+                        (!access.is_empty()).then_some(access.as_str()),
+                    )
+                    .await
+                    .and_then(|(status, value)| unwrap_response(status, value))
+                    .is_err()
+                };
                 self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
                 crate::product_policy::set_session(0);
                 self.store.settings.account = Account::default();
@@ -461,7 +524,13 @@ impl Backend {
                 }
                 self.ephemeral_keys.clear();
                 self.store.save()?;
-                self.state()
+                let mut state = self.state()?;
+                if remote_failed {
+                    state["revocationWarning"] = json!(
+                        "已清除本机登录信息，但无法确认服务端会话已撤销；请联系平台客服处理。"
+                    );
+                }
+                Ok(state)
             }
             "groups" => {
                 let value = self
@@ -664,9 +733,113 @@ impl Backend {
     }
 }
 
+fn discard_cross_origin_session(store: &mut Store) -> Result<()> {
+    // Never send a stored session from another origin to the product service.
+    // Retain owner for the guarded native-configuration recovery on next login.
+    store.settings.account.logged_in = false;
+    store.settings.relay_base_url = DEFAULT_BASE.into();
+    store.settings.selected_key = None;
+    store.save()?;
+    store.set_secrets(&[("access", ""), ("refresh", "")])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn logout_revokes_refresh_token_and_warns_when_remote_unavailable() {
+        use axum::{routing::post, Json, Router};
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        let received = Arc::new(AtomicBool::new(false));
+        let flag = received.clone();
+        let app = Router::new().route(
+            "/api/v1/auth/logout",
+            post(move |Json(body): Json<Value>| {
+                let flag = flag.clone();
+                async move {
+                    flag.store(body["refresh_token"] == "fixture-refresh", Ordering::SeqCst);
+                    Json(json!({"code": 0, "data": {}}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(root.path().into())).unwrap();
+        backend.client = Client::builder().no_proxy().build().unwrap();
+        backend.store.settings.relay_base_url = base;
+        backend.store.settings.account = Account {
+            logged_in: true,
+            email: None,
+            user_id: Some(1),
+            expires_at: now() + 3600,
+        };
+        backend.store.memory_secret("access", "fixture-access");
+        backend.store.memory_secret("refresh", "fixture-refresh");
+        let result = backend.dispatch("logout", Value::Null).await.unwrap();
+        assert!(received.load(Ordering::SeqCst));
+        assert!(result["revocationWarning"].is_null());
+        assert!(!backend.store.settings.account.logged_in);
+        assert!(
+            backend.store.secret("access").is_empty() && backend.store.secret("refresh").is_empty()
+        );
+        task.abort();
+
+        backend.store.settings.account = Account {
+            logged_in: true,
+            email: None,
+            user_id: Some(1),
+            expires_at: now() + 3600,
+        };
+        backend.store.memory_secret("access", "fixture-access");
+        backend.store.memory_secret("refresh", "fixture-refresh");
+        backend.store.settings.relay_base_url = "http://127.0.0.1:1".into();
+        let result = backend.dispatch("logout", Value::Null).await.unwrap();
+        assert!(result["revocationWarning"]
+            .as_str()
+            .is_some_and(|warning| !warning.is_empty()));
+        assert!(!backend.store.settings.account.logged_in);
+        assert!(
+            backend.store.secret("access").is_empty() && backend.store.secret("refresh").is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn support_contact_returns_only_allowlisted_field() {
+        use axum::{routing::get, Json, Router};
+        let app = Router::new().route("/api/v1/settings/public", get(|| async {
+            Json(json!({"code": 0, "data": {"contact_info": "QQ: 123", "api_base_url": "https://example.invalid/admin", "unexpected": "secret"}}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(root.path().into())).unwrap();
+        backend.store.settings.relay_base_url = base;
+        let result = backend
+            .dispatch("support-contact", json!({}))
+            .await
+            .unwrap();
+        assert_eq!(result, json!({"contactInfo": "QQ: 123"}));
+        assert_eq!(
+            public_contact(&json!({"contact_info":null})),
+            json!({"contactInfo":""})
+        );
+        assert_eq!(
+            public_contact(&json!({"contact_info":"x".repeat(600)}))["contactInfo"]
+                .as_str()
+                .unwrap()
+                .len(),
+            512
+        );
+        task.abort();
+    }
 
     #[tokio::test]
     async fn announcements_use_current_session_and_only_mark_a_valid_id() {
@@ -836,6 +1009,105 @@ mod auth_tests {
     };
     use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    #[test]
+    fn cross_origin_session_never_loses_the_previous_owner() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::for_test(temp.path().into());
+        store.settings.relay_base_url = "https://old.example".into();
+        store.settings.account = Account {
+            logged_in: true,
+            user_id: Some(17),
+            ..Default::default()
+        };
+        store.memory_secret("access", "fixture-old-access");
+        store.memory_secret("refresh", "fixture-old-refresh");
+        discard_cross_origin_session(&mut store).unwrap();
+        assert!(!store.settings.account.logged_in);
+        assert_eq!(store.settings.account.user_id, Some(17));
+        assert_eq!(store.settings.relay_base_url, DEFAULT_BASE);
+        assert!(store.secret("access").is_empty());
+        assert!(store.secret("refresh").is_empty());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn identity_mismatch_and_auth_failures_retain_old_owner_for_recovery() {
+        use axum::http::StatusCode;
+        let app = Router::new()
+            .route("/api/v1/auth/me", get(|| async { Json(json!({"code":0,"data":{"id":2}})) }))
+            .route("/api/v1/auth/refresh", post(|Json(body): Json<Value>| async move {
+                if body["refresh_token"] == "fixture-refresh-success" {
+                    (StatusCode::OK, Json(json!({"code":0,"data":{"access_token":"wrong-account-secret","user":{"id":2}}})))
+                } else { (StatusCode::UNAUTHORIZED, Json(json!({"message":"fixture-refresh-secret"}))) }
+            }))
+            .route("/api/v1/denied", get(|| async { (StatusCode::UNAUTHORIZED, Json(json!({"message":"fixture-access-secret"}))) }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(root.path().into())).unwrap();
+        backend.client = Client::builder().no_proxy().build().unwrap();
+        backend.store.settings.relay_base_url = base;
+        for scenario in 0..4 {
+            backend.store.settings.account = Account {
+                logged_in: true,
+                user_id: Some(1),
+                expires_at: now() + 3600,
+                ..Default::default()
+            };
+            backend
+                .store
+                .memory_secret("access", "fixture-access-secret");
+            backend.store.memory_secret(
+                "refresh",
+                if scenario == 1 {
+                    "fixture-refresh-secret"
+                } else if scenario == 3 {
+                    "fixture-refresh-success"
+                } else {
+                    ""
+                },
+            );
+            let error = match scenario {
+                0 => backend.verify_session().await.unwrap_err(),
+                1 | 3 => backend.refresh_access().await.unwrap_err(),
+                _ => backend
+                    .request(Method::GET, "/api/v1/denied", None)
+                    .await
+                    .unwrap_err(),
+            };
+            assert!(error.contains("AUTH_REQUIRED"));
+            assert!(!error.contains("fixture-"));
+            assert!(!backend.store.settings.account.logged_in);
+            assert_eq!(backend.store.settings.account.user_id, Some(1));
+            assert!(backend.store.secret("access").is_empty());
+        }
+        task.abort();
+    }
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn transient_session_network_failure_does_not_revoke_verified_session() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let dir = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(dir.path().into())).unwrap();
+        backend.store.settings.relay_base_url = base;
+        let expires = now() + 3600;
+        backend.store.settings.account = Account {
+            logged_in: true,
+            user_id: Some(8),
+            email: Some("test@example.test".into()),
+            expires_at: expires,
+        };
+        backend.store.memory_secret("access", "fixture-key");
+        crate::product_policy::set_session(expires);
+        assert!(backend.verify_session().await.is_err());
+        assert!(backend.store.settings.account.logged_in);
+        assert!(crate::product_policy::authenticated());
+        crate::product_policy::set_session(0);
+    }
     #[tokio::test]
     async fn auth_reuses_verified_mail_protocol_and_never_trusts_local_login_alone() {
         let seen = Arc::new(Mutex::new(Vec::<Value>::new()));

@@ -1,11 +1,29 @@
 //! Product boundary around the reused CC services. Activated by the desktop entrypoint.
 use crate::{app_config::AppType, error::AppError, provider::Provider};
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 
 pub const ORIGIN: &str = "https://csmy.fun:23457";
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static ACCOUNT_ID: AtomicI64 = AtomicI64::new(0);
 static SESSION_UNTIL: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    static RECOVERY_ACCOUNT: Cell<Option<i64>> = const { Cell::new(None) };
+}
+
+/// Temporarily authorize recovery of one account on this thread only.
+/// The synchronous closure must not spawn work or cross an async boundary.
+pub(crate) fn with_account_recovery<T>(account: i64, f: impl FnOnce() -> T) -> T {
+    struct Restore(Option<i64>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RECOVERY_ACCOUNT.with(|slot| slot.set(self.0));
+        }
+    }
+    let previous = RECOVERY_ACCOUNT.with(|slot| slot.replace(Some(account)));
+    let _restore = Restore(previous);
+    f()
+}
 
 pub fn activate() {
     ACTIVE.store(true, Ordering::SeqCst);
@@ -80,13 +98,18 @@ fn own_value(value: &serde_json::Value) -> bool {
         _ => true,
     }
 }
-pub fn own_provider(app: &AppType, p: &Provider) -> bool {
-    (!active() || {
-        let prefix = provider_id(app.as_str(), ACCOUNT_ID.load(Ordering::SeqCst));
-        p.id == prefix
-            || p.id
-                .strip_prefix(&format!("{prefix}-service-"))
-                .is_some_and(|id| id.parse::<i64>().is_ok_and(|id| id > 0))
+pub(crate) fn reserved_platform_id(id: &str) -> bool {
+    AppType::all().any(|app| id.starts_with(&format!("aihubmix-{}-account-", app.as_str())))
+}
+
+fn own_provider_for(app: &AppType, p: &Provider, active: bool, account: i64) -> bool {
+    (!active || {
+        let prefix = provider_id(app.as_str(), account);
+        account > 0
+            && (p.id == prefix
+                || p.id
+                    .strip_prefix(&format!("{prefix}-service-"))
+                    .is_some_and(|id| id.parse::<i64>().is_ok_and(|id| id > 0)))
     }) && p
         .id
         .starts_with(&format!("aihubmix-{}-account-", app.as_str()))
@@ -97,6 +120,12 @@ pub fn own_provider(app: &AppType, p: &Provider) -> bool {
             .as_ref()
             .is_none_or(|m| m.auth_binding.is_none() && m.custom_endpoints.is_empty())
         && own_value(&p.settings_config)
+}
+pub fn own_provider(app: &AppType, p: &Provider) -> bool {
+    own_provider_for(app, p, active(), ACCOUNT_ID.load(Ordering::SeqCst))
+}
+pub(crate) fn own_provider_for_account(app: &AppType, p: &Provider, account: i64) -> bool {
+    own_provider_for(app, p, true, account)
 }
 /// Only canonical CC seeds qualify; an arbitrary row marked official cannot bypass policy.
 pub fn official_provider(app: &AppType, p: &Provider) -> bool {
@@ -113,8 +142,45 @@ pub fn official_provider(app: &AppType, p: &Provider) -> bool {
                 .is_none_or(|m| m.auth_binding.is_none() && m.custom_endpoints.is_empty())
     })
 }
+fn visible_provider_for(
+    app: &AppType,
+    p: &Provider,
+    active: bool,
+    restricted: bool,
+    signed_in: bool,
+    account: i64,
+) -> bool {
+    // Reserved platform cards always stay bound to their owning account, even
+    // when advanced mode permits ordinary user-defined providers.
+    if active && reserved_platform_id(&p.id) {
+        return signed_in && own_provider_for(app, p, true, account);
+    }
+    !restricted || own_provider_for(app, p, active, account) || official_provider(app, p)
+}
+fn visible_provider_with_recovery(
+    app: &AppType,
+    p: &Provider,
+    active: bool,
+    restricted: bool,
+    signed_in: bool,
+    account: i64,
+) -> bool {
+    if active && reserved_platform_id(&p.id) {
+        if let Some(account) = RECOVERY_ACCOUNT.with(Cell::get) {
+            return own_provider_for_account(app, p, account);
+        }
+    }
+    visible_provider_for(app, p, active, restricted, signed_in, account)
+}
 pub fn visible_provider(app: &AppType, p: &Provider) -> bool {
-    !restricted() || own_provider(app, p) || official_provider(app, p)
+    visible_provider_with_recovery(
+        app,
+        p,
+        active(),
+        restricted(),
+        authenticated(),
+        ACCOUNT_ID.load(Ordering::SeqCst),
+    )
 }
 pub fn require_provider(app: &AppType, p: &Provider) -> Result<(), AppError> {
     require_session().map_err(AppError::InvalidInput)?;
@@ -199,6 +265,143 @@ fn command_allowed(command: &str, signed_in: bool, other_providers: bool) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn platform_card_owner_is_enforced_in_simple_and_advanced_modes() {
+        let app = AppType::Codex;
+        let mut provider = crate::aihubmix::test_draft("codex", ORIGIN);
+        for restricted in [true, false] {
+            provider.id = provider_id("codex", 1);
+            assert!(visible_provider_for(
+                &app, &provider, true, restricted, true, 1
+            ));
+            provider.id = format!("{}-service-7", provider_id("codex", 1));
+            assert!(visible_provider_for(
+                &app, &provider, true, restricted, true, 1
+            ));
+            assert!(!visible_provider_for(
+                &app, &provider, true, restricted, true, 2
+            ));
+            assert!(!visible_provider_for(
+                &app, &provider, true, restricted, false, 1
+            ));
+            assert!(!visible_provider_for(
+                &app, &provider, true, restricted, true, 0
+            ));
+            provider.id = format!("{}-service-0", provider_id("codex", 1));
+            assert!(!visible_provider_for(
+                &app, &provider, true, restricted, true, 1
+            ));
+            provider.id = format!("{}-service-7", provider_id("claude", 1));
+            assert!(!visible_provider_for(
+                &app, &provider, true, restricted, true, 1
+            ));
+        }
+        // Upstream CC is not subject to the product boundary when it is inactive.
+        assert!(visible_provider_for(
+            &app, &provider, false, false, false, 0
+        ));
+    }
+
+    #[test]
+    fn renamed_or_altered_platform_cards_cannot_bypass_advanced_mode() {
+        let app = AppType::Codex;
+        let mut provider = crate::aihubmix::test_draft("codex", ORIGIN);
+        provider.id = format!("{}-service-7", provider_id("codex", 1));
+        provider.name = "Personal provider".into();
+        assert!(!visible_provider_for(&app, &provider, true, false, true, 2));
+        assert!(!visible_provider_for(&app, &provider, true, false, true, 1));
+        provider.name = "AIHubMix".into();
+        provider.settings_config["foreign"] = serde_json::json!("https://other.example/v1");
+        assert!(!visible_provider_for(&app, &provider, true, false, true, 1));
+    }
+
+    #[test]
+    fn account_recovery_checks_explicit_owner_and_canonical_config() {
+        let app = AppType::Codex;
+        let mut provider = crate::aihubmix::test_draft("codex", ORIGIN);
+        provider.id = format!("{}-service-7", provider_id("codex", 1));
+        assert!(own_provider_for_account(&app, &provider, 1));
+        assert!(!own_provider_for_account(&app, &provider, 2));
+        assert!(!own_provider_for_account(&app, &provider, 0));
+        provider.settings_config["foreign"] = serde_json::json!("https://other.example/v1");
+        assert!(!own_provider_for_account(&app, &provider, 1));
+    }
+
+    #[test]
+    fn recovery_is_scoped_to_owner_and_does_not_leak_on_unwind_or_threads() {
+        let app = AppType::Codex;
+        let mut provider = crate::aihubmix::test_draft("codex", ORIGIN);
+        provider.id = format!("{}-service-7", provider_id("codex", 1));
+        let visible = || visible_provider_with_recovery(&app, &provider, true, false, false, 0);
+        assert!(!visible());
+        with_account_recovery(1, || {
+            assert!(visible());
+            with_account_recovery(2, || assert!(!visible()));
+            assert!(visible());
+            let other_thread_provider = provider.clone();
+            assert!(!std::thread::spawn(move || visible_provider_with_recovery(
+                &AppType::Codex,
+                &other_thread_provider,
+                true,
+                false,
+                false,
+                0,
+            ))
+            .join()
+            .unwrap());
+        });
+        assert!(!visible());
+        let future =
+            with_account_recovery(1, || async { RECOVERY_ACCOUNT.with(Cell::get).is_none() });
+        assert!(futures::executor::block_on(future));
+        let result = std::panic::catch_unwind(|| {
+            with_account_recovery(1, || panic!("recovery test"));
+        });
+        assert!(result.is_err());
+        assert!(!visible());
+    }
+
+    #[test]
+    fn advanced_custom_and_official_cards_keep_their_existing_behavior() {
+        let app = AppType::Codex;
+        let user_provider = Provider::with_id(
+            "personal-provider".into(),
+            "Personal".into(),
+            serde_json::json!({"url":"https://other.example/v1"}),
+            None,
+        );
+        assert!(visible_provider_for(
+            &app,
+            &user_provider,
+            true,
+            false,
+            true,
+            2
+        ));
+        assert!(!visible_provider_for(
+            &app,
+            &user_provider,
+            true,
+            true,
+            true,
+            2
+        ));
+        let seed = crate::database::OFFICIAL_SEEDS
+            .iter()
+            .find(|seed| seed.app_type == app)
+            .expect("Codex official seed");
+        let mut official = Provider::with_id(
+            seed.id.into(),
+            seed.name.into(),
+            serde_json::from_str(seed.settings_config_json).unwrap(),
+            Some(seed.website_url.into()),
+        );
+        official.category = Some("official".into());
+        assert!(visible_provider_for(&app, &official, true, false, true, 2));
+        assert!(visible_provider_for(&app, &official, true, true, true, 2));
+    }
+
     #[test]
     fn other_providers_are_an_explicit_persisted_opt_in() {
         let settings: crate::settings::AppSettings = serde_json::from_str("{}").unwrap();

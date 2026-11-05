@@ -15,6 +15,9 @@ import {
   ChevronsRight,
   History,
   Info,
+  Home,
+  CircleHelp,
+  Megaphone,
   Layers,
   LayoutGrid,
   Settings,
@@ -28,6 +31,7 @@ import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
 import { WalletPanel } from "@/components/aihubmix/WalletPanel";
+import { useAnnouncements } from "@/components/aihubmix/Announcements";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
 import { useMoneyFormat } from "@/hooks/useMoneyFormat";
@@ -45,7 +49,7 @@ import { useSidebarStatus, type AppNavStatus } from "@/hooks/useSidebarStatus";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { DRAG_REGION_ATTR, DRAG_REGION_STYLE, isMac } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import ccswitchLogo from "@/assets/icons/logo.svg";
+import ccswitchLogo from "@/assets/icons/aihubmix-a.png";
 import { APP_DISPLAY_NAME, AppGlyph } from "./AppGlyph";
 
 const NO_DRAG = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
@@ -53,6 +57,7 @@ const NO_DRAG = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
 type IconComponent = ComponentType<{ className?: string }>;
 
 interface SidebarProps {
+  simple?: boolean;
   activeApp: AppId;
   view: View;
   visibleApps: VisibleApps;
@@ -96,12 +101,87 @@ export function Sidebar(props: SidebarProps) {
         {t("nav.skipToContent")}
       </a>
       <SidebarTopBar collapsed={collapsed} onToggle={toggle} />
-      {inSettings ? (
+      {props.simple ? (
+        <SimpleDirectory {...props} collapsed={collapsed} />
+      ) : inSettings ? (
         <SettingsDirectory {...props} collapsed={collapsed} />
       ) : (
         <MainDirectory {...props} collapsed={collapsed} />
       )}
     </nav>
+  );
+}
+
+function SimpleDirectory({
+  collapsed,
+  view,
+  activeApp,
+  onSelectApp,
+  onSelectPage,
+  settingsSection,
+  onSelectSettingsSection,
+}: DirectoryProps) {
+  const announcements = useAnnouncements();
+  const { hasUpdate } = useUpdate();
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pt-3">
+      <NavItem
+        collapsed={collapsed}
+        selected={view === "providers"}
+        icon={Home}
+        label="首页"
+        onClick={() => onSelectApp(activeApp)}
+      />
+      <NavItem
+        collapsed={collapsed}
+        selected={view === "aihubmix"}
+        icon={KeyRound}
+        label="API 管理"
+        onClick={() => onSelectPage("aihubmix")}
+      />
+      <NavItem
+        collapsed={collapsed}
+        selected={false}
+        icon={Megaphone}
+        label="公告"
+        dot={!!announcements?.unread}
+        onClick={() => announcements?.open()}
+      />
+      <NavItem
+        collapsed={collapsed}
+        selected={view === "help"}
+        icon={CircleHelp}
+        label="帮助与答疑"
+        onClick={() => onSelectPage("help")}
+      />
+      <NavItem
+        collapsed={collapsed}
+        selected={view === "settings"}
+        icon={Settings}
+        label="设置"
+        dot={hasUpdate}
+        onClick={() => onSelectPage("settings")}
+      />
+      {view === "settings" && (
+        <>
+          <NavItem
+            collapsed={collapsed}
+            selected={settingsSection === "general"}
+            icon={SlidersHorizontal}
+            label="通用设置"
+            onClick={() => onSelectSettingsSection("general")}
+          />
+          <NavItem
+            collapsed={collapsed}
+            selected={settingsSection === "about"}
+            icon={Info}
+            label="关于与更新"
+            dot={hasUpdate}
+            onClick={() => onSelectSettingsSection("about")}
+          />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -149,10 +229,11 @@ function SidebarTopBar({
             src={ccswitchLogo}
             alt=""
             draggable={false}
-            className="pointer-events-none h-5 w-5 shrink-0"
+            className="pointer-events-none h-5 w-5 shrink-0 rounded-md"
           />
-          <span className="pointer-events-none me-auto min-w-0 truncate text-strong font-semibold text-fg-1">
-            AIHubMix Switch
+          <span className="pointer-events-none me-auto min-w-0 leading-tight text-fg-1">
+            <span className="block text-body font-semibold">AIHubMix</span>
+            <span className="block text-caption text-fg-3">Switch</span>
           </span>
           {toggleButton}
         </div>
@@ -194,10 +275,11 @@ function SidebarTopBar({
             src={ccswitchLogo}
             alt=""
             draggable={false}
-            className="h-[22px] w-[22px] shrink-0"
+            className="h-[22px] w-[22px] shrink-0 rounded-md"
           />
-          <span className="truncate text-strong font-semibold text-fg-1">
-            AIHubMix Switch
+          <span className="min-w-0 leading-tight text-fg-1">
+            <span className="block text-body font-semibold">AIHubMix</span>
+            <span className="block text-caption text-fg-3">Switch</span>
           </span>
         </span>
       )}

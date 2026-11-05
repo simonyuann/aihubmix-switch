@@ -28,6 +28,7 @@ import {
   RechargeDialog,
   validAmount,
 } from "@/components/aihubmix/RechargeDialog";
+import { WalletBalanceDisplay } from "@/components/aihubmix/BalanceDisplay";
 const overview = {
   enabled: true,
   email: "a@example.test",
@@ -169,5 +170,83 @@ describe("AIHubMix account integration", () => {
     });
     render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
     expect(await screen.findByText(/钱包余额：USD 12.34/)).toBeInTheDocument();
+  });
+  it("explains a pending order and allows the user to cancel it", async () => {
+    const pendingOrder = {
+      id: 38,
+      amount: 20,
+      payAmount: 20,
+      currency: "CNY",
+      method: "alipay",
+      status: "PENDING",
+      createdAt: "",
+      expiresAt: new Date(Date.now() + 600000).toISOString(),
+      tradeNo: "x",
+    };
+    const cancelled = { ...pendingOrder, status: "CANCELLED" };
+    mocks.dispatch.mockImplementation((command: string) => {
+      if (command === "payment-overview")
+        return Promise.resolve({ ...overview, orders: [pendingOrder] });
+      if (command === "payment-cancel") return Promise.resolve(cancelled);
+      return Promise.resolve(pendingOrder);
+    });
+    render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
+    const button = await screen.findByRole("button", { name: "创建充值订单" });
+    await screen.findByText(/已有待付款订单/);
+    expect(button).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "查看未完成的充值" }));
+    await screen.findByText(/付款信息暂不可用/);
+    expect(screen.queryByText(/#38/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "取消订单" }));
+    fireEvent.click(await screen.findByRole("button", { name: "返回充值" }));
+    expect(screen.getByRole("button", { name: "创建充值订单" })).toBeEnabled();
+  });
+  it("reports unavailable checkout and never enables stale information after a failed refresh", async () => {
+    mocks.dispatch
+      .mockImplementationOnce(() => Promise.resolve(overview))
+      .mockRejectedValue(new Error("offline"));
+    render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
+    const button = await screen.findByRole("button", { name: "创建充值订单" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "刷新余额与充值记录" }));
+    await screen.findByText("充值信息暂不可用，请刷新后重试。");
+    expect(button).toBeDisabled();
+  });
+  it("shows a refresh action for an order already being credited", async () => {
+    const processing = {
+      id: 11,
+      amount: 20,
+      payAmount: 20,
+      currency: "CNY",
+      method: "alipay",
+      status: "RECHARGING",
+      createdAt: "",
+      expiresAt: "",
+      tradeNo: "x",
+    };
+    mocks.dispatch.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "payment-overview"
+          ? { ...overview, orders: [processing] }
+          : processing,
+      ),
+    );
+    render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
+    await screen.findByText(/已有充值正在处理/);
+    fireEvent.click(screen.getByRole("button", { name: "查看未完成的充值" }));
+    expect(
+      await screen.findByRole("button", { name: "刷新充值状态" }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: "取消订单" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "我已付款，核验" }),
+    ).not.toBeInTheDocument();
+  });
+  it("makes balance refresh failures visible without exposing details", () => {
+    render(<WalletBalanceDisplay wallet={null} error="connection error" />);
+    expect(screen.getByText("余额暂不可用")).toBeVisible();
+    expect(screen.queryByText("connection error")).not.toBeInTheDocument();
   });
 });

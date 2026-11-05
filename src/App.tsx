@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import { Fragment } from "react";
 import { AccountProvider, useAccount } from "@/contexts/AccountContext";
 import { LoginPage } from "@/components/aihubmix/LoginPage";
 import { WalletActionsProvider } from "@/components/aihubmix/WalletPanel";
@@ -19,7 +20,15 @@ function LoadingScreen() {
 export function AccountBoundary({ children }: { children: React.ReactNode }) {
   const { state, checking } = useAccount();
   if (checking) return <LoadingScreen />;
-  return state?.account.loggedIn ? <>{children}</> : <LoginPage />;
+  return state?.account.loggedIn ? (
+    <Fragment
+      key={JSON.stringify([state.relayBaseUrl, String(state.account.userId)])}
+    >
+      {children}
+    </Fragment>
+  ) : (
+    <LoginPage />
+  );
 }
 export default function App() {
   return (

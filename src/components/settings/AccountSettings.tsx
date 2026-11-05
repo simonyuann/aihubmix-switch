@@ -31,7 +31,7 @@ export function AccountSettings() {
       <SettingsCard>
         <SettingsRow
           label="当前账号"
-          description={account.state.account.email}
+          description={`${account.state.account.email ?? ""}。退出或换号后，请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据。为保护自定义配置，DSH 凭据文件可能保留旧引用。`}
           control={
             <Button
               variant="outline"

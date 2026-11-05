@@ -55,7 +55,7 @@ pub fn build(input: &Value, base: &str, key: &str) -> Result<Value> {
                 "opencode" => {
                     json!({"npm":"@ai-sdk/openai","options":{"baseURL":v1,"apiKey":key},"models":{(model.clone()):{"name":model}}})
                 }
-                "mcode" => {
+                "mcode" | "dsh" => {
                     json!({"name":"AIHubMix","kind":"custom","enabled":true,"api":"openai-responses","options":{"baseURL":v1,"apiKey":key},"models":{(model.clone()):{"name":model}}})
                 }
                 "openclaw" | "pi" | "omp" => {
@@ -219,7 +219,7 @@ pub fn catalog(
                 })
                 .collect();
         }
-        "opencode" | "mcode" => {
+        "opencode" | "mcode" | "dsh" => {
             p.settings_config["models"] = json!(declarations);
             if platform == "anthropic" {
                 if app == "opencode" {
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn anthropic_uses_cc_native_base_url_conventions() {
         for app in [
-            "codex", "opencode", "mcode", "pi", "omp", "openclaw", "kimi",
+            "codex", "opencode", "mcode", "dsh", "pi", "omp", "openclaw", "kimi",
         ] {
             let p = catalog(app, "anthropic", "fixture-key", &models(), "aihubmix-test").unwrap();
             let base = match app {
@@ -346,7 +346,7 @@ mod tests {
                         .unwrap()
                         .to_string()
                 }
-                "opencode" | "mcode" => p.settings_config["options"]["baseURL"]
+                "opencode" | "mcode" | "dsh" => p.settings_config["options"]["baseURL"]
                     .as_str()
                     .unwrap()
                     .into(),
@@ -365,6 +365,7 @@ mod tests {
             "claude-desktop",
             "opencode",
             "mcode",
+            "dsh",
             "pi",
             "omp",
             "openclaw",
@@ -391,6 +392,7 @@ mod tests {
                         crate::opencode_config::provider_fragment(&p.id, config, None).unwrap();
                     }
                     "mcode" => crate::mcode_config::validate_provider(&p.id, config).unwrap(),
+                    "dsh" => crate::dsh_config::validate_provider(&p.id, config).unwrap(),
                     "pi" => crate::pi_config::validate_provider_node(&p.id, config).unwrap(),
                     "omp" => crate::omp_config::validate_provider(&p.id, config).unwrap(),
                     "kimi" => crate::kimi_config::validate_provider(&p.id, config).unwrap(),

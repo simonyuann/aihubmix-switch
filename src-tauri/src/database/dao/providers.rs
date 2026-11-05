@@ -21,6 +21,41 @@ type OmoProviderRow = (
 );
 
 impl Database {
+    /// Mark only these DSH nodes as detached in one DB transaction. Native
+    /// files remain locked by the caller until this commit succeeds.
+    pub(crate) fn detach_dsh_platform_providers(&self, ids: &[String]) -> Result<(), AppError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let mut conn = lock_conn!(self.conn);
+        let tx = conn
+            .transaction()
+            .map_err(|_| AppError::Database("无法保存 DeepSeek Harness 状态".into()))?;
+        for id in ids {
+            let raw: String = tx
+                .query_row(
+                    "SELECT meta FROM providers WHERE app_type = 'dsh' AND id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .map_err(|_| {
+                    AppError::Database("DeepSeek Harness 服务状态已变化，请重试".into())
+                })?;
+            let mut meta: serde_json::Value = serde_json::from_str(&raw)
+                .map_err(|_| AppError::Database("DeepSeek Harness 服务状态无效".into()))?;
+            let obj = meta
+                .as_object_mut()
+                .ok_or_else(|| AppError::Database("DeepSeek Harness 服务状态无效".into()))?;
+            obj.insert("liveConfigManaged".into(), serde_json::Value::Bool(false));
+            tx.execute(
+                "UPDATE providers SET meta = ?1 WHERE app_type = 'dsh' AND id = ?2",
+                params![meta.to_string(), id],
+            )
+            .map_err(|_| AppError::Database("无法保存 DeepSeek Harness 状态".into()))?;
+        }
+        tx.commit()
+            .map_err(|_| AppError::Database("无法保存 DeepSeek Harness 状态".into()))
+    }
     /// Detach Codex providers bound to these deleted local accounts, atomically.
     /// Only this device's account IDs are passed in: provider rows sync across
     /// devices, and a row bound to another device's account must stay bound.

@@ -53,7 +53,9 @@ fn key_of(app: &AppType, p: &Provider) -> String {
             .map(|(_, key)| key)
             .unwrap_or_default(),
         AppType::Kimi => string(&p.settings_config["provider"], "api_key"),
-        AppType::Mcode | AppType::OpenCode => string(&p.settings_config["options"], "apiKey"),
+        AppType::Mcode | AppType::Dsh | AppType::OpenCode => {
+            string(&p.settings_config["options"], "apiKey")
+        }
         AppType::Hermes => string(&p.settings_config, "api_key"),
         _ => string(&p.settings_config, "apiKey"),
     }
@@ -167,6 +169,24 @@ pub(super) async fn dispatch(
             .db
             .get_all_providers(&app_name)
             .map_err(|e| e.to_string())?;
+        let dsh_live = if app == AppType::Dsh {
+            match crate::dsh_config::live_provider_ids() {
+                Ok(ids) => {
+                    if ids.values().any(Option::is_none) {
+                        warning = Some("部分分组在各个 DeepSeek Harness 配置中不一致，启用状态未知；请检查配置".into());
+                    }
+                    Some(ids)
+                }
+                Err(_) => {
+                    warning = Some(
+                        "DeepSeek Harness 配置读取失败，启用状态未知；请检查配置后重试".into(),
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let prefix = format!(
             "{}-service-",
             crate::product_policy::provider_id(&app_name, user)
@@ -259,6 +279,11 @@ pub(super) async fn dispatch(
             card["configured"] = json!(key_id.is_some() && !key_of(&app, &p).is_empty());
             card["groupId"] = json!(group_id);
             card["platform"] = json!(kind);
+            if app == AppType::Dsh {
+                card["inLive"] = json!(dsh_live
+                    .as_ref()
+                    .and_then(|ids| ids.get(&p.id).copied().unwrap_or(Some(false))));
+            }
             cards.push(card);
         }
         let current = crate::mode::current::provider_for(
@@ -430,6 +455,38 @@ pub(super) async fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dsh_cards_mask_keys_and_preserve_group_separation() {
+        let models = [super::super::types::Model {
+            id: "model-a".into(),
+            name: "Model A".into(),
+            ..Default::default()
+        }];
+        let p = super::super::draft::catalog(
+            "dsh",
+            "openai",
+            "fixture-private-key",
+            &models,
+            "aihubmix-dsh-account-1-service-7",
+        )
+        .unwrap();
+        assert_eq!(key_of(&AppType::Dsh, &p), "fixture-private-key");
+        let visible = public_card(&AppType::Dsh, &p).to_string();
+        assert!(!visible.contains("fixture-private-key"));
+        assert_ne!(service_id("dsh", 1, 7), service_id("dsh", 2, 7));
+        assert_ne!(service_id("dsh", 1, 7), service_id("dsh", 1, 8));
+        assert!(eligible_key(
+            &json!({"id":10,"groupId":7,"local":false,"status":"active"}),
+            7,
+            10
+        ));
+        assert!(!eligible_key(
+            &json!({"id":10,"groupId":7,"local":false,"status":"active"}),
+            8,
+            10
+        ));
+    }
     #[test]
     fn cards_keep_keys_native_and_service_ids_separate_accounts() {
         assert_ne!(service_id("claude", 1, 7), service_id("claude", 2, 7));

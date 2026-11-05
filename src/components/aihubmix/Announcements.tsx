@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowLeft, Bell } from "lucide-react";
+import { ArrowLeft, Bell, ChevronRight, Megaphone } from "lucide-react";
 import { useAccount } from "@/contexts/AccountContext";
 import { dispatch, type Announcement } from "@/lib/api/aihubmix";
 import { Button } from "@/components/ui/button";
@@ -20,9 +20,43 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const Context = createContext<{ unread: number; open: () => void } | null>(
-  null,
-);
+const Context = createContext<{
+  unread: number;
+  open: () => void;
+  latestUnread: Announcement | null;
+  openUnread: () => void;
+} | null>(null);
+
+export function useAnnouncements() {
+  return useContext(Context);
+}
+
+export function AnnouncementBanner() {
+  const announcements = useAnnouncements();
+  if (!announcements?.latestUnread) return null;
+  return (
+    <button
+      type="button"
+      onClick={announcements.openUnread}
+      className="aihub-page-enter mx-6 mt-3 flex items-center gap-3 rounded-panel bg-subtle px-4 py-3 text-start text-body text-fg-1 transition-colors hover:bg-selected motion-reduce:transition-none"
+    >
+      <Megaphone
+        className="h-4 w-4 shrink-0 text-action-text"
+        aria-hidden="true"
+      />
+      <span className="min-w-0 flex-1 truncate">
+        <strong>平台公告：</strong>
+        {announcements.latestUnread.title}
+      </span>
+      {announcements.unread > 1 && (
+        <span className="shrink-0 text-caption text-fg-3">
+          {announcements.unread} 条未读
+        </span>
+      )}
+      <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+    </button>
+  );
+}
 
 export function AnnouncementBell() {
   const announcements = useContext(Context);
@@ -133,10 +167,20 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
     setOpen(false);
   };
   const unread = items.filter((item) => !item.readAt).length;
+  const latestUnread =
+    items
+      .filter((item) => !item.readAt)
+      .sort((a, b) =>
+        (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
+      )[0] ?? null;
   return (
     <Context.Provider
       value={{
         unread,
+        latestUnread,
+        openUnread: () => {
+          if (latestUnread) view(latestUnread, false);
+        },
         open: () => {
           setSelectedId(null);
           setOpen(true);

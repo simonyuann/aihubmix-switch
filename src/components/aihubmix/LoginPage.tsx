@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Loader2,
-  ShieldCheck,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAccount } from "@/contexts/AccountContext";
@@ -18,7 +12,7 @@ import {
 } from "@/lib/platform";
 import { WindowControls } from "@/components/shell/WindowControls";
 import { useSettingsQuery } from "@/lib/query";
-import logo from "@/assets/icons/logo.svg";
+import logo from "@/assets/icons/aihubmix-a.png";
 
 type Mode = "login" | "register" | "forgot";
 interface AuthSettings {
@@ -156,237 +150,205 @@ export function LoginPage() {
           </div>
         )}
       </div>
-      <main className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[0.9fr_1.1fr]">
-        <section className="relative flex flex-col justify-between border-b border-border bg-sidebar px-10 py-10 md:border-b-0 md:border-e md:px-12 md:py-14">
-          <div className="flex items-center gap-3">
-            <img src={logo} alt="" className="h-9 w-9" />
-            <span className="text-title font-semibold">AIHubMix Switch</span>
+      <main className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-10">
+        <div className="aihub-page-enter w-full max-w-[400px]">
+          <div className="mb-10 flex items-center justify-center gap-3">
+            <img src={logo} alt="" className="h-10 w-10 rounded-xl" />
+            <span className="text-xl font-semibold tracking-tight">
+              AIHubMix Switch
+            </span>
           </div>
-          <div className="my-10 max-w-sm space-y-6">
-            <p className="text-caption font-medium tracking-[0.16em] text-fg-3">
-              你的工具，同一个 API。
-            </p>
-            <h1 className="text-[34px] font-semibold leading-tight tracking-tight">
-              连接模型，
-              <br />
-              开始创造。
-            </h1>
-            <p className="text-body leading-7 text-fg-2">
-              用一个账户管理 Claude Code、Codex 和你常用的 AI
-              工具。模型配置与用量，尽在一处。
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {["Claude Code", "Codex", "Gemini CLI"].map((name) => (
-                <span
-                  key={name}
-                  className="rounded-control border border-border px-3 py-1.5 text-caption text-fg-2"
-                >
-                  {name}
-                </span>
-              ))}
-            </div>
-          </div>
-          <p className="flex items-center gap-2 text-caption text-fg-3">
-            <ShieldCheck className="h-4 w-4" />
-            专属平台 API · 账户凭据安全保存
+          {mode !== "login" && (
+            <Button
+              variant="ghost"
+              className="-ms-3 mb-5"
+              onClick={() => changeMode("login")}
+              disabled={busy || sending}
+            >
+              <ArrowLeft className="me-2 h-4 w-4" />
+              返回登录
+            </Button>
+          )}
+          <h2 className="text-page font-semibold">{title}</h2>
+          <p className="mb-7 mt-2 text-body text-fg-3">
+            {mode === "login"
+              ? "登录后即可配置工具、申请 API 和充值。"
+              : mode === "register"
+                ? "使用邮箱注册，开启你的 API 服务。"
+                : "输入注册邮箱，我们会发送密码重置邮件。"}
           </p>
-        </section>
-        <section className="flex items-center justify-center px-8 py-10 md:px-12">
-          <div className="w-full max-w-[360px]">
-            {mode !== "login" && (
-              <Button
-                variant="ghost"
-                className="-ms-3 mb-5"
-                onClick={() => changeMode("login")}
-                disabled={busy || sending}
-              >
-                <ArrowLeft className="me-2 h-4 w-4" />
-                返回登录
-              </Button>
-            )}
-            <h2 className="text-page font-semibold">{title}</h2>
-            <p className="mb-7 mt-2 text-body text-fg-3">
-              {mode === "login"
-                ? "登录后即可配置工具、申请 API 和充值。"
-                : mode === "register"
-                  ? "使用邮箱注册，开启你的 API 服务。"
-                  : "输入注册邮箱，我们会发送密码重置邮件。"}
-            </p>
-            {settings?.captchaRequired ? (
-              <div className="space-y-4">
-                <p className="text-body text-fg-2">
-                  平台已开启当前客户端暂不支持的安全验证，请联系管理员。
-                </p>
-              </div>
-            ) : (
-              <form
-                className="space-y-4"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void submit();
-                }}
-              >
+          {settings?.captchaRequired ? (
+            <div className="space-y-4">
+              <p className="text-body text-fg-2">
+                平台已开启当前客户端暂不支持的安全验证，请联系管理员。
+              </p>
+            </div>
+          ) : (
+            <form
+              className="space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submit();
+              }}
+            >
+              <label className="block space-y-2 text-body">
+                <span>邮箱</span>
+                <Input
+                  aria-label="邮箱"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setCode("");
+                  }}
+                  required
+                  disabled={busy || sending}
+                />
+              </label>
+              {mode !== "forgot" && (
                 <label className="block space-y-2 text-body">
-                  <span>邮箱</span>
+                  <span>密码</span>
                   <Input
-                    aria-label="邮箱"
-                    type="email"
-                    autoComplete="username"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      setCode("");
-                    }}
+                    aria-label="密码"
+                    type="password"
+                    autoComplete={
+                      mode === "register" ? "new-password" : "current-password"
+                    }
+                    minLength={mode === "register" ? 8 : undefined}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     required
-                    disabled={busy || sending}
+                    disabled={busy}
                   />
                 </label>
-                {mode !== "forgot" && (
+              )}
+              {mode === "register" && (
+                <>
                   <label className="block space-y-2 text-body">
-                    <span>密码</span>
+                    <span>确认密码</span>
                     <Input
-                      aria-label="密码"
+                      aria-label="确认密码"
                       type="password"
-                      autoComplete={
-                        mode === "register"
-                          ? "new-password"
-                          : "current-password"
-                      }
-                      minLength={mode === "register" ? 8 : undefined}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="new-password"
+                      minLength={8}
+                      value={confirm}
+                      onChange={(e) => setConfirm(e.target.value)}
                       required
                       disabled={busy}
                     />
                   </label>
-                )}
-                {mode === "register" && (
-                  <>
+                  {settings?.emailVerifyEnabled && (
                     <label className="block space-y-2 text-body">
-                      <span>确认密码</span>
-                      <Input
-                        aria-label="确认密码"
-                        type="password"
-                        autoComplete="new-password"
-                        minLength={8}
-                        value={confirm}
-                        onChange={(e) => setConfirm(e.target.value)}
-                        required
-                        disabled={busy}
-                      />
+                      <span>邮箱验证码</span>
+                      <div className="flex gap-2">
+                        <Input
+                          aria-label="邮箱验证码"
+                          autoComplete="one-time-code"
+                          value={code}
+                          onChange={(e) => setCode(e.target.value)}
+                          required
+                          disabled={busy}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void sendCode()}
+                          disabled={
+                            busy || sending || cooldown > 0 || !email.trim()
+                          }
+                        >
+                          {cooldown > 0
+                            ? `${cooldown} 秒`
+                            : sending
+                              ? "发送中…"
+                              : "发送验证码"}
+                        </Button>
+                      </div>
                     </label>
-                    {settings?.emailVerifyEnabled && (
-                      <label className="block space-y-2 text-body">
-                        <span>邮箱验证码</span>
-                        <div className="flex gap-2">
-                          <Input
-                            aria-label="邮箱验证码"
-                            autoComplete="one-time-code"
-                            value={code}
-                            onChange={(e) => setCode(e.target.value)}
-                            required
-                            disabled={busy}
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => void sendCode()}
-                            disabled={
-                              busy || sending || cooldown > 0 || !email.trim()
-                            }
-                          >
-                            {cooldown > 0
-                              ? `${cooldown} 秒`
-                              : sending
-                                ? "发送中…"
-                                : "发送验证码"}
-                          </Button>
-                        </div>
-                      </label>
-                    )}
-                    {settings?.invitationCodeEnabled && (
-                      <Input
-                        aria-label="邀请码"
-                        placeholder="邀请码"
-                        required
-                        value={invitation}
-                        onChange={(e) => setInvitation(e.target.value)}
-                        disabled={busy}
-                      />
-                    )}
-                  </>
-                )}
-                {mode === "login" && (
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      disabled={busy || !settings?.passwordResetEnabled}
-                      className="text-caption text-fg-2 hover:text-action disabled:opacity-40"
-                      onClick={() => changeMode("forgot")}
-                    >
-                      忘记密码？
-                    </button>
-                  </div>
-                )}
-                <Button
-                  className="w-full"
-                  disabled={
-                    busy ||
-                    sending ||
-                    !settings ||
-                    (mode === "register" && !settings.registrationEnabled) ||
-                    (mode === "forgot" && !settings.passwordResetEnabled)
-                  }
-                >
-                  {busy ? (
-                    <Loader2 className="me-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  {mode === "forgot"
-                    ? "发送重置邮件"
-                    : mode === "register"
-                      ? "注册并登录"
-                      : "登录"}
-                  {!busy && <ArrowRight className="ms-2 h-4 w-4" />}
-                </Button>
-              </form>
-            )}
-            {!settings && (
+                  )}
+                  {settings?.invitationCodeEnabled && (
+                    <Input
+                      aria-label="邀请码"
+                      placeholder="邀请码"
+                      required
+                      value={invitation}
+                      onChange={(e) => setInvitation(e.target.value)}
+                      disabled={busy}
+                    />
+                  )}
+                </>
+              )}
+              {mode === "login" && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    disabled={busy || !settings?.passwordResetEnabled}
+                    className="text-caption text-fg-2 hover:text-action disabled:opacity-40"
+                    onClick={() => changeMode("forgot")}
+                  >
+                    忘记密码？
+                  </button>
+                </div>
+              )}
               <Button
-                variant="ghost"
-                className="mt-4 w-full"
-                disabled={settingsLoading}
-                onClick={() => setSettingsAttempt((value) => value + 1)}
+                className="w-full"
+                disabled={
+                  busy ||
+                  sending ||
+                  !settings ||
+                  (mode === "register" && !settings.registrationEnabled) ||
+                  (mode === "forgot" && !settings.passwordResetEnabled)
+                }
               >
-                {settingsLoading ? "正在连接平台…" : "重新连接平台"}
+                {busy ? (
+                  <Loader2 className="me-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {mode === "forgot"
+                  ? "发送重置邮件"
+                  : mode === "register"
+                    ? "注册并登录"
+                    : "登录"}
+                {!busy && <ArrowRight className="ms-2 h-4 w-4" />}
               </Button>
-            )}
-            {(error || session.error) && (
-              <p role="alert" className="mt-4 text-body text-destructive">
-                {error || session.error}
-              </p>
-            )}
-            {notice && (
-              <p role="status" className="mt-4 flex gap-2 text-body text-fg-2">
-                <Check className="mt-0.5 h-4 w-4 shrink-0" />
-                {notice}
-              </p>
-            )}
-            {mode === "login" && (
-              <p className="mt-7 text-center text-body text-fg-3">
-                还没有账户？{" "}
-                <button
-                  type="button"
-                  className="font-medium text-action disabled:opacity-40"
-                  onClick={() => changeMode("register")}
-                  disabled={busy || !settings?.registrationEnabled}
-                >
-                  立即注册
-                </button>
-              </p>
-            )}
-          </div>
-        </section>
+            </form>
+          )}
+          {!settings && (
+            <Button
+              variant="ghost"
+              className="mt-4 w-full"
+              disabled={settingsLoading}
+              onClick={() => setSettingsAttempt((value) => value + 1)}
+            >
+              {settingsLoading ? "正在连接平台…" : "重新连接平台"}
+            </Button>
+          )}
+          {(error || session.error) && (
+            <p role="alert" className="mt-4 text-body text-destructive">
+              {error || session.error}
+            </p>
+          )}
+          {notice && (
+            <p role="status" className="mt-4 flex gap-2 text-body text-fg-2">
+              <Check className="mt-0.5 h-4 w-4 shrink-0" />
+              {notice}
+            </p>
+          )}
+          {mode === "login" && (
+            <p className="mt-7 text-center text-body text-fg-3">
+              还没有账户？{" "}
+              <button
+                type="button"
+                className="font-medium text-action disabled:opacity-40"
+                onClick={() => changeMode("register")}
+                disabled={busy || !settings?.registrationEnabled}
+              >
+                立即注册
+              </button>
+            </p>
+          )}
+        </div>
       </main>
     </div>
   );

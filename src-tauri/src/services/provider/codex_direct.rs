@@ -413,7 +413,11 @@ fn project(provider: &Provider) -> Result<CodexProjection, AppError> {
         proxy_injected_oauth: provider.uses_proxy_injected_oauth(),
     })?;
     if crate::aihubmix::native_imagegen::supported(provider) {
-        if let Route::Custom { table, auth: RouteAuth::Bearer } = &mut projection.route {
+        if let Route::Custom {
+            table,
+            auth: RouteAuth::Bearer,
+        } = &mut projection.route
+        {
             crate::aihubmix::native_imagegen::mark(table);
         }
     }
@@ -637,7 +641,9 @@ pub(crate) fn plan(
         }
         (
             Target::Proxy {
-                route, base_url, stack,
+                route,
+                base_url,
+                stack,
             },
             Some(projection),
         ) => {
@@ -1236,12 +1242,8 @@ pub(crate) fn run_with_edits(
     let mut config = planned.config;
     if let (Some(kind), RouteWrite::Custom(table)) = (planned.stamp, &mut config.route) {
         if matches!(kind, RouteAuth::Bearer | RouteAuth::EnvKey) {
-            let requires_login = !planned.native_image
-                && requires_openai_auth(kind, login);
-            table.insert(
-                "requires_openai_auth",
-                toml_edit::value(requires_login),
-            );
+            let requires_login = !planned.native_image && requires_openai_auth(kind, login);
+            table.insert("requires_openai_auth", toml_edit::value(requires_login));
         }
     }
 

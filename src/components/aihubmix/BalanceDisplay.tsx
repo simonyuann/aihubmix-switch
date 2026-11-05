@@ -38,7 +38,7 @@ export function BalanceDisplay() {
       </button>
       {account.walletError && (
         <span role="status" className="sr-only">
-          余额刷新失败：{account.walletError}
+          余额刷新失败，请重试
         </span>
       )}
     </div>
@@ -71,10 +71,12 @@ export function WalletBalanceDisplay({
       title={error ? "余额暂不可用" : undefined}
     >
       {!compact && <Wallet aria-hidden="true" className="h-4 w-4" />}
-      <span>余额</span>
-      <span className="tabular-nums text-fg-1">
-        {`${wallet?.currency ?? ""} ${amount}`.trim()}
-      </span>
+      <span>{error ? "余额暂不可用" : "余额"}</span>
+      {!error && (
+        <span className="tabular-nums text-fg-1">
+          {`${wallet?.currency ?? ""} ${amount}`.trim()}
+        </span>
+      )}
     </div>
   );
 }

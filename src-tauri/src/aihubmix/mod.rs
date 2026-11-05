@@ -89,6 +89,44 @@ pub async fn aihubmix_dispatch(
         }
         return result;
     }
+    if matches!(command.as_str(), "login" | "register") {
+        let account = &guard
+            .as_ref()
+            .ok_or("平台服务未初始化")?
+            .store
+            .settings
+            .account;
+        if account.logged_in {
+            return Err("请先退出当前账号，再登录其他账号".into());
+        }
+        if let Some(user) = account.user_id {
+            prepare_account_exit(app_state.inner(), user).await?;
+            guard
+                .as_mut()
+                .ok_or("平台服务未初始化")?
+                .finish_account_recovery()?;
+        } else {
+            let state = app_state.inner().clone();
+            let safe = tauri::async_runtime::spawn_blocking(move || {
+                if crate::dsh_config::has_active_platform_traces()? {
+                    return Err(crate::error::AppError::Config("旧账号配置归属不明".into()));
+                }
+                native_imagegen::cleanup_and_verify_account(&state, 0)
+            })
+            .await;
+            if !matches!(safe, Ok(Ok(()))) {
+                return Err("无法确认旧账号配置归属。请关闭 Codex 和 DeepSeek Harness，检查 Codex 的 config.toml、auth.json 及 DSH 供应商配置后重试。".into());
+            }
+        }
+    }
+    if command == "logout" {
+        if let Some(user) = guard
+            .as_ref()
+            .and_then(|b| b.store.settings.account.user_id)
+        {
+            prepare_account_exit(app_state.inner(), user).await?;
+        }
+    }
     let result = guard
         .as_mut()
         .ok_or("平台服务未初始化")?
@@ -96,7 +134,12 @@ pub async fn aihubmix_dispatch(
         .await;
     if result.is_ok() && matches!(command.as_str(), "login" | "register" | "session") {
         if let Some(user) = guard.as_ref().and_then(|b| {
-            b.store.settings.account.logged_in.then_some(b.store.settings.account.user_id).flatten()
+            b.store
+                .settings
+                .account
+                .logged_in
+                .then_some(b.store.settings.account.user_id)
+                .flatten()
         }) {
             migrate_codex_image_for_user(app_state.inner().clone(), user);
         }
@@ -105,9 +148,91 @@ pub async fn aihubmix_dispatch(
         crate::product_policy::set_session(0);
         crate::tray::set_wallet_balance(&app, None);
         drop(guard);
-        let _ = app_state.proxy_service.stop().await;
+        crate::mode::controller::stop_server_if_unused(app_state.inner()).await;
     }
     result
+}
+
+async fn prepare_account_exit(state: &crate::store::AppState, user: i64) -> Result<(), String> {
+    const RECOVERY: &str = "无法安全清理旧账号配置。请关闭 Codex 和 DeepSeek Harness，检查 Codex 的 config.toml、auth.json 以及 DSH 供应商配置后重试；不要在新账号中使用旧配置。";
+    crate::product_policy::set_session(0);
+    // Ownership validation must work after an expired session and on cold start.
+    crate::product_policy::set_account(user);
+    let codex = crate::app_config::AppType::Codex;
+    if crate::mode::current::is_proxy(&codex) {
+        let current =
+            crate::mode::current::provider_in_use(&state.db, &codex).map_err(|_| RECOVERY)?;
+        match current {
+            Some(ref provider) if crate::product_policy::own_provider(&codex, provider) => {
+                crate::mode::controller::exit_for_account_recovery(state, &codex, user)
+                    .await
+                    .map_err(|_| RECOVERY)?;
+            }
+            Some(ref provider) if provider.id.starts_with("aihubmix-codex-account-") => {
+                return Err(RECOVERY.into())
+            }
+            None => return Err(RECOVERY.into()),
+            _ => {}
+        }
+    }
+    let state = state.clone();
+    match tauri::async_runtime::spawn_blocking(move || {
+        cleanup_dsh_account(&state, user)?;
+        native_imagegen::cleanup_and_verify_account(&state, user)
+    })
+    .await
+    {
+        Ok(Ok(())) => Ok(()),
+        _ => Err(RECOVERY.into()),
+    }
+}
+
+fn cleanup_dsh_account(
+    state: &crate::store::AppState,
+    user: i64,
+) -> Result<(), crate::error::AppError> {
+    // Serialize with DSH native provider mutations, while the dispatch still
+    // holds the account lock. Files are held locked through the DB commit.
+    let _guard = futures::executor::block_on(state.proxy_service.lock_switch_for_app("dsh"));
+    let rows = state.db.get_all_providers("dsh")?;
+    let base_id = format!("aihubmix-dsh-account-{user}");
+    let prefix = format!("{base_id}-service-");
+    for (id, p) in &rows {
+        let managed = p.meta.as_ref().and_then(|meta| meta.live_config_managed) == Some(true);
+        if managed && id.starts_with("aihubmix-dsh-account-") {
+            let current = id == &base_id
+                || id
+                    .strip_prefix(&prefix)
+                    .is_some_and(|n| n.parse::<i64>().is_ok_and(|n| n > 0));
+            if !current || !crate::product_policy::own_provider(&crate::app_config::AppType::Dsh, p)
+            {
+                return Err(crate::error::AppError::Config(
+                    "无法确认 DeepSeek Harness 已管理配置归属".into(),
+                ));
+            }
+        }
+    }
+    let expected: indexmap::IndexMap<String, Value> = rows
+        .into_iter()
+        .filter(|(id, p)| {
+            (id == &base_id
+                || id
+                    .strip_prefix(&prefix)
+                    .is_some_and(|n| n.parse::<i64>().is_ok_and(|n| n > 0)))
+                && crate::product_policy::own_provider(&crate::app_config::AppType::Dsh, p)
+                && p.meta.as_ref().and_then(|meta| meta.live_config_managed) == Some(true)
+        })
+        .map(|(id, p)| (id, p.settings_config))
+        .collect();
+    // When no platform DSH row exists, leave unrelated installations untouched.
+    // A detectable residual still takes the strict, fail-closed path.
+    if expected.is_empty() && !crate::dsh_config::has_platform_traces()? {
+        return Ok(());
+    }
+    let ids: Vec<String> = expected.keys().cloned().collect();
+    crate::dsh_config::detach_platform_account(user, &expected, || {
+        state.db.detach_dsh_platform_providers(&ids)
+    })
 }
 
 fn migrate_codex_image_for_user(state: crate::store::AppState, user: i64) {
@@ -121,7 +246,10 @@ fn migrate_codex_image_for_user(state: crate::store::AppState, user: i64) {
 
 pub fn start_codex_image_migration(app: AppHandle) {
     tauri::async_runtime::spawn_blocking(move || {
-        let Ok(store) = store::Store::load(crate::config::get_app_config_dir().join("platform")) else { return; };
+        let Ok(store) = store::Store::load(crate::config::get_app_config_dir().join("platform"))
+        else {
+            return;
+        };
         if store.settings.account.logged_in {
             if let Some(user) = store.settings.account.user_id {
                 let state = app.state::<crate::store::AppState>();
@@ -218,6 +346,164 @@ pub fn start_wallet_worker(app: AppHandle) {
 mod wallet_tests {
     use super::*;
 
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn expired_account_recovery_refuses_ambiguous_dsh_and_can_retry() {
+        assert!(crate::settings::get_dsh_override_dir().is_none());
+        let temp = tempfile::tempdir().unwrap();
+        let old_dsh = std::env::var_os("DSH_HOME");
+        let old_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        std::env::set_var("DSH_HOME", temp.path().join("dsh"));
+        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        let path = temp.path().join("dsh/profiles/web/cordis.patch.yml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "[ broken aihubmix-dsh-account-1-service-7 fixture-secret",
+        )
+        .unwrap();
+        let state = crate::store::AppState::new(std::sync::Arc::new(
+            crate::database::Database::memory().unwrap(),
+        ));
+        let mut backend =
+            service::Backend::new(store::Store::for_test(temp.path().join("platform"))).unwrap();
+        backend.store.settings.account = types::Account {
+            logged_in: false,
+            user_id: Some(1),
+            ..Default::default()
+        };
+        let error = prepare_account_exit(&state, 1).await.unwrap_err();
+        assert!(!error.contains("fixture-secret"));
+        assert_eq!(backend.store.settings.account.user_id, Some(1));
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("fixture-secret"));
+        std::fs::remove_file(&path).unwrap();
+        prepare_account_exit(&state, 1).await.unwrap();
+        backend.finish_account_recovery().unwrap();
+        assert_eq!(backend.store.settings.account.user_id, None);
+        match old_dsh {
+            Some(value) => std::env::set_var("DSH_HOME", value),
+            None => std::env::remove_var("DSH_HOME"),
+        }
+        match old_home {
+            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn logout_leaves_unrelated_malformed_dsh_files_untouched_but_refuses_platform_traces() {
+        assert!(crate::settings::get_dsh_override_dir().is_none());
+        let temp = tempfile::tempdir().unwrap();
+        let old = std::env::var_os("DSH_HOME");
+        std::env::set_var("DSH_HOME", temp.path());
+        let dir = temp.path().join("profiles/web");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cordis.patch.yml");
+        let unrelated = b"[ invalid user config # preserve\n";
+        std::fs::write(&path, unrelated).unwrap();
+        let state = crate::store::AppState::new(std::sync::Arc::new(
+            crate::database::Database::memory().unwrap(),
+        ));
+        cleanup_dsh_account(&state, 1).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), unrelated);
+        let traced = b"[ invalid aihubmix-dsh-account-1-service-7\n";
+        std::fs::write(&path, traced).unwrap();
+        assert!(cleanup_dsh_account(&state, 1).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), traced);
+        match old {
+            Some(value) => std::env::set_var("DSH_HOME", value),
+            None => std::env::remove_var("DSH_HOME"),
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn logout_detaches_verified_dsh_nodes_and_preserves_credentials() {
+        assert!(crate::settings::get_dsh_override_dir().is_none());
+        let temp = tempfile::tempdir().unwrap();
+        let old_home = std::env::var_os("DSH_HOME");
+        std::env::set_var("DSH_HOME", temp.path());
+        let id = "aihubmix-dsh-account-1-service-7";
+        let models = [types::Model {
+            id: "test-model".into(),
+            name: "Test".into(),
+            ..Default::default()
+        }];
+        let mut provider = draft::catalog("dsh", "openai", "fixture-key", &models, id).unwrap();
+        provider
+            .meta
+            .get_or_insert_with(Default::default)
+            .live_config_managed = Some(true);
+        let state = crate::store::AppState::new(std::sync::Arc::new(
+            crate::database::Database::memory().unwrap(),
+        ));
+        crate::dsh_config::save_and_commit(
+            id,
+            Some(provider.settings_config.clone()),
+            true,
+            || state.db.save_provider("dsh", &provider),
+        )
+        .unwrap();
+        cleanup_dsh_account(&state, 1).unwrap();
+        assert!(!crate::dsh_config::live_provider_ids()
+            .unwrap()
+            .contains_key(id));
+        assert_eq!(
+            state
+                .db
+                .get_provider_by_id(id, "dsh")
+                .unwrap()
+                .unwrap()
+                .meta
+                .unwrap()
+                .live_config_managed,
+            Some(false)
+        );
+        assert!(
+            std::fs::read_to_string(temp.path().join(".credentials.yaml"))
+                .unwrap()
+                .contains("fixture-key")
+        );
+        match old_home {
+            Some(path) => std::env::set_var("DSH_HOME", path),
+            None => std::env::remove_var("DSH_HOME"),
+        };
+    }
+
+    #[test]
+    fn logout_rejects_other_accounts_managed_db_rows_without_changing_them() {
+        let id = "aihubmix-dsh-account-2-service-7";
+        let models = [types::Model {
+            id: "test-model".into(),
+            name: "Test".into(),
+            ..Default::default()
+        }];
+        let mut provider = draft::catalog("dsh", "openai", "fixture-key", &models, id).unwrap();
+        provider
+            .meta
+            .get_or_insert_with(Default::default)
+            .live_config_managed = Some(true);
+        let state = crate::store::AppState::new(std::sync::Arc::new(
+            crate::database::Database::memory().unwrap(),
+        ));
+        state.db.save_provider("dsh", &provider).unwrap();
+        assert!(cleanup_dsh_account(&state, 1).is_err());
+        assert_eq!(
+            state
+                .db
+                .get_provider_by_id(id, "dsh")
+                .unwrap()
+                .unwrap()
+                .meta
+                .unwrap()
+                .live_config_managed,
+            Some(true)
+        );
+    }
+
     #[test]
     fn previous_account_failure_does_not_clear_current_balance() {
         let account = types::Account {
@@ -242,7 +528,7 @@ mod wallet_tests {
 }
 
 #[cfg(test)]
-pub(crate) fn supported_apps() -> [&'static str; 13] {
+pub(crate) fn supported_apps() -> [&'static str; 14] {
     types::AGENTS
 }
 #[cfg(test)]

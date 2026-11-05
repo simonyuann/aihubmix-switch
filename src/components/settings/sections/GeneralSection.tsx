@@ -14,6 +14,10 @@ import { Button } from "@/components/ui/button";
 import { isLinux } from "@/lib/platform";
 import { TerminalSelect } from "@/components/settings/TerminalSettings";
 import {
+  setAdvancedInterface,
+  useAdvancedInterface,
+} from "@/lib/interfaceMode";
+import {
   SettingsBlock,
   SettingsCard,
   SettingsRow,
@@ -45,6 +49,7 @@ export function GeneralSection({
 }: GeneralSectionProps) {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
+  const advancedInterface = useAdvancedInterface();
 
   return (
     <>
@@ -296,6 +301,22 @@ export function GeneralSection({
           高级选项
         </summary>
         <SettingsCard>
+          <SettingsSwitchRow
+            label="启用高级界面"
+            description="切换到完整工作区；关闭后仍保留已保存的配置。"
+            checked={advancedInterface}
+            onCheckedChange={(enabled) => {
+              void (async () => {
+                if (enabled && !settings.enableOtherProviders) {
+                  const saved = await onAutoSave({
+                    enableOtherProviders: true,
+                  });
+                  if (!saved) return;
+                }
+                setAdvancedInterface(enabled);
+              })();
+            }}
+          />
           <SettingsSwitchRow
             label="启用其他供应商"
             description="显示其他供应商管理、授权和高级配置功能。关闭后保留已保存的配置。"

@@ -84,6 +84,69 @@ beforeEach(() => {
   );
 });
 describe("dedicated service cards", () => {
+  it("offers a single tool selector on the simple home", async () => {
+    const onSelectApp = vi.fn();
+    wrap(<ToolPage app="codex" simple onSelectApp={onSelectApp} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /选择 AI 工具，当前为 Codex/ }),
+    );
+    expect(
+      screen.getByRole("button", { name: "DeepSeek Harness" }),
+    ).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Claude Code" }));
+    expect(onSelectApp).toHaveBeenCalledWith("claude");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+  it("offers onboarding when only the official account is present", async () => {
+    mocks.dispatch.mockResolvedValue({
+      cards: [official],
+      groups: [],
+      currentProviderId: null,
+    });
+    wrap(<ToolPage app="codex" simple />);
+    expect(await screen.findByText("还没有添加模型分组")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "申请 API" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("OpenAI Official")).toBeInTheDocument();
+  });
+  it("explains how to activate a simple-home service and only opens key selection when needed", async () => {
+    wrap(<ToolPage app="codex" simple />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "选择 API 并使用 AIHubMix · OpenAI",
+      }),
+    );
+    expect(await screen.findByLabelText("API Key")).toBeInTheDocument();
+    expect(mocks.dispatch).not.toHaveBeenCalledWith(
+      "start-tool-card",
+      expect.anything(),
+    );
+  });
+  it("shows the active service and switches a configured group directly", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      Promise.resolve(
+        command === "tool-cards"
+          ? {
+              cards: [official, { ...service, configured: true }],
+              groups: [],
+              currentProviderId: official.provider.id,
+            }
+          : {},
+      ),
+    );
+    wrap(<ToolPage app="codex" simple />);
+    expect(await screen.findByText("使用中")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "切换到 AIHubMix · OpenAI" }),
+    );
+    await waitFor(() =>
+      expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
+        app: "codex",
+        providerId: service.provider.id,
+      }),
+    );
+  });
   it("reuses CC cards with official restore, no model picker, and no arbitrary supplier actions", async () => {
     wrap(<ToolPage app="codex" />);
     await screen.findByText("AIHubMix · OpenAI");
@@ -254,6 +317,77 @@ describe("dedicated service cards", () => {
     );
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "确认申请" })).toBeDisabled(),
+    );
+  });
+});
+
+describe("DeepSeek Harness multi-provider experience", () => {
+  const card = (id: number, live: boolean | null, configured = true) => ({
+    ...service,
+    provider: {
+      ...service.provider,
+      id: `aihubmix-dsh-account-1-service-${id}`,
+      name: `分组 ${id}`,
+    },
+    groupId: id,
+    selectedKeyId: configured ? 10 : null,
+    configured,
+    inLive: live,
+  });
+  it("offers DSH as a selectable tool rather than an unavailable placeholder", async () => {
+    const select = vi.fn();
+    wrap(<ToolPage app="codex" simple onSelectApp={select} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /选择 AI 工具/ }),
+    );
+    const choice = screen.getByRole("button", { name: /DeepSeek Harness/ });
+    expect(choice).toBeEnabled();
+    fireEvent.click(choice);
+    expect(select).toHaveBeenCalledWith("dsh");
+    expect(screen.queryByText("待接入")).not.toBeInTheDocument();
+  });
+  it("shows multiple enabled groups without implying a single current provider", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      Promise.resolve(
+        command === "tool-cards"
+          ? {
+              cards: [card(7, true), card(8, true), card(9, null)],
+              groups: [],
+              currentProviderId: "aihubmix-dsh-account-1-service-7",
+            }
+          : [],
+      ),
+    );
+    wrap(<ToolPage app="dsh" simple />);
+    await screen.findByText("分组 7");
+    expect(screen.getAllByText("已启用")).toHaveLength(2);
+    expect(screen.queryByText("使用中")).not.toBeInTheDocument();
+    expect(screen.getByText("状态未知")).toBeInTheDocument();
+    expect(screen.getByText(/支持同时启用多个分组/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "启用 分组 9" })).toBeEnabled();
+  });
+  it("enables a configured group and tells users to select a model in DSH", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      Promise.resolve(
+        command === "tool-cards"
+          ? {
+              cards: [card(7, false)],
+              groups: [],
+              currentProviderId: null,
+            }
+          : {},
+      ),
+    );
+    wrap(<ToolPage app="dsh" simple />);
+    fireEvent.click(await screen.findByRole("button", { name: "启用 分组 7" }));
+    await waitFor(() =>
+      expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
+        app: "dsh",
+        providerId: "aihubmix-dsh-account-1-service-7",
+      }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "请在 DeepSeek Harness 中选择模型",
     );
   });
 });

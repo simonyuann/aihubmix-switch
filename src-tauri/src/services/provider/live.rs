@@ -30,6 +30,9 @@ pub(crate) fn provider_exists_in_live_config(
         AppType::Hermes => crate::hermes_config::get_providers()
             .map(|providers| providers.contains_key(provider_id)),
         AppType::Pi => crate::pi_config::pi_provider_exists(provider_id),
+        AppType::Dsh => {
+            crate::dsh_config::get_providers().map(|providers| providers.contains_key(provider_id))
+        }
         AppType::Kimi => {
             crate::kimi_config::get_providers().map(|providers| providers.contains_key(provider_id))
         }
@@ -306,6 +309,7 @@ fn settings_contain_common_config(app_type: &AppType, settings: &Value, snippet:
         | AppType::Pi
         | AppType::Mcode
         | AppType::Kimi
+        | AppType::Dsh
         | AppType::Agy
         | AppType::Omp
         | AppType::ClaudeDesktop => false,
@@ -385,6 +389,7 @@ pub(crate) fn remove_common_config_from_settings(
         | AppType::Pi
         | AppType::Mcode
         | AppType::Kimi
+        | AppType::Dsh
         | AppType::ClaudeDesktop
         | AppType::Agy
         | AppType::Omp => Ok(settings.clone()),
@@ -398,6 +403,12 @@ pub(crate) fn write_live_for_state(
     app_type: &AppType,
     provider: &Provider,
 ) -> Result<(), AppError> {
+    if crate::product_policy::active()
+        && crate::product_policy::reserved_platform_id(&provider.id)
+        && !crate::product_policy::visible_provider(app_type, provider)
+    {
+        return Err(AppError::Config("平台供应商不属于当前账号".into()));
+    }
     let db = state.db.as_ref();
     if matches!(app_type, AppType::Claude) {
         // Claude 不再整份写，也不合并片段：只替换关键字段和独有字段。live 当前对应的
@@ -702,6 +713,9 @@ pub(crate) fn write_live_snapshot(app_type: &AppType, provider: &Provider) -> Re
             crate::hermes_config::set_provider(&provider.id, provider.settings_config.clone())?;
             log::debug!("Hermes provider '{}' written to live config", provider.id);
         }
+        AppType::Dsh => {
+            crate::dsh_config::set_provider(&provider.id, provider.settings_config.clone())?
+        }
         AppType::Kimi => {
             crate::kimi_config::set_provider(&provider.id, provider.settings_config.clone())?
         }
@@ -746,11 +760,15 @@ fn sync_all_providers_to_live(state: &AppState, app_type: &AppType) -> Result<()
         }
 
         if let Err(e) = write_live_for_state(state, app_type, provider) {
-            log::warn!(
-                "Failed to sync {:?} provider '{}' to live: {e}",
-                app_type,
-                provider.id
-            );
+            if matches!(app_type, AppType::Dsh) {
+                log::warn!("DeepSeek Harness provider sync failed");
+            } else {
+                log::warn!(
+                    "Failed to sync {:?} provider '{}' to live: {e}",
+                    app_type,
+                    provider.id
+                );
+            }
             continue;
         }
         synced_count += 1;
@@ -841,6 +859,42 @@ pub(crate) fn sync_current_provider_for_app_respecting_mode(
     sync_live_for_provider_respecting_mode(state, app_type, provider, None).map(Some)
 }
 
+/// Populate newly encountered DSH profiles with managed providers and enabled MCP servers.
+/// The native writer records completion locally so later native deletions remain intentional.
+pub(crate) fn initialize_dsh_profiles(state: &AppState) -> Result<(), AppError> {
+    let saved = state.db.get_all_providers("dsh")?;
+    if crate::product_policy::active()
+        && saved.values().any(|p| {
+            p.meta.as_ref().and_then(|meta| meta.live_config_managed) == Some(true)
+                && crate::product_policy::reserved_platform_id(&p.id)
+                && !crate::product_policy::visible_provider(&AppType::Dsh, p)
+        })
+    {
+        return Err(AppError::Config(
+            "DeepSeek Harness 平台配置归属无法确认".into(),
+        ));
+    }
+    let providers = saved
+        .into_iter()
+        .filter(|(_, provider)| {
+            provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.live_config_managed)
+                == Some(true)
+        })
+        .map(|(id, provider)| (id, provider.settings_config))
+        .collect();
+    let servers = state
+        .db
+        .get_all_mcp_servers()?
+        .into_iter()
+        .filter(|(_, server)| server.apps.dsh)
+        .map(|(id, server)| (id, server.server))
+        .collect();
+    crate::dsh_config::initialize_profiles(&providers, &servers)
+}
+
 /// Sync current provider to live configuration
 ///
 /// 使用有效的当前供应商 ID（验证过存在性）。
@@ -850,12 +904,20 @@ pub(crate) fn sync_current_provider_for_app_respecting_mode(
 /// For additive mode apps (OpenCode), all providers are synced instead of just the current one.
 pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
     let mut failures = Vec::new();
+    // Do not snapshot managed DSH rows concurrently with account logout: an
+    // old snapshot could otherwise recreate nodes after the account is gone.
+    let guard = futures::executor::block_on(state.proxy_service.lock_switch_for_app("dsh"));
+    let result = initialize_dsh_profiles(state);
+    drop(guard);
+    if result.is_err() {
+        failures.push("provider/dsh: 初始化失败".to_string());
+    }
 
     // Sync providers based on mode
     for app_type in AppType::all() {
         if matches!(
             app_type,
-            AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Omp
+            AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Dsh | AppType::Omp
         ) {
             continue;
         }
@@ -884,8 +946,13 @@ pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
     // Skill sync
     for app_type in AppType::all() {
         if let Err(e) = crate::services::skill::SkillService::sync_to_app(&state.db, &app_type) {
-            log::warn!("同步 Skill 到 {app_type:?} 失败: {e}");
-            failures.push(format!("skill/{}: {e}", app_type.as_str()));
+            if app_type == AppType::Dsh {
+                log::warn!("同步 DeepSeek Harness Skill 失败");
+                failures.push("skill/dsh: 同步失败".into());
+            } else {
+                log::warn!("同步 Skill 到 {app_type:?} 失败: {e}");
+                failures.push(format!("skill/{}: {e}", app_type.as_str()));
+            }
         }
     }
 
@@ -1013,6 +1080,9 @@ pub fn read_live_settings(app_type: AppType) -> Result<Value, AppError> {
         }
         AppType::Mcode => Ok(json!(crate::mcode_config::get_providers()?)),
         AppType::Kimi => Ok(json!(crate::kimi_config::get_providers()?)),
+        AppType::Dsh => {
+            Ok(json!(crate::dsh_config::get_providers()?))
+        }
         AppType::Pi => Err(AppError::InvalidInput(
             "Pi providers are read from Pi's native models file".to_string(),
         )),
@@ -1140,6 +1210,7 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
         | AppType::Pi
         | AppType::Mcode
         | AppType::Kimi
+        | AppType::Dsh
         | AppType::Omp => {
             unreachable!("additive mode apps are handled by early return")
         }

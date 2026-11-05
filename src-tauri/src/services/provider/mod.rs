@@ -57,8 +57,8 @@ pub use claude_editor::{EditorSave, EditorView};
 
 // Internal re-exports (pub(crate))
 pub(crate) use live::{
-    provider_exists_in_live_config, sync_additive_app_to_live, write_live_for_state,
-    LiveSyncOutcome,
+    initialize_dsh_profiles, provider_exists_in_live_config, sync_additive_app_to_live,
+    write_live_for_state, LiveSyncOutcome,
 };
 
 // Internal re-exports
@@ -156,7 +156,7 @@ fn lock_native_provider_operations(
     state: &AppState,
     app_type: &AppType,
 ) -> Option<tokio::sync::OwnedMutexGuard<()>> {
-    matches!(app_type, AppType::Mcode | AppType::Kimi).then(|| {
+    matches!(app_type, AppType::Mcode | AppType::Kimi | AppType::Dsh).then(|| {
         futures::executor::block_on(state.proxy_service.lock_switch_for_app(app_type.as_str()))
     })
 }
@@ -5480,19 +5480,31 @@ impl ProviderService {
             return Ok(rows);
         }
         let _native_guard = lock_native_provider_operations(state, &app_type);
+        if app_type == AppType::Dsh {
+            if initialize_dsh_profiles(state).is_err() {
+                log::warn!("Initializing DeepSeek Harness profiles failed");
+            }
+        }
         if app_type == AppType::Pi {
-            return pi::list(state);
+            let mut rows = pi::list(state)?;
+            rows.retain(|_, p| crate::product_policy::visible_provider(&app_type, p));
+            return Ok(rows);
         }
         if app_type == AppType::Omp {
-            return omp::list(state);
+            let mut rows = omp::list(state)?;
+            rows.retain(|_, p| crate::product_policy::visible_provider(&app_type, p));
+            return Ok(rows);
         }
-        if matches!(app_type, AppType::Mcode | AppType::Kimi) {
-            let native = if app_type == AppType::Kimi {
+        if matches!(app_type, AppType::Mcode | AppType::Kimi | AppType::Dsh) {
+            let native = if matches!(app_type, AppType::Dsh) {
+                crate::dsh_config::get_providers()?
+            } else if app_type == AppType::Kimi {
                 crate::kimi_config::get_providers()?
             } else {
                 crate::mcode_config::get_providers()?
             };
             let mut saved = state.db.get_all_providers(app_type.as_str())?;
+            saved.retain(|_, p| crate::product_policy::visible_provider(&app_type, p));
             let nicknames = if app_type == AppType::Kimi {
                 crate::services::kimi_oauth::account_nicknames()
             } else {
@@ -5500,6 +5512,11 @@ impl ProviderService {
             };
             for (id, config) in &native {
                 if !saved.contains_key(id) {
+                    if crate::product_policy::active()
+                        && crate::product_policy::reserved_platform_id(id)
+                    {
+                        continue;
+                    }
                     let name = config.get("name").and_then(Value::as_str).unwrap_or(id);
                     saved.insert(
                         id.clone(),
@@ -5521,11 +5538,27 @@ impl ProviderService {
                         nicknames.get(id).map(String::as_str),
                     );
                 }
+            }
+            // Revalidate after merging native settings: an edited endpoint or
+            // account-specific credential must never be imported as our card.
+            for provider in saved.values() {
+                if crate::product_policy::active()
+                    && crate::product_policy::reserved_platform_id(&provider.id)
+                    && !crate::product_policy::visible_provider(&app_type, provider)
+                {
+                    return Err(AppError::Config(
+                        "DeepSeek Harness 配置归属无法确认，请检查后重试".into(),
+                    ));
+                }
+            }
+            for provider in saved.values() {
                 state.db.save_provider(app_type.as_str(), provider)?;
             }
             return Ok(saved);
         }
-        state.db.get_all_providers(app_type.as_str())
+        let mut rows = state.db.get_all_providers(app_type.as_str())?;
+        rows.retain(|_, p| crate::product_policy::visible_provider(&app_type, p));
+        Ok(rows)
     }
 
     /// Get current provider ID
@@ -5559,6 +5592,22 @@ impl ProviderService {
         write_live: bool,
         create: bool,
     ) -> Result<bool, AppError> {
+        if matches!(app_type, AppType::Dsh) {
+            return if write_live {
+                crate::dsh_config::save_and_commit(
+                    &provider.id,
+                    Some(provider.settings_config.clone()),
+                    create,
+                    || {
+                        state.db.save_provider(app_type.as_str(), provider)?;
+                        Ok(true)
+                    },
+                )
+            } else {
+                state.db.save_provider(app_type.as_str(), provider)?;
+                Ok(true)
+            };
+        }
         if app_type == &AppType::Kimi {
             return if write_live {
                 crate::kimi_config::save_and_commit(
@@ -5662,7 +5711,7 @@ impl ProviderService {
             return Self::add_codex(state, provider);
         }
 
-        if matches!(app_type, AppType::Mcode | AppType::Kimi) {
+        if matches!(app_type, AppType::Mcode | AppType::Kimi | AppType::Dsh) {
             // The key is user-chosen, and saving would overwrite an existing row or live node.
             // The per-app lock also serializes native list refreshes and other mutations;
             // the live write repeats the check under MCode's file lock.
@@ -5670,7 +5719,9 @@ impl ProviderService {
                 .db
                 .get_provider_by_id(&provider.id, app_type.as_str())?
                 .is_some()
-                || if app_type == AppType::Kimi {
+                || if matches!(app_type, AppType::Dsh) {
+                    crate::dsh_config::provider_key_exists(&provider.id)?
+                } else if app_type == AppType::Kimi {
                     crate::kimi_config::provider_key_exists(&provider.id)?
                 } else {
                     crate::mcode_config::provider_key_exists(&provider.id)?
@@ -6383,7 +6434,7 @@ impl ProviderService {
             )?;
             Self::set_provider_live_config_managed(&mut provider, live_config_managed);
 
-            if matches!(app_type, AppType::Mcode | AppType::Kimi) {
+            if matches!(app_type, AppType::Mcode | AppType::Kimi | AppType::Dsh) {
                 return Self::save_native_provider(
                     state,
                     &app_type,
@@ -6529,6 +6580,11 @@ impl ProviderService {
         if app_type == AppType::Pi {
             return pi::delete(state, id);
         }
+        if matches!(app_type, AppType::Dsh) {
+            return crate::dsh_config::save_and_commit(id, None, false, || {
+                state.db.delete_provider(app_type.as_str(), id)
+            });
+        }
         if app_type == AppType::Kimi {
             Self::ensure_kimi_provider_editable(id)?;
             let saved = state.db.get_provider_by_id(id, "kimi")?;
@@ -6594,6 +6650,7 @@ impl ProviderService {
                     AppType::Hermes => remove_hermes_provider_from_live(id)?,
                     AppType::Mcode => crate::mcode_config::remove_provider(id)?,
                     AppType::Kimi => crate::kimi_config::remove_provider(id)?,
+                    AppType::Dsh => crate::dsh_config::remove_provider(id)?,
                     _ => {}
                 }
             }
@@ -6663,6 +6720,15 @@ impl ProviderService {
         if app_type == AppType::Pi {
             return pi::remove(state, id);
         }
+        if matches!(app_type, AppType::Dsh) {
+            return crate::dsh_config::save_and_commit(id, None, false, || {
+                if let Some(mut provider) = state.db.get_provider_by_id(id, app_type.as_str())? {
+                    Self::set_provider_live_config_managed(&mut provider, false);
+                    state.db.save_provider(app_type.as_str(), &provider)?;
+                }
+                Ok(())
+            });
+        }
         if app_type == AppType::Kimi {
             // An official account leaves Kimi's config but keeps its login and card,
             // so「添加」can put it back.
@@ -6716,6 +6782,7 @@ impl ProviderService {
             }
             AppType::Mcode => crate::mcode_config::remove_provider(id)?,
             AppType::Kimi => crate::kimi_config::remove_provider(id)?,
+            AppType::Dsh => crate::dsh_config::remove_provider(id)?,
             _ => {
                 return Err(AppError::Message(format!(
                     "App {} does not support remove from live config",
@@ -6768,7 +6835,7 @@ impl ProviderService {
     /// - 直连模式：切换式应用只替换客户端文件里的关键字段（不回填），文件和指针在同一个
     ///   操作里提交；累加式应用按各自的规则写入。
     pub fn switch(state: &AppState, app_type: AppType, id: &str) -> Result<SwitchResult, AppError> {
-        if crate::product_policy::restricted() {
+        if crate::product_policy::active() {
             let provider = state
                 .db
                 .get_provider_by_id(id, app_type.as_str())?
@@ -6830,6 +6897,17 @@ impl ProviderService {
             .get(id)
             .ok_or_else(|| AppError::Message(format!("供应商 {id} 不存在")))?;
 
+        if matches!(app_type, AppType::Dsh) {
+            let mut provider = _provider.clone();
+            Self::set_provider_live_config_managed(&mut provider, true);
+            crate::dsh_config::save_and_commit(
+                id,
+                Some(provider.settings_config.clone()),
+                false,
+                || state.db.save_provider(app_type.as_str(), &provider),
+            )?;
+            return Ok(SwitchResult::default());
+        }
         if app_type == AppType::Kimi {
             crate::services::kimi_oauth::ensure_profile_signed_in(&_provider.settings_config)?;
             let mut provider = _provider.clone();
@@ -7009,6 +7087,7 @@ impl ProviderService {
                     AppType::Hermes => remove_hermes_provider_from_live(&provider.id),
                     AppType::Mcode => crate::mcode_config::remove_provider(&provider.id),
                     AppType::Kimi => crate::kimi_config::remove_provider(&provider.id),
+                    AppType::Dsh => crate::dsh_config::remove_provider(&provider.id),
                     _ => Ok(()),
                 };
 
@@ -7272,9 +7351,12 @@ impl ProviderService {
             AppType::OpenCode => Self::extract_opencode_common_config(&provider.settings_config),
             AppType::OpenClaw => Self::extract_openclaw_common_config(&provider.settings_config),
             AppType::Hermes => Ok(String::new()), // Hermes doesn't use common config snippets
-            AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Agy | AppType::Omp => {
-                Ok(String::new())
-            }
+            AppType::Pi
+            | AppType::Mcode
+            | AppType::Kimi
+            | AppType::Dsh
+            | AppType::Omp
+            | AppType::Agy => Ok(String::new()),
         }
     }
 
@@ -7292,9 +7374,12 @@ impl ProviderService {
             AppType::OpenCode => Self::extract_opencode_common_config(settings_config),
             AppType::OpenClaw => Self::extract_openclaw_common_config(settings_config),
             AppType::Hermes => Ok(String::new()), // Hermes doesn't use common config snippets
-            AppType::Pi | AppType::Mcode | AppType::Kimi | AppType::Agy | AppType::Omp => {
-                Ok(String::new())
-            }
+            AppType::Pi
+            | AppType::Mcode
+            | AppType::Kimi
+            | AppType::Dsh
+            | AppType::Omp
+            | AppType::Agy => Ok(String::new()),
         }
     }
 
@@ -8058,6 +8143,9 @@ impl ProviderService {
                     ));
                 }
             }
+            AppType::Dsh => {
+                crate::dsh_config::validate_provider(&provider.id, &provider.settings_config)?;
+            }
             AppType::Kimi => {
                 crate::kimi_config::validate_provider(&provider.id, &provider.settings_config)?
             }
@@ -8268,6 +8356,20 @@ impl ProviderService {
 
                 Ok((api_key, base_url))
             }
+            AppType::Dsh => Ok((
+                provider
+                    .settings_config
+                    .pointer("/options/apiKey")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+                provider
+                    .settings_config
+                    .pointer("/options/baseURL")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
+            )),
             AppType::Kimi => Ok((
                 provider
                     .settings_config

@@ -148,6 +148,11 @@ import type { PiFamilyAppId } from "@/lib/api/pi";
 // Keep the upstream CC workspace intact; platform pages are additive entry points.
 import { AccountPage } from "@/components/aihubmix/AccountPage";
 import { ToolPage } from "@/components/aihubmix/ToolPage";
+import { HelpPage } from "@/components/aihubmix/HelpPage";
+import {
+  getAdvancedInterface,
+  useAdvancedInterface,
+} from "@/lib/interfaceMode";
 
 interface SyncStatusUpdatedPayload {
   source?: string;
@@ -165,14 +170,25 @@ const getInitialApp = (): AppId => {
   return "claude";
 };
 
+const SIMPLE_APP_STORAGE_KEY = "aihubmix:active-tool";
+const getInitialSimpleApp = (): AppId => {
+  const saved = localStorage.getItem(SIMPLE_APP_STORAGE_KEY) as AppId | null;
+  return saved && APP_IDS.includes(saved) ? saved : "codex";
+};
+
 function CcWorkspace() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { hasUpdate } = useUpdate();
 
-  const [activeApp, setActiveApp] = useState<AppId>(getInitialApp);
+  const advancedInterface = useAdvancedInterface();
+  const [activeApp, setActiveApp] = useState<AppId>(() =>
+    getAdvancedInterface() ? getInitialApp() : getInitialSimpleApp(),
+  );
   const sharedFeatureApp = sharedFeatureAppOf(activeApp);
-  const [currentView, setCurrentView] = useState<View>(readStoredView);
+  const [currentView, setCurrentView] = useState<View>(() =>
+    getAdvancedInterface() ? readStoredView() : "providers",
+  );
   const [settingsSection, setSettingsSection] =
     useState<SettingsSection>("general");
   const [appConfigScrollTarget, setAppConfigScrollTarget] = useState<AppId>();
@@ -185,6 +201,14 @@ function CcWorkspace() {
   );
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [showPlatformGroups, setShowPlatformGroups] = useState(false);
+  const previousAdvanced = useRef(advancedInterface);
+  useEffect(() => {
+    if (previousAdvanced.current === advancedInterface) return;
+    previousAdvanced.current = advancedInterface;
+    setShowPlatformGroups(false);
+    setCurrentView("providers");
+    setActiveApp(advancedInterface ? getInitialApp() : getInitialSimpleApp());
+  }, [advancedInterface]);
   // 供应商搜索面板：页头按钮和 ⌘F 都能打开；换应用或离开供应商页就收起
   const [providerSearchOpen, setProviderSearchOpen] = useState(false);
   const [connectionStatusSlot, setConnectionStatusSlot] =
@@ -245,10 +269,10 @@ function CcWorkspace() {
   };
 
   useEffect(() => {
-    if (!visibleApps[activeApp]) {
+    if (advancedInterface && !visibleApps[activeApp]) {
       setActiveApp(getFirstVisibleApp());
     }
-  }, [visibleApps, activeApp]);
+  }, [advancedInterface, visibleApps, activeApp]);
 
   // 启动后把其他可见应用的供应商列表预取进缓存：第一次切过去直接有数据，不先画骨架
   const providersPrefetchedRef = useRef(false);
@@ -569,7 +593,10 @@ function CcWorkspace() {
     (payload) => {
       const app = APP_DISPLAY_NAME[payload.appType] ?? payload.appType;
       toast.warning(
-        t("notifications.proxyLoopbackHijacked", { app, origin: payload.origin }),
+        t("notifications.proxyLoopbackHijacked", {
+          app,
+          origin: payload.origin,
+        }),
         { duration: 15000 },
       );
     },
@@ -803,6 +830,7 @@ function CcWorkspace() {
       try {
         if (
           activeApp === "mcode" ||
+          activeApp === "dsh" ||
           activeApp === "kimi" ||
           activeApp === "agy"
         )
@@ -888,7 +916,10 @@ function CcWorkspace() {
     if (confirmLeave(() => selectApp(app))) return;
     closeProviderPanels();
     setActiveApp(app);
-    localStorage.setItem(APP_STORAGE_KEY, app);
+    localStorage.setItem(
+      advancedInterface ? APP_STORAGE_KEY : SIMPLE_APP_STORAGE_KEY,
+      app,
+    );
     setCurrentView("providers");
   };
 
@@ -1033,7 +1064,7 @@ function CcWorkspace() {
         queryClient.invalidateQueries({ queryKey: hermesKeys.liveProviderIds }),
         queryClient.invalidateQueries({ queryKey: hermesKeys.modelConfig }),
       ]);
-    } else if (app === "mcode" || app === "kimi") {
+    } else if (app === "mcode" || app === "dsh" || app === "kimi") {
       await queryClient.invalidateQueries({ queryKey: ["providers", app] });
     }
   };
@@ -1202,7 +1233,7 @@ function CcWorkspace() {
         existingKeys,
       );
       duplicatedProvider.addToLive = false;
-    } else if (activeApp === "mcode" || activeApp === "kimi") {
+    } else if (activeApp === "mcode" || activeApp === "dsh" || activeApp === "kimi") {
       // The MCode list already includes its live custom nodes; the backend
       // rejects a key that MCode itself owns.
       duplicatedProvider.providerKey = generateUniqueProviderCopyKey(
@@ -1417,6 +1448,7 @@ function CcWorkspace() {
           )}
           {currentView === "providers" &&
             activeApp !== "mcode" &&
+            activeApp !== "dsh" &&
             activeApp !== "kimi" &&
             (settingsData?.showProfileSwitcher ?? false) && (
               <ProfileSwitcher activeApp={activeApp} />
@@ -1583,6 +1615,7 @@ function CcWorkspace() {
               activeApp === "hermes" ||
               activeApp === "pi" ||
               activeApp === "mcode" ||
+              activeApp === "dsh" ||
               activeApp === "kimi" ||
               activeApp === "omp"
                 ? (provider) => setConfirmAction({ provider, action: "remove" })
@@ -1611,14 +1644,18 @@ function CcWorkspace() {
   const renderAppPage = () => {
     if (
       currentView === "providers" &&
-      (!settingsData?.enableOtherProviders || showPlatformGroups)
+      (!advancedInterface ||
+        !settingsData?.enableOtherProviders ||
+        showPlatformGroups)
     ) {
       return (
         <ToolPage
           key={activeApp}
           app={activeApp}
+          simple={!advancedInterface}
+          onSelectApp={selectApp}
           onOpenProviders={
-            settingsData?.enableOtherProviders
+            advancedInterface && settingsData?.enableOtherProviders
               ? () => setShowPlatformGroups(false)
               : undefined
           }
@@ -1694,6 +1731,8 @@ function CcWorkspace() {
 
   const renderGlobalPage = () => {
     switch (currentView) {
+      case "help":
+        return <HelpPage />;
       case "aihubmix":
         return <AccountPage />;
       case "usage":
@@ -1802,12 +1841,13 @@ function CcWorkspace() {
     >
       <div className="flex h-screen overflow-hidden bg-app text-fg-1 selection:bg-action/25">
         <Sidebar
+          simple={!advancedInterface}
           activeApp={activeApp}
           view={currentView}
           visibleApps={visibleApps}
           settingsSection={settingsSection}
           onSelectApp={selectApp}
-          onSelectPage={openPageFromNav}
+          onSelectPage={advancedInterface ? openPageFromNav : openPage}
           onSelectSettingsSection={(section) => {
             setAppConfigScrollTarget(undefined);
             setSettingsSection(section);
@@ -1859,7 +1899,9 @@ function CcWorkspace() {
             }
             className="flex min-h-0 flex-1 flex-col"
           >
-            <HeaderBalanceContext.Provider value={currentView !== "settings"}>
+            <HeaderBalanceContext.Provider
+              value={!advancedInterface || currentView !== "settings"}
+            >
               {renderContent()}
             </HeaderBalanceContext.Provider>
           </div>

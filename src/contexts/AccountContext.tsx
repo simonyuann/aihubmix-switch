@@ -47,6 +47,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [walletError, setWalletError] = useState("");
   const revision = useRef(0);
   const walletRevision = useRef(0);
+  const loggingOut = useRef(false);
+  const activeAccount = useRef<string | null>(null);
+  const accountIdentity = (next: AccountState) =>
+    JSON.stringify([next.relayBaseUrl, String(next.account.userId)]);
   useTauriEvent<{ userId: string | number; wallet: WalletBalance | null }>(
     "aihubmix-wallet-updated",
     (payload) => {
@@ -61,26 +65,51 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     },
   );
   const refresh = useCallback(async () => {
+    if (loggingOut.current) return;
     const rev = ++revision.current;
     try {
       const next = await dispatch<AccountState>("session");
       if (rev !== revision.current) return;
       if (!next.account.loggedIn) throw new Error("请先登录账号");
+      const identity = accountIdentity(next);
+      if (
+        activeAccount.current !== null &&
+        activeAccount.current !== identity
+      ) {
+        walletRevision.current++;
+        setWallet(null);
+        setWalletError("");
+        client.clear();
+      }
+      activeAccount.current = identity;
       setState(next);
       setError("");
     } catch (e) {
       if (rev !== revision.current) return;
-      setState(null);
-      setWallet(null);
-      walletRevision.current++;
-      client.clear();
       const message = String(e);
-      setError(/AUTH_REQUIRED|请先登录/.test(message) ? "" : message);
+      if (
+        /AUTH_REQUIRED|请先登录|登录已过期|登录已失效|请重新登录/.test(message)
+      ) {
+        setState(null);
+        setWallet(null);
+        walletRevision.current++;
+        activeAccount.current = null;
+        client.clear();
+        setError(/登录已失效|登录信息已变更|登录已过期/.test(message)
+          ? "登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。"
+          : "");
+      } else {
+        // Keep only a session already verified in this process. An offline cold
+        // start still stays at login; network failures must not log out an
+        // already verified user or discard their view and cached state.
+        setError("连接暂时不可用，请检查网络后重试。");
+      }
     } finally {
       if (rev === revision.current) setChecking(false);
     }
   }, [client]);
   const refreshWallet = useCallback(async () => {
+    if (loggingOut.current) return;
     const rev = ++walletRevision.current;
     setWalletError("");
     try {
@@ -101,14 +130,18 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       setState(null);
       setWallet(null);
       setChecking(false);
-      setError("登录已失效，请重新登录");
+      setError("登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。");
+      activeAccount.current = null;
       client.clear();
     };
     window.addEventListener("aihubmix:session-expired", expired);
+    const online = () => void refresh();
+    window.addEventListener("online", online);
     return () => {
       revision.current++;
       walletRevision.current++;
       window.removeEventListener("aihubmix:session-expired", expired);
+      window.removeEventListener("online", online);
     };
   }, [client, refresh]);
   useEffect(() => {
@@ -131,19 +164,37 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     walletRevision.current++;
     client.clear();
     setWallet(null);
+    setWalletError("");
+    activeAccount.current = accountIdentity(next);
     setState(next);
     setError("");
     setChecking(false);
   }
   async function logout() {
-    await dispatch("logout");
+    if (loggingOut.current) return;
+    loggingOut.current = true;
+    revision.current++;
+    walletRevision.current++;
+    setChecking(true);
+    let revocationWarning = "";
+    try {
+      const result = await dispatch<{ revocationWarning?: string }>("logout");
+      revocationWarning = result?.revocationWarning ?? "";
+    } catch (error) {
+      loggingOut.current = false;
+      setChecking(false);
+      throw error;
+    }
     revision.current++;
     walletRevision.current++;
     setState(null);
     setWallet(null);
-    setError("");
+    setWalletError("");
+    setError(`${revocationWarning ? `${revocationWarning} ` : ""}请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据。为保护自定义配置，DSH 凭据文件可能保留旧引用。`);
     setChecking(false);
+    activeAccount.current = null;
     client.clear();
+    loggingOut.current = false;
   }
   return (
     <Context.Provider

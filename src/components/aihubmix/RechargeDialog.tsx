@@ -66,6 +66,7 @@ export function RechargeDialog({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(false),
+    [overviewFailed, setOverviewFailed] = useState(false),
     [uncertain, setUncertain] = useState(false),
     [historyOpen, setHistoryOpen] = useState(false),
     [now, setNow] = useState(Date.now());
@@ -111,10 +112,12 @@ export function RechargeDialog({
           : (next.methods[0]?.id ?? ""),
       );
       setUncertain(false);
+      setOverviewFailed(false);
       setError("");
     } catch (e) {
       if (mounted.current) {
         setError(String(e));
+        setOverviewFailed(true);
         setOverview((current) =>
           current ? { ...current, balance: null } : null,
         );
@@ -237,7 +240,26 @@ export function RechargeDialog({
     ),
   );
   const outstanding =
-    overview?.orders.some(pending) || (order && pending(order));
+    overview?.orders.find(pending) ?? (order && pending(order) ? order : null);
+  const blockReason = loading
+    ? "正在刷新充值信息，请稍候。"
+    : overviewFailed || !overview
+      ? "充值信息暂不可用，请刷新后重试。"
+      : !overview.enabled
+        ? "当前充值服务不可用，请稍后重试。"
+        : uncertain
+          ? "请先刷新充值记录，确认上次提交结果。"
+          : outstanding
+            ? outstanding.status === "PENDING"
+              ? "已有待付款订单，请先继续支付或取消。"
+              : "已有充值正在处理，请查看订单状态。"
+            : !selected
+              ? "暂无可用支付方式，请稍后重试。"
+              : !validAmount(amount, minimum, maximum)
+                ? `请输入 ${minimum}–${Number.isFinite(maximum) ? maximum : "不限"} 范围内的金额，最多保留两位小数。`
+                : busy
+                  ? "正在处理，请稍候。"
+                  : "";
   const remaining = order
     ? Math.max(0, Math.ceil((Date.parse(order.expiresAt) - now) / 1000))
     : 0;
@@ -302,6 +324,20 @@ export function RechargeDialog({
                   disabled={busy}
                 />
               </label>
+              <div className="flex flex-wrap gap-2" aria-label="快捷充值金额">
+                {[20, 50, 100].map((value) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant={Number(amount) === value ? "solid" : "outline"}
+                    size="compact"
+                    disabled={busy || value < minimum || value > maximum}
+                    onClick={() => setAmount(String(value))}
+                  >
+                    {value} 元
+                  </Button>
+                ))}
+              </div>
               <p className="text-fg-3">
                 范围：{minimum}–{Number.isFinite(maximum) ? maximum : "不限"}
                 ；手续费：{selected?.feeRate ?? 0}
@@ -322,21 +358,29 @@ export function RechargeDialog({
               </label>
               <Button
                 className="w-full"
-                disabled={
-                  !overview?.enabled ||
-                  !selected ||
-                  !validAmount(amount, minimum, maximum) ||
-                  !!outstanding ||
-                  uncertain ||
-                  busy ||
-                  loading
-                }
+                disabled={!!blockReason}
                 onClick={() =>
                   void operate("payment-create", { amount, method }, true)
                 }
               >
                 创建充值订单
               </Button>
+              {blockReason && (
+                <p role="status" className="text-caption text-fg-2">
+                  {blockReason}
+                </p>
+              )}
+              {outstanding && (
+                <Button
+                  variant="outline"
+                  disabled={busy || loading}
+                  onClick={() =>
+                    void operate("payment-order", { id: outstanding.id })
+                  }
+                >
+                  查看未完成的充值
+                </Button>
+              )}
             </div>
           )}
           {order && (
@@ -364,6 +408,14 @@ export function RechargeDialog({
                   className="mx-auto aspect-square h-auto w-[clamp(9rem,32dvh,14rem)] max-w-full rounded-control bg-white object-contain"
                 />
               )}
+              {order.status === "PENDING" &&
+                remaining > 0 &&
+                !qr &&
+                !order.payUrl && (
+                  <p className="text-fg-3">
+                    付款信息暂不可用，可取消此订单后重新创建。
+                  </p>
+                )}
               <div className="flex flex-wrap justify-center gap-2">
                 {order.payUrl &&
                   order.status === "PENDING" &&
@@ -380,7 +432,7 @@ export function RechargeDialog({
                       打开支付页面
                     </Button>
                   )}
-                {pending(order) && (
+                {order.status === "PENDING" && (
                   <Button
                     size="compact"
                     disabled={busy}
@@ -389,6 +441,17 @@ export function RechargeDialog({
                     }
                   >
                     我已付款，核验
+                  </Button>
+                )}
+                {(order.status === "PAID" || order.status === "RECHARGING") && (
+                  <Button
+                    size="compact"
+                    disabled={busy}
+                    onClick={() =>
+                      void operate("payment-order", { id: order.id })
+                    }
+                  >
+                    刷新充值状态
                   </Button>
                 )}
                 {order.status === "PENDING" && (

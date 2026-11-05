@@ -608,6 +608,23 @@ input[type="password"]::-ms-clear {
   width: 332px;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .aihub-page-enter {
+    animation: aihub-page-enter 180ms ease-out both;
+  }
+
+  @keyframes aihub-page-enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
 @container (min-width: 800px) {
   .auth-quota-col {
     width: 368px;

@@ -13,6 +13,10 @@ const WalletActions = createContext<{
   recharge: () => void;
 } | null>(null);
 
+export function useWalletActions() {
+  return useContext(WalletActions);
+}
+
 // Dialogs belong to the shell, outside the sidebar's layout and clipping context.
 export function WalletActionsProvider({ children }: { children: ReactNode }) {
   const account = useOptionalAccount();
@@ -26,6 +30,7 @@ export function WalletActionsProvider({ children }: { children: ReactNode }) {
       {children}
       {recharge && (
         <RechargeDialog
+          key={String(account?.state?.account.userId ?? "")}
           open
           onClose={() => setRecharge(false)}
           onPaid={() => void account?.refreshWallet()}

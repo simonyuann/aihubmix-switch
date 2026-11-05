@@ -14,6 +14,7 @@ vi.mock("@/contexts/AccountContext", () => ({
 }));
 import {
   AnnouncementBell,
+  AnnouncementBanner,
   AnnouncementProvider,
 } from "@/components/aihubmix/Announcements";
 
@@ -30,6 +31,33 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
 describe("platform announcements", () => {
+  it("shows only unread announcements on the home banner and retains history after reading", async () => {
+    mocks.dispatch.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === "announcements"
+          ? [{ ...notice, notifyMode: "silent" }]
+          : null,
+      ),
+    );
+    render(
+      <AnnouncementProvider>
+        <AnnouncementBanner />
+        <AnnouncementBell />
+      </AnnouncementProvider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /平台公告：\s*维护通知/ }),
+    );
+    expect(await screen.findByText("今晚服务维护")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: /平台公告：\s*维护通知/ }),
+      ).not.toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "平台公告" }));
+    expect(await screen.findByText("维护通知")).toBeInTheDocument();
+  });
   it("shows an unread popup and marks it read without adding a backend entry", async () => {
     mocks.dispatch.mockImplementation((command: string) =>
       Promise.resolve(command === "announcements" ? [notice] : null),

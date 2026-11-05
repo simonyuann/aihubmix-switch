@@ -3,7 +3,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg(test)]
-pub const AGENTS: [&str; 13] = [
+pub const AGENTS: [&str; 14] = [
     "codex",
     "claude",
     "opencode",
@@ -15,6 +15,7 @@ pub const AGENTS: [&str; 13] = [
     "claude-desktop",
     "hermes",
     "mcode",
+    "dsh",
     "omp",
     "agy",
 ];

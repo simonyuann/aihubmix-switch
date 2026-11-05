@@ -7,7 +7,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { settingsApi } from "@/lib/api";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { Badge } from "@/components/ui/badge";
-import ccswitchLogo from "@/assets/icons/logo.svg";
+import ccswitchLogo from "@/assets/icons/aihubmix-a.png";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 interface AboutSectionProps {
@@ -130,7 +130,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           src={ccswitchLogo}
           alt=""
           draggable={false}
-          className="h-10 w-10 shrink-0 p-1"
+          className="h-10 w-10 shrink-0 rounded-xl"
         />
         <div className="min-w-0 flex-1">
           <div className="text-title text-fg-1">AIHubMix Switch</div>
