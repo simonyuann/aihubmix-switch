@@ -382,7 +382,8 @@
     "codexAuthCleanupFailed": "Switched successfully, but auth.json could not be removed — the official login credentials are still on disk; delete auth.json from the Codex config directory to remove them",
     "windowControlFailed": "Window control failed: {{error}}",
     "officialBlockedByProxy": "Cannot switch to official provider while local routing is active. Using routing with official APIs may cause account bans.",
-    "proxyOfficialWarning": "Current provider {{name}} is official. Consider switching to a third-party provider before using local routing."
+    "proxyOfficialWarning": "Current provider {{name}} is official. Consider switching to a third-party provider before using local routing.",
+    "proxyLoopbackHijacked": "Requests from {{app}} to the local route {{origin}} will be picked up by the system proxy, so {{app}} will fail with 502 errors. Make loopback addresses connect directly in your proxy tool (for example, add IP-CIDR,127.0.0.0/8,DIRECT,no-resolve at the top of your Clash rules), then fully quit and reopen {{app}}."
   },
   "confirm": {
     "deleteProvider": "Delete Provider",
@@ -2742,7 +2743,7 @@
         "mcode": "MiniMax Code"
       }
     },
-    "userLevelPath": "User-level MCP path",
+    "userLevelPath": "User-level MCP config path",
     "serverList": "Servers",
     "loading": "Loading...",
     "empty": "No MCP servers",
@@ -2765,7 +2766,7 @@
       "titlePlaceholder": "my-mcp-server",
       "name": "Display Name",
       "namePlaceholder": "e.g. mcp-server-time",
-      "enabledApps": "Enable to Apps",
+      "enabledApps": "Enable for Apps",
       "noAppsWarning": "At least one app must be selected",
       "description": "Description",
       "descriptionPlaceholder": "Optional description",
@@ -2785,7 +2786,7 @@
       "useWizard": "Config Wizard",
       "syncOtherSide": "Mirror to {{target}}",
       "syncOtherSideHint": "Apply the same settings to {{target}}; existing entries with the same id will be overwritten.",
-      "willOverwriteWarning": "Will overwrite existing config in {{target}}"
+      "willOverwriteWarning": "Will overwrite config with the same name in {{target}}"
     },
     "wizard": {
       "title": "MCP Configuration Wizard",
@@ -4540,6 +4541,16 @@
     }
   },
   "mcpPage": {
+    "checkConnectivity": "Check connectivity",
+    "testConnection": "Test connection",
+    "connection": {
+      "unchecked": "Not checked",
+      "connected": "Connection successful",
+      "authRequired": "Server reachable but requires sign-in (e.g. OAuth). CC Switch checks without your client's own login: if you've signed in from the client, it works there; if you set a token in the headers, make sure it is still valid",
+      "disconnected": "Connection failed",
+      "checking": "Checking connection",
+      "disabled": "Not enabled"
+    },
     "noun": "MCP servers",
     "listSeparator": ", ",
     "helpTitle": "How MCP syncs",
@@ -4564,7 +4575,7 @@
     "noMatch": "No MCP server's name, command or URL matches “{{query}}”",
     "clearSearch": "Clear search",
     "listLabel": "MCP servers",
-    "notEnabled": "Off",
+    "notEnabled": "Not enabled",
     "rowFail": "Writing to {{apps}} failed",
     "rowRetryAria": "Write {{id}} to {{apps}} again",
     "editAria": "Edit {{id}}",
@@ -4602,7 +4613,7 @@
       "ok": "Got it"
     },
     "templateLabels": {
-      "sequential-thinking": "sequential-thinking"
+      "sequential-thinking": "Sequential thinking"
     },
     "drawer": {
       "addTitle": "Add MCP",

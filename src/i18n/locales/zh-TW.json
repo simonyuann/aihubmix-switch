@@ -382,7 +382,8 @@
     "codexAuthCleanupFailed": "切換成功，但未能刪除 auth.json，官方登入憑證仍留在磁碟上；如需徹底移除請手動刪除 Codex 設定目錄中的 auth.json",
     "windowControlFailed": "視窗控制失敗：{{error}}",
     "officialBlockedByProxy": "本地路由模式下不能切換至官方供應商，使用路由存取官方 API 可能導致帳號被封鎖",
-    "proxyOfficialWarning": "目前供應商 {{name}} 是官方供應商，建議切換至第三方供應商後再使用本地路由"
+    "proxyOfficialWarning": "目前供應商 {{name}} 是官方供應商，建議切換至第三方供應商後再使用本地路由",
+    "proxyLoopbackHijacked": "{{app}} 發往本地路由 {{origin}} 的請求會被系統代理接走，{{app}} 會回報 502 錯誤。請在代理工具裡讓本機位址直連（例如在 Clash 規則最前面加上 IP-CIDR,127.0.0.0/8,DIRECT,no-resolve），改完後徹底結束 {{app}} 再重新開啟。"
   },
   "confirm": {
     "deleteProvider": "刪除供應商",
@@ -2780,7 +2781,7 @@
       "jsonConfig": "完整的 JSON 設定",
       "jsonConfigOrPrefix": "完整的 JSON 設定或者使用",
       "tomlConfigOrPrefix": "完整的 TOML 設定或者使用",
-      "jsonPlaceholder": "{\n    \"type\": \"stdio\",\n    \"command\": \"uvx\",\n    \"args\": [\"mcp-server-fetch\"]\n}",
+      "jsonPlaceholder": "{\n  \"type\": \"stdio\",\n  \"command\": \"uvx\",\n  \"args\": [\"mcp-server-fetch\"]\n}",
       "tomlConfig": "完整的 TOML 設定",
       "tomlPlaceholder": "type = \"stdio\"\ncommand = \"uvx\"\nargs = [\"mcp-server-fetch\"]",
       "useWizard": "設定精靈",
@@ -4541,6 +4542,16 @@
     }
   },
   "mcpPage": {
+    "checkConnectivity": "檢查連通性",
+    "testConnection": "測試連線",
+    "connection": {
+      "unchecked": "未檢查",
+      "connected": "連線成功",
+      "authRequired": "伺服器可連線，但需要登入授權（如 OAuth）。CC Switch 檢測時不帶用戶端自己的登入憑證：用戶端裡已登入即可正常使用；如果在請求標頭裡設定了權杖，請確認它仍然有效",
+      "disconnected": "連線失敗",
+      "checking": "正在檢查連線",
+      "disabled": "未啟用"
+    },
     "noun": "MCP",
     "listSeparator": "、",
     "helpTitle": "MCP 怎麼同步",

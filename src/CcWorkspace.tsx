@@ -564,6 +564,17 @@ function CcWorkspace() {
     },
   );
 
+  useTauriEvent<{ appType: AppId; origin: string }>(
+    "proxy-loopback-hijacked",
+    (payload) => {
+      const app = APP_DISPLAY_NAME[payload.appType] ?? payload.appType;
+      toast.warning(
+        t("notifications.proxyLoopbackHijacked", { app, origin: payload.origin }),
+        { duration: 15000 },
+      );
+    },
+  );
+
   useEffect(() => {
     // settingsData 未加载时跳过，避免用 fallback false 覆盖 Rust 侧已设好的装饰状态
     if (!settingsData) return;
