@@ -407,11 +407,17 @@ fn auth_target<'a>(goal: &'a AuthGoal, op_name: &str) -> AuthTarget<'a> {
 }
 
 fn project(provider: &Provider) -> Result<CodexProjection, AppError> {
-    CodexProjection::of(&RowInput {
+    let mut projection = CodexProjection::of(&RowInput {
         settings: &provider.settings_config,
         official: is_official(provider),
         proxy_injected_oauth: provider.uses_proxy_injected_oauth(),
-    })
+    })?;
+    if crate::aihubmix::native_imagegen::supported(provider) {
+        if let Route::Custom { table, auth: RouteAuth::Bearer } = &mut projection.route {
+            crate::aihubmix::native_imagegen::mark(table);
+        }
+    }
+    Ok(projection)
 }
 
 /// 这个供应商的独有字段，含 `web_search`（需要时为 `"disabled"`）。
@@ -552,6 +558,7 @@ fn row_auth(provider: &Provider) -> Value {
 /// 在内存里算好的一次 Codex 写入。
 pub(crate) struct Planned {
     config: CodexConfigPatch,
+    native_image: bool,
     /// 第三方路由表的凭据来源：写入时按盘上有没有登录定 `requires_openai_auth`。
     stamp: Option<RouteAuth>,
     catalog: Option<Vec<u8>>,
@@ -630,7 +637,7 @@ pub(crate) fn plan(
         }
         (
             Target::Proxy {
-                route, base_url, ..
+                route, base_url, stack,
             },
             Some(projection),
         ) => {
@@ -652,6 +659,13 @@ pub(crate) fn plan(
                 // compaction preference. Preserve the existing UI's OpenAI-name
                 // toggle and Codex's explicit override (including "unsupported").
                 let mut proxy_table = proxy_route_table(ROUTE_ID, base_url, false);
+                if stack.is_empty() && crate::aihubmix::native_imagegen::supported(route) {
+                    if let Route::Custom { table, .. } = &projection.route {
+                        if crate::aihubmix::native_imagegen::marked(table) {
+                            crate::aihubmix::native_imagegen::mark(&mut proxy_table);
+                        }
+                    }
+                }
                 if let Route::Custom { table, .. } = &projection.route {
                     if table.get("name").and_then(Item::as_str) == Some("OpenAI") {
                         proxy_table.insert("name", toml_edit::value("OpenAI"));
@@ -734,6 +748,8 @@ pub(crate) fn plan(
         .filter(|provider| is_official(provider) && managed_account(provider).is_none())
         .map(row_auth);
 
+    let native_image = provider.is_some_and(crate::aihubmix::native_imagegen::supported)
+        && matches!(&route, RouteWrite::Custom(table) if crate::aihubmix::native_imagegen::marked(table));
     let config = CodexConfigPatch {
         top,
         nested,
@@ -756,6 +772,7 @@ pub(crate) fn plan(
     );
     Ok(Planned {
         config,
+        native_image,
         stamp,
         catalog,
         auth,
@@ -1219,9 +1236,11 @@ pub(crate) fn run_with_edits(
     let mut config = planned.config;
     if let (Some(kind), RouteWrite::Custom(table)) = (planned.stamp, &mut config.route) {
         if matches!(kind, RouteAuth::Bearer | RouteAuth::EnvKey) {
+            let requires_login = !planned.native_image
+                && requires_openai_auth(kind, login);
             table.insert(
                 "requires_openai_auth",
-                toml_edit::value(requires_openai_auth(kind, login)),
+                toml_edit::value(requires_login),
             );
         }
     }
@@ -1270,6 +1289,8 @@ pub(crate) fn run_with_edits(
         config_steps.push(edits);
     }
     config_steps.push(&config);
+    let auth_store = crate::aihubmix::native_imagegen::AuthStorePatch(planned.native_image);
+    config_steps.push(&auth_store);
     let config_patch = TomlSteps(config_steps);
 
     let mut changes: Vec<FileChange<'_>> = Vec::new();

@@ -2688,6 +2688,77 @@ mod mode_tests {
         AppState::new(db)
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn native_image_route_is_confined_to_its_own_provider_in_both_modes() {
+        let _home = Home::new();
+        let login = json!({"auth_mode":"chatgpt","OPENAI_API_KEY":null,
+            "tokens":{"id_token":"fixture-id","access_token":"fixture-login",
+                "refresh_token":"fixture-refresh","account_id":"fixture-account"},
+            "last_refresh":"2026-01-01T00:00:00Z"});
+        crate::codex_config::write_codex_live_atomic(&login, Some("model = 'gpt-5.5'\n")).unwrap();
+        crate::settings::update_settings(crate::settings::AppSettings {
+            preserve_codex_official_auth_on_switch: true, ..Default::default()
+        }).unwrap();
+        let mut own = Provider::with_id(
+            "aihubmix-codex-account-17-service-5".into(), "AIHubMix · OpenAI".into(),
+            json!({"auth":{"OPENAI_API_KEY":"fixture-own"},
+                "config":"model_provider = 'custom'\nmodel = 'gpt-5.5'\n[model_providers.custom]\nname = 'AIHubMix'\nbase_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\nrequires_openai_auth = true\n"}),
+            Some(crate::product_policy::ORIGIN.into()),
+        );
+        own.category = Some("custom".into());
+        let mut other = Provider::with_id("other".into(), "Other".into(),
+            json!({"auth":{"OPENAI_API_KEY":"fixture-other"},
+                "config":"model_provider = 'other'\nmodel = 'gpt-5.5'\n[model_providers.other]\nname = 'Other'\nbase_url = 'https://other.example/v1'\nwire_api = 'responses'\n"}), None);
+        other.category = Some("custom".into());
+        let mut official = Provider::with_id(crate::database::CODEX_OFFICIAL_PROVIDER_ID.into(),
+            "OpenAI Official".into(), json!({"auth":{},"config":"model = 'gpt-5.5'\n"}), None);
+        official.category = Some("official".into());
+        let state = state_with(AppType::Codex, &[own.clone(), other.clone(), official.clone()], &own.id).await;
+        ProviderService::switch(&state, AppType::Codex, &own.id).unwrap();
+        let read = || fs::read_to_string(crate::codex_config::get_codex_config_path()).unwrap();
+        let native = read();
+        assert!(native.contains("local-image-extension"));
+        assert!(native.contains("requires_openai_auth = false"));
+        assert!(native.contains("fixture-own"));
+        assert_eq!(toml::from_str::<toml::Value>(&native).unwrap()["cli_auth_credentials_store"].as_str(), Some("ephemeral"));
+        assert_eq!(crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path()).unwrap(), login);
+        // A previous installation has the same active URL and key but no marker.
+        let legacy = native.lines().filter(|line| !line.contains("x-openai-actor-authorization")
+                && !line.contains("cli_auth_credentials_store"))
+            .collect::<Vec<_>>().join("\n").replace("requires_openai_auth = false", "requires_openai_auth = true") + "\n";
+        fs::write(crate::codex_config::get_codex_config_path(), &legacy).unwrap();
+        crate::aihubmix::native_imagegen::migrate_current(&state, 99).unwrap();
+        assert_eq!(read(), legacy, "another account must not migrate this route");
+        crate::aihubmix::native_imagegen::migrate_current(&state, 17).unwrap();
+        assert!(read().contains("local-image-extension"));
+        assert!(read().contains("requires_openai_auth = false"));
+        assert_eq!(toml::from_str::<toml::Value>(&read()).unwrap()["cli_auth_credentials_store"].as_str(), Some("ephemeral"));
+        assert_eq!(crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path()).unwrap(), login);
+        ProviderService::switch(&state, AppType::Codex, &other.id).unwrap();
+        let switched = read();
+        assert!(!switched.contains("local-image-extension"));
+        assert!(!switched.contains("aihubmix-previous-auth-store"));
+        assert!(toml::from_str::<toml::Value>(&switched).unwrap().get("cli_auth_credentials_store").is_none());
+        assert!(!switched.contains("fixture-own"));
+        assert!(switched.contains("fixture-other"));
+        ProviderService::switch(&state, AppType::Codex, &own.id).unwrap();
+        enter(&state, &AppType::Codex, false).await.unwrap();
+        let proxy = read();
+        assert!(proxy.contains("local-image-extension"));
+        assert!(proxy.contains("requires_openai_auth = false"));
+        assert!(proxy.contains(PROXY_TOKEN_PLACEHOLDER));
+        assert!(!proxy.contains("fixture-own"));
+        ProviderService::switch(&state, AppType::Codex, &other.id).unwrap();
+        assert!(!read().contains("local-image-extension"));
+        exit(&state, &AppType::Codex).await.unwrap();
+        ProviderService::switch(&state, AppType::Codex, &official.id).unwrap();
+        let official_config = read();
+        assert!(!official_config.contains("local-image-extension"));
+        assert!(!official_config.contains("fixture-own"));
+        assert_eq!(crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path()).unwrap(), login);
+    }
+
     fn settings_path() -> std::path::PathBuf {
         crate::config::get_claude_settings_path()
     }

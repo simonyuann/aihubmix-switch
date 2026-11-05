@@ -1286,6 +1286,7 @@ pub fn run() {
             // 将同一个实例注入到全局状态，避免重复创建导致的不一致
             app.manage(app_state);
             app.manage(aihubmix::Platform::default());
+            aihubmix::start_codex_image_migration(app.handle().clone());
             aihubmix::start_wallet_worker(app.handle().clone());
             tauri::async_runtime::spawn_blocking(crate::auto_launch::initialize_default);
             app.manage(services::kimi_oauth::KimiOAuthManager::default());

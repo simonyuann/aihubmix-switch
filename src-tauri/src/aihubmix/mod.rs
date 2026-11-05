@@ -1,6 +1,7 @@
 //! Independent account state; native configuration and activation are delegated to CC.
 pub(crate) mod claude_models;
 mod draft;
+pub(crate) mod native_imagegen;
 mod payments;
 mod service;
 mod store;
@@ -93,6 +94,13 @@ pub async fn aihubmix_dispatch(
         .ok_or("平台服务未初始化")?
         .dispatch(&command, payload.unwrap_or(Value::Null))
         .await;
+    if result.is_ok() && matches!(command.as_str(), "login" | "register" | "session") {
+        if let Some(user) = guard.as_ref().and_then(|b| {
+            b.store.settings.account.logged_in.then_some(b.store.settings.account.user_id).flatten()
+        }) {
+            migrate_codex_image_for_user(app_state.inner().clone(), user);
+        }
+    }
     if command == "logout" {
         crate::product_policy::set_session(0);
         crate::tray::set_wallet_balance(&app, None);
@@ -100,6 +108,29 @@ pub async fn aihubmix_dispatch(
         let _ = app_state.proxy_service.stop().await;
     }
     result
+}
+
+fn migrate_codex_image_for_user(state: crate::store::AppState, user: i64) {
+    tauri::async_runtime::spawn_blocking(move || {
+        if native_imagegen::migrate_current(&state, user).is_err() {
+            // The error can originate from private config; never log its content.
+            log::warn!("Codex image configuration migration was skipped");
+        }
+    });
+}
+
+pub fn start_codex_image_migration(app: AppHandle) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Ok(store) = store::Store::load(crate::config::get_app_config_dir().join("platform")) else { return; };
+        if store.settings.account.logged_in {
+            if let Some(user) = store.settings.account.user_id {
+                let state = app.state::<crate::store::AppState>();
+                if native_imagegen::migrate_current(state.inner(), user).is_err() {
+                    log::warn!("Codex image configuration migration was skipped");
+                }
+            }
+        }
+    });
 }
 
 fn update_tray_balance(app: &AppHandle, value: Option<&Value>) {
