@@ -1,0 +1,9 @@
+# Codex native image generation for existing accounts
+
+The AIHubMix OpenAI group must offer Codex's native image-generation tool after an upgrade without requiring users to paste a configuration file or configure system-wide environment variables. Preserve the Windows, macOS, and Linux update channels, official account switching, and other providers.
+
+For AIHubMix-owned OpenAI Responses routes, use the platform's API-key mode: the provider uses the existing account-specific key, does not require OpenAI login for that route, and carries the platform's `x-openai-actor-authorization` marker. Keep the key and address bound to the same active provider, and preserve unrelated TOML sections. Other groups must not inherit the marker or a previous key. Do not log credential values. Where Codex already runs, its configuration may require a restart or a new conversation.
+
+On upgrade, migrate an already active, unambiguously identified AIHubMix OpenAI route without replacing the user's whole configuration. Skip ambiguous, externally modified, unsupported, or unavailable configurations rather than risk rerouting another account. Re-selecting the group regenerates the route using its current key. Retain official account material and support existing local proxy routing only when its active route is the verified OpenAI group.
+
+Validate configuration generation, existing-user migration, repeated migration, account and provider changes, proxy behavior, and redaction using synthetic credentials. Run an actual Codex client against local mock Responses and Images endpoints to verify native tool availability and the destination/key pairing, without issuing a paid image request. Build and sign all release packages, verify both the current and legacy update channels, and remove task-only build copies afterward while keeping the reusable Linux and Windows build environments.
