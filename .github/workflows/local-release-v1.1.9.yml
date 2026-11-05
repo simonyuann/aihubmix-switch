@@ -133,7 +133,7 @@ jobs:
           foreach ($name in @('GEMINI_OAUTH_CLIENT_ID', 'GEMINI_OAUTH_CLIENT_SECRET', 'TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')) {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing $name" }
           }
-          pnpm tauri build --target x86_64-pc-windows-msvc --no-bundle -- --locked
+          node .\node_modules\@tauri-apps\cli\tauri.js build --target x86_64-pc-windows-msvc --no-bundle -- --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/collect-portable.mjs x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
