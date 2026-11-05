@@ -2462,6 +2462,7 @@ fn insert_codex_session_entry_on_conn(
 
     let dedup_key = DedupKey {
         app_type: "codex",
+        data_source: "codex_session",
         model,
         input_tokens: delta.input,
         output_tokens: delta.output,
