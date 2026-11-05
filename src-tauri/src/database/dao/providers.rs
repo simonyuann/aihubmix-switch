@@ -173,15 +173,30 @@ impl Database {
         let mut stmt_endpoints = conn.prepare_cached(
             "SELECT provider_id, url, added_at FROM provider_endpoints WHERE app_type = ?1 ORDER BY added_at ASC, url ASC"
         ).map_err(|e| AppError::Database(e.to_string()))?;
-        let endpoints = stmt_endpoints.query_map(params![app_type], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<i64>>(2)?))
-        }).map_err(|e| AppError::Database(e.to_string()))?;
+        let endpoints = stmt_endpoints
+            .query_map(params![app_type], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                ))
+            })
+            .map_err(|e| AppError::Database(e.to_string()))?;
         for endpoint in endpoints {
-            let (provider_id, url, added_at) = endpoint.map_err(|e| AppError::Database(e.to_string()))?;
-            if let Some(meta) = providers.get_mut(&provider_id).and_then(|provider| provider.meta.as_mut()) {
-                meta.custom_endpoints.insert(url.clone(), crate::settings::CustomEndpoint {
-                    url, added_at: added_at.unwrap_or(0), last_used: None,
-                });
+            let (provider_id, url, added_at) =
+                endpoint.map_err(|e| AppError::Database(e.to_string()))?;
+            if let Some(meta) = providers
+                .get_mut(&provider_id)
+                .and_then(|provider| provider.meta.as_mut())
+            {
+                meta.custom_endpoints.insert(
+                    url.clone(),
+                    crate::settings::CustomEndpoint {
+                        url,
+                        added_at: added_at.unwrap_or(0),
+                        last_used: None,
+                    },
+                );
             }
         }
 

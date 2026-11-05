@@ -79,6 +79,8 @@ jobs:
           snapshot="/__w/aihubmix-source-$GITHUB_SHA.tar.gz"
           printf '%s  %s\n' "$(cat "$snapshot.sha256")" "$snapshot" | sha256sum -c -
           tar -xzf "$snapshot" -C "$GITHUB_WORKSPACE"
+          mkdir -p /__w/aihubmix-build-target
+          ln -s /__w/aihubmix-build-target "$GITHUB_WORKSPACE/src-tauri/target"
       - run: pnpm install --frozen-lockfile
       - name: Build and sign Linux packages
         run: |
