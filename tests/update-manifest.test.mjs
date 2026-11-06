@@ -79,6 +79,18 @@ test('production updater checks only the download station', async () => {
   assert.equal(packageUrl('1.0.2', 'package.exe'), 'https://dl.csmy.fun:23457/updates/aihubmix-switch/v1.0.2/package.exe')
 })
 
+test('Linux window keeps the common settings and uses the application title', async () => {
+  const common = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'))
+  const linux = JSON.parse(await readFile('src-tauri/tauri.linux.conf.json', 'utf8'))
+  assert.deepEqual(Object.keys(linux), ['app'])
+  assert.deepEqual(Object.keys(linux.app), ['windows'])
+  assert.equal(common.app.windows.length, 1)
+  assert.equal(common.app.windows[0].title, '')
+  assert.deepEqual(linux.app.windows, [
+    { ...common.app.windows[0], title: 'AIHubMix Switch' }
+  ])
+})
+
 test('macOS 12+ releases use a distinct feed from macOS 11 legacy clients', () => {
   assert.equal(manifestName('1.0.2'), 'latest.json')
   assert.equal(manifestName('1.0.99'), 'latest.json')
