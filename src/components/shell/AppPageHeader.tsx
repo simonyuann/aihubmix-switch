@@ -25,6 +25,8 @@ interface AppPageHeaderProps {
   actions?: ReactNode;
   /** 标题可能很长（如会话阅读页的会话名）：标题占满剩余宽度，放不下就截断 */
   truncateTitle?: boolean;
+  /** The simple home displays its balance in the content area instead. */
+  hideBalance?: boolean;
   className?: string;
 }
 
@@ -40,6 +42,7 @@ export function AppPageHeader({
   titleExtra,
   actions,
   truncateTitle = false,
+  hideBalance = false,
   className,
 }: AppPageHeaderProps) {
   const windowControls = useContext(WindowControlsContext);
@@ -101,7 +104,7 @@ export function AppPageHeader({
       </div>
       {!truncateTitle && <div {...dragRegionAttr} className="flex-1" />}
       <AnnouncementBell />
-      {showBalance && <BalanceDisplay />}
+      {showBalance && !hideBalance && <BalanceDisplay />}
       {actions && (
         <div
           className="flex min-w-0 shrink items-center justify-end gap-2"

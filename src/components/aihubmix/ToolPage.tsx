@@ -22,6 +22,7 @@ import { ApplyApiDialog } from "./ApplyApiDialog";
 import { groupBrandIcon } from "./groupBrandIcon";
 import { AnnouncementBanner } from "./Announcements";
 import { useWalletActions } from "./WalletPanel";
+import { HomeWalletBalance } from "./BalanceDisplay";
 interface ToolCard {
   provider: Provider;
   configured: boolean;
@@ -153,12 +154,10 @@ export function ToolPage({
       <AppPageHeader
         title={simple ? "AIHubMix Switch" : APP_DISPLAY_NAME[app]}
         variant={simple ? "page" : "app"}
+        hideBalance={simple}
         icon={simple ? undefined : <AppGlyph app={app} size={22} />}
         actions={
           <>
-            {simple && wallet && (
-              <Button onClick={wallet.recharge}>充值</Button>
-            )}
             {onOpenProviders && (
               <Button variant="outline" onClick={onOpenProviders}>
                 其他供应商
@@ -189,6 +188,7 @@ export function ToolPage({
         id="main-content"
         className="aihub-page-enter min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-6"
       >
+        {simple && <HomeWalletBalance onRecharge={wallet?.recharge} />}
         {app === "dsh" && (
           <p className="mb-4 text-body text-fg-3">
             DeepSeek Harness 支持同时启用多个分组，请在 DeepSeek Harness
