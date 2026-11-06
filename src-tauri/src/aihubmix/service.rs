@@ -11,6 +11,9 @@ pub fn unwrap_response(status: u16, value: Value) -> Result<Value> {
     if !(200..300).contains(&status) || value.get("code").is_some_and(|v| v.as_i64() != Some(0)) {
         return Err(match status {
             401 => "登录或 API Key 已失效，请重新登录",
+            403 if value.get("code").and_then(Value::as_str) == Some("INSUFFICIENT_BALANCE") => {
+                "账户余额不足，请先充值后再试"
+            }
             403 => "当前账号没有权限",
             429 => "请求过于频繁，请稍后重试",
             _ => "服务请求失败，请检查输入或稍后重试",
@@ -946,6 +949,26 @@ mod tests {
             !unwrap_response(400, json!({"message":"private-password private-token"}))
                 .unwrap_err()
                 .contains("private")
+        );
+    }
+    #[test]
+    fn insufficient_balance_is_safe_and_distinct_from_other_forbidden_responses() {
+        let balance = unwrap_response(
+            403,
+            json!({"code":"INSUFFICIENT_BALANCE","message":"private-password private-token"}),
+        )
+        .unwrap_err();
+        assert_eq!(balance, "账户余额不足，请先充值后再试");
+        assert!(!balance.contains("private"));
+        assert_eq!(
+            unwrap_response(403, json!({"code":"FORBIDDEN","message":"private-token"}))
+                .unwrap_err(),
+            "当前账号没有权限"
+        );
+        assert_eq!(
+            unwrap_response(403, json!({"message":"INSUFFICIENT_BALANCE private-token"}))
+                .unwrap_err(),
+            "当前账号没有权限"
         );
     }
 }
