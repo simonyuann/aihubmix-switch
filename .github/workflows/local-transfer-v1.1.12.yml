@@ -1,0 +1,33 @@
+name: Temporary v1.1.12 artifact transfer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  transfer:
+    runs-on: [self-hosted, Windows, X64, aihubmix-v112-windows]
+    timeout-minutes: 30
+    steps:
+      - name: Copy signed Windows packages
+        shell: powershell
+        run: |
+          $source = '\\host.lan\Data\aihubmix-output-windows'
+          $dest = Join-Path $env:RUNNER_TEMP 'aihubmix-v112-transfer'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item "$source\*" $dest
+          if (@(Get-ChildItem $dest -File).Count -ne 4) { throw 'Expected four Windows release files' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aihubmix-v112-windows-transfer
+          path: ${{ runner.temp }}/aihubmix-v112-transfer/*
+          if-no-files-found: error
+          retention-days: 1
+      - name: Remove temporary copies
+        if: always()
+        shell: powershell
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'aihubmix-v112-transfer'
+          if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
