@@ -4081,7 +4081,8 @@ experimental_bearer_token = "stale-table-key"
     #[test]
     fn aihubmix_terra_exposes_full_reasoning_and_fast_only_on_our_gateway() {
         let settings = json!({"modelCatalog": {"models": [
-            {"model": "gpt-6.1-terra"}, {"model": "other-model"}
+            {"model": "gpt-6.1-terra"}, {"model": "other-model"},
+            {"model": "gpt-6.1-sol"}
         ]}});
         let config = |base: &str| {
             format!(
@@ -4099,6 +4100,11 @@ experimental_bearer_token = "stale-table-key"
         };
         let ours = generate("https://csmy.fun:23457/v1");
         let terra = &ours["models"][0];
+        assert_eq!(terra["input_modalities"], json!(["text", "image"]));
+        assert_eq!(
+            ours["models"][2]["input_modalities"],
+            json!(["text", "image"])
+        );
         let levels: Vec<&str> = terra["supported_reasoning_levels"]
             .as_array()
             .unwrap()
