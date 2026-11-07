@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   transfer:
@@ -19,12 +19,33 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Copy-Item "$source\*" $dest
           if (@(Get-ChildItem $dest -File).Count -ne 4) { throw 'Expected four Windows release files' }
-      - uses: actions/upload-artifact@v4
+      - name: Upload signed Windows files to the draft release
+        uses: actions/github-script@v7
         with:
-          name: aihubmix-v112-windows-transfer
-          path: ${{ runner.temp }}/aihubmix-v112-transfer/*
-          if-no-files-found: error
-          retention-days: 1
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const { createHash } = require('crypto');
+            const { owner, repo } = context.repo;
+            const { data: release } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: 'v1.1.12' });
+            if (!release.draft) throw new Error('Expected an unpublished release draft');
+            const names = ['windows-x64-portable.exe', 'windows-x64-setup.exe'].flatMap(s =>
+              [`AIHubMix-Switch_1.1.12_${s}`, `AIHubMix-Switch_1.1.12_${s}.sig`]);
+            const directory = path.join(process.env.RUNNER_TEMP, 'aihubmix-v112-transfer');
+            for (const name of names) {
+              const data = fs.readFileSync(path.join(directory, name));
+              const existing = release.assets.find(asset => asset.name === name);
+              if (existing) {
+                const digest = `sha256:${createHash('sha256').update(data).digest('hex')}`;
+                if (existing.size !== data.length || existing.digest !== digest)
+                  throw new Error(`Existing draft asset differs: ${name}`);
+                core.info(`Already verified ${name}`);
+                continue;
+              }
+              await github.rest.repos.uploadReleaseAsset({ owner, repo, release_id: release.id, name, data,
+                headers: { 'content-type': 'application/octet-stream', 'content-length': data.length } });
+              core.info(`Uploaded ${name}`);
+            }
       - name: Remove temporary copies
         if: always()
         shell: powershell
