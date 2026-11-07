@@ -7197,6 +7197,11 @@ impl ProviderService {
         )?;
 
         let mut result = SwitchResult::default();
+        if crate::aihubmix::native_imagegen::has_inactive_platform_bearer(
+            &codex_direct::read_config_text(),
+        ) {
+            result.warnings.push("检测到未选中的平台供应商配置及其 API 密钥仍保留在 Codex 中，可能被个人 profile 使用；如不再需要，请在高级设置中检查。".into());
+        }
         // 保留登录关闭时切到第三方要删掉 auth.json。删不掉（只读目录、被占用）不让切换
         // 失败：配置和指针都已提交，但要让用户看到官方登录还在盘上。
         if !codex_direct::is_official(provider)

@@ -1291,12 +1291,23 @@ pub(crate) fn run_with_edits(
         config_steps.push(edits);
     }
     config_steps.push(&config);
-    // Keeping official login means Codex must continue using its persisted
-    // credential store. Image tool availability may then depend on Codex's
-    // account mode, but provider bearer auth remains scoped to this route.
-    let auth_store = crate::aihubmix::native_imagegen::AuthStorePatch(
-        planned.native_image && !crate::settings::preserve_codex_official_auth_on_switch(),
-    );
+    // Only a confirmed file-backed Free account needs isolation; keyring and
+    // uncertain accounts remain untouched. Recheck the file before committing.
+    let auth_state = if planned.native_image {
+        crate::aihubmix::native_imagegen::image_auth_state(
+            &config_text,
+            auth_pre.as_deref(),
+            auth_readable,
+        )
+    } else {
+        crate::aihubmix::native_imagegen::ImageAuthState::OtherOrNone
+    };
+    let auth_store = crate::aihubmix::native_imagegen::ImageAuthStorePatch {
+        state: auth_state,
+        auth_path: auth_path.clone(),
+        auth_snapshot: auth_pre.clone(),
+        guard_auth: planned.native_image,
+    };
     config_steps.push(&auth_store);
     let config_patch = TomlSteps(config_steps);
 

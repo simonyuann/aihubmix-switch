@@ -2885,6 +2885,276 @@ mod mode_tests {
         );
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn reenable_current_platform_group_repairs_legacy_codex_config() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
+        let _fixture = Home::new();
+        let jwt_head = URL_SAFE_NO_PAD.encode(br#"{"alg":"none"}"#);
+        let jwt_body = URL_SAFE_NO_PAD.encode(
+            json!({"https://api.openai.com/auth":{"chatgpt_plan_type":"plus"}}).to_string(),
+        );
+        let official = json!({"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{
+            "id_token":format!("{jwt_head}.{jwt_body}.signature"),
+            "access_token":"fixture-official","refresh_token":"fixture-refresh",
+            "account_id":"fixture-account"}});
+        let old_config = "model_provider = 'custom'\nmodel = 'gpt-6.1-terra'\n\
+            [features]\ngoals = true\n[mcp_servers.keep]\ncommand = 'keep-me'\n\
+            [model_providers.custom]\nname = 'Old relay'\n\
+            base_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\n\
+            requires_openai_auth = true\nenv_key = 'OLD_RELAY_KEY'\n";
+        crate::codex_config::write_codex_live_atomic(&official, Some(old_config)).unwrap();
+        crate::settings::update_settings(crate::settings::AppSettings {
+            preserve_codex_official_auth_on_switch: true,
+            ..Default::default()
+        })
+        .unwrap();
+        let id = "aihubmix-codex-account-17-service-5";
+        let mut provider = Provider::with_id(
+            id.into(),
+            "AIHubMix · OpenAI".into(),
+            json!({"auth":{"OPENAI_API_KEY":"fixture-platform-key"},
+                "config":"model_provider = 'custom'\n[model_providers.custom]\nname = 'AIHubMix'\nbase_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\n",
+                "modelCatalog":{"models":[{"model":"gpt-6.1-terra","displayName":"GPT-6.1 Terra","inputModalities":["text","image"]}]}}),
+            Some(crate::product_policy::ORIGIN.into()),
+        );
+        provider.category = Some("custom".into());
+        let mut other = Provider::with_id(
+            "other".into(),
+            "Other".into(),
+            json!({"auth":{"OPENAI_API_KEY":"fixture-other-key"},
+                "config":"model_provider = 'other'\nmodel = 'gpt-5.5'\n[model_providers.other]\nname = 'Other'\nbase_url = 'https://other.example/v1'\nwire_api = 'responses'\n"}),
+            None,
+        );
+        other.category = Some("custom".into());
+        let state = state_with(AppType::Codex, &[provider.clone(), other.clone()], id).await;
+        let config_path = crate::codex_config::get_codex_config_path();
+        let assert_api_key_mode = || {
+            let text = fs::read_to_string(&config_path).unwrap();
+            let doc = text.parse::<toml::Value>().unwrap();
+            let route = &doc["model_providers"]["custom"];
+            assert_eq!(doc["model_provider"].as_str(), Some("custom"));
+            assert_eq!(
+                route["base_url"].as_str(),
+                Some("https://csmy.fun:23457/v1")
+            );
+            assert_eq!(route["wire_api"].as_str(), Some("responses"));
+            assert_eq!(route["requires_openai_auth"].as_bool(), Some(false));
+            assert_eq!(
+                route["experimental_bearer_token"].as_str(),
+                Some("fixture-platform-key")
+            );
+            assert_eq!(
+                route["http_headers"]["x-openai-actor-authorization"].as_str(),
+                Some("local-image-extension")
+            );
+            assert!(route.get("env_key").is_none());
+            assert_eq!(doc["features"]["goals"].as_bool(), Some(true));
+            assert_eq!(
+                doc["mcp_servers"]["keep"]["command"].as_str(),
+                Some("keep-me")
+            );
+            assert!(doc.get("model_catalog_json").is_some());
+            let catalog: Value =
+                crate::config::read_json_file(&crate::codex_config::get_codex_model_catalog_path())
+                    .unwrap();
+            assert!(catalog["models"].as_array().unwrap().iter().any(|entry| {
+                entry["slug"] == "gpt-6.1-terra"
+                    && entry["input_modalities"]
+                        .as_array()
+                        .is_some_and(|values| values.iter().any(|value| value == "image"))
+            }));
+            assert_eq!(
+                crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path())
+                    .unwrap(),
+                official
+            );
+        };
+
+        // The active DB row is already selected; this must repair the live
+        // file rather than treating the click as a no-op.
+        ProviderService::switch(&state, AppType::Codex, id).unwrap();
+        assert_api_key_mode();
+
+        // Reproduce the platform-card command's update-then-switch path too.
+        fs::write(&config_path, old_config).unwrap();
+        ProviderService::update(&state, AppType::Codex, None, provider.clone()).unwrap();
+        ProviderService::switch(&state, AppType::Codex, id).unwrap();
+        assert_api_key_mode();
+
+        // A manually installed API Key Mode table may also be referenced by
+        // an inactive user profile. Preserve that profile and warn without
+        // placing its key into the selected provider's route.
+        let manual_config = "model_provider = 'OpenAI'\n\
+            [features]\ngoals = true\n[mcp_servers.keep]\ncommand = 'keep-me'\n\
+            [model_providers.OpenAI]\nname = 'OpenAI'\n\
+            base_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\n\
+            requires_openai_auth = false\nexperimental_bearer_token = 'fixture-platform-key'\n\
+            http_headers = { 'x-openai-actor-authorization' = 'local-image-extension' }\n\
+            [profiles.saved]\nmodel_provider = 'OpenAI'\n";
+        // The platform dispatch saves the selected provider before switch.
+        // A conflicting active profile must reject that update and restore
+        // both the existing DB row and the live files.
+        let active_manual = format!("profile = 'saved'\n{manual_config}");
+        fs::write(&config_path, &active_manual).unwrap();
+        let old_row = state.db.get_provider_by_id(id, "codex").unwrap().unwrap();
+        let error = ProviderService::update(&state, AppType::Codex, None, provider).unwrap_err();
+        assert!(!error.to_string().contains("fixture-platform-key"));
+        assert_eq!(
+            serde_json::to_value(state.db.get_provider_by_id(id, "codex").unwrap().unwrap())
+                .unwrap(),
+            serde_json::to_value(old_row).unwrap()
+        );
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), active_manual);
+        assert_eq!(
+            crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path())
+                .unwrap(),
+            official
+        );
+        fs::write(&config_path, manual_config).unwrap();
+        let reenabled = ProviderService::switch(&state, AppType::Codex, id).unwrap();
+        assert_api_key_mode();
+        assert_eq!(reenabled.warnings.len(), 1);
+        assert!(!reenabled.warnings[0].contains("fixture-platform-key"));
+        assert!(!reenabled.warnings[0].contains("csmy.fun"));
+
+        let switched = ProviderService::switch(&state, AppType::Codex, &other.id).unwrap();
+        assert_eq!(switched.warnings.len(), 1);
+        let text = fs::read_to_string(&config_path).unwrap();
+        let doc = text.parse::<toml::Value>().unwrap();
+        assert_eq!(doc["model_provider"].as_str(), Some("custom"));
+        assert_eq!(
+            doc["model_providers"]["custom"]["base_url"].as_str(),
+            Some("https://other.example/v1")
+        );
+        assert_eq!(
+            doc["model_providers"]["custom"]["experimental_bearer_token"].as_str(),
+            Some("fixture-other-key")
+        );
+        assert_eq!(
+            doc["profiles"]["saved"]["model_provider"].as_str(),
+            Some("OpenAI")
+        );
+        assert_eq!(
+            doc["model_providers"]["OpenAI"]["base_url"].as_str(),
+            Some("https://csmy.fun:23457/v1")
+        );
+        assert_eq!(
+            doc["model_providers"]["OpenAI"]["experimental_bearer_token"].as_str(),
+            Some("fixture-platform-key")
+        );
+
+        // An actively selected conflicting profile is never overwritten or
+        // reported as a successful switch.
+        let active = format!("profile = 'saved'\n{text}");
+        fs::write(&config_path, &active).unwrap();
+        assert!(ProviderService::switch(&state, AppType::Codex, id).is_err());
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), active);
+        assert_eq!(
+            crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path())
+                .unwrap(),
+            official
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn free_official_login_image_route_restores_after_switch_and_migration() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        for preserve in [true, false] {
+            let _home = Home::new();
+            let header = URL_SAFE_NO_PAD.encode(json!({"alg":"none"}).to_string());
+            let claims = URL_SAFE_NO_PAD.encode(json!({"sub":"fixture-user", "https://api.openai.com/auth": {"chatgpt_plan_type":"free"}}).to_string());
+            let login = json!({"auth_mode":"chatgpt","OPENAI_API_KEY":null,
+                "tokens":{"id_token":format!("{header}.{claims}.signature"),"access_token":"fixture-login",
+                    "refresh_token":"fixture-refresh","account_id":"fixture-account"}});
+            crate::codex_config::write_codex_live_atomic(&login, Some("model = 'gpt-5.5'\n"))
+                .unwrap();
+            crate::settings::update_settings(crate::settings::AppSettings {
+                preserve_codex_official_auth_on_switch: preserve,
+                ..Default::default()
+            })
+            .unwrap();
+            let mut own = Provider::with_id(
+                "aihubmix-codex-account-17-service-5".into(),
+                "AIHubMix · OpenAI".into(),
+                json!({"auth":{"OPENAI_API_KEY":"fixture-own"}, "config":"model_provider = 'custom'\nmodel = 'gpt-5.5'\n[model_providers.custom]\nname = 'AIHubMix'\nbase_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\n"}),
+                Some(crate::product_policy::ORIGIN.into()),
+            );
+            own.category = Some("custom".into());
+            let mut official = Provider::with_id(
+                crate::database::CODEX_OFFICIAL_PROVIDER_ID.into(),
+                "OpenAI Official".into(),
+                json!({"auth":{},"config":"model = 'gpt-5.5'\n"}),
+                None,
+            );
+            official.category = Some("official".into());
+            let mut other = Provider::with_id(
+                "other".into(),
+                "Other".into(),
+                json!({"auth":{"OPENAI_API_KEY":"fixture-other"}, "config":"model_provider = 'other'\nmodel = 'gpt-5.5'\n[model_providers.other]\nname = 'Other'\nbase_url = 'https://other.example/v1'\nwire_api = 'responses'\n"}),
+                None,
+            );
+            other.category = Some("custom".into());
+            let state = state_with(
+                AppType::Codex,
+                &[own.clone(), official.clone(), other.clone()],
+                &official.id,
+            )
+            .await;
+            ProviderService::switch(&state, AppType::Codex, &own.id).unwrap();
+            let config_path = crate::codex_config::get_codex_config_path();
+            let auth_path = crate::codex_config::get_codex_auth_path();
+            let config = fs::read_to_string(&config_path).unwrap();
+            assert!(config.contains("local-image-extension"));
+            assert!(config.contains("aihubmix-previous-auth-store:missing"));
+            if preserve {
+                assert_eq!(
+                    crate::config::read_json_file::<Value>(&auth_path).unwrap(),
+                    login
+                );
+                let legacy = config
+                    .lines()
+                    .filter(|line| !line.contains("cli_auth_credentials_store"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    + "\n";
+                fs::write(&config_path, legacy).unwrap();
+                crate::aihubmix::native_imagegen::migrate_current(&state, 17).unwrap();
+                assert!(fs::read_to_string(&config_path)
+                    .unwrap()
+                    .contains("aihubmix-previous-auth-store:missing"));
+                ProviderService::switch(&state, AppType::Codex, &other.id).unwrap();
+                let other_config = fs::read_to_string(&config_path).unwrap();
+                assert!(!other_config.contains("aihubmix-previous-auth-store"));
+                assert!(!other_config.contains("fixture-own"));
+                assert!(other_config.contains("fixture-other"));
+                assert_eq!(
+                    crate::config::read_json_file::<Value>(&auth_path).unwrap(),
+                    login
+                );
+                ProviderService::switch(&state, AppType::Codex, &own.id).unwrap();
+                assert!(fs::read_to_string(&config_path)
+                    .unwrap()
+                    .contains("aihubmix-previous-auth-store:missing"));
+            } else {
+                assert!(!auth_path.exists());
+            }
+            ProviderService::switch(&state, AppType::Codex, &official.id).unwrap();
+            let config = fs::read_to_string(&config_path).unwrap();
+            assert!(!config.contains("aihubmix-previous-auth-store"));
+            assert!(toml::from_str::<toml::Value>(&config)
+                .unwrap()
+                .get("cli_auth_credentials_store")
+                .is_none());
+            assert_eq!(
+                crate::config::read_json_file::<Value>(&auth_path).unwrap(),
+                login
+            );
+        }
+    }
+
     fn settings_path() -> std::path::PathBuf {
         crate::config::get_claude_settings_path()
     }

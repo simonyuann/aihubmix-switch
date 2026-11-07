@@ -145,11 +145,11 @@ export function ToolPage({
           );
           imagegenNote =
             setup.status === "written"
-              ? "命令行生图需重启 Codex Desktop，并在本机安装 Python 3.11+ 和 OpenAI SDK；WSL、远程主机和容器需分别配置。"
-              : "命令行生图未能自动接入。请检查 Codex 的 shell_environment_policy 和 PYTHONPATH 设置，修复后重启 Codex Desktop。";
+              ? "如需使用命令行生图备用方式，还需在本机安装 Python 3.11+ 和 OpenAI SDK；WSL、远程主机和容器需分别配置。"
+              : "命令行生图备用方式未能自动接入，这不代表原生生图不可用。请检查 Codex 的 shell_environment_policy 和 PYTHONPATH 设置。";
         } catch {
           imagegenNote =
-            "命令行生图接入状态不可用，请检查 Codex 配置后重启 Desktop。";
+            "命令行生图备用方式的状态不可用，这不代表原生生图不可用。";
         }
       }
       setNotice(
@@ -158,7 +158,7 @@ export function ToolPage({
             ? `已切换到 ${card.provider.name}。请重启 Codex；如果官方登录已失效，请在 Codex 中重新登录。`
             : app === "dsh"
               ? `已启用 ${card.provider.name}。可以同时启用多个分组；请在 DeepSeek Harness 中选择模型。`
-              : `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。${imagegenNote}`
+              : `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。${app === "codex" ? "请重启 Codex，使配置生效。" : ""}${imagegenNote}`
           : "API Key 已保存。",
       );
       if (result?.warnings?.length)
@@ -313,6 +313,16 @@ export function ToolPage({
             .map((card) => {
               const current =
                 app !== "dsh" && card.provider.id === data.currentProviderId;
+              // The backend supplies the group's current platform separately;
+              // public cards deliberately omit provider metadata and secrets.
+              // Unknown or conversion platforms must not promise a rewrite.
+              const canReapplyCodex =
+                current &&
+                app === "codex" &&
+                card.groupId != null &&
+                ["openai", "openai_responses"].includes(
+                  card.platform?.toLowerCase() ?? "",
+                );
               const enabled = app === "dsh" && card.inLive === true;
               const dshUnknown = app === "dsh" && card.inLive == null;
               const group = groups.find((item) => item.id === card.groupId);
@@ -357,9 +367,26 @@ export function ToolPage({
                       </Button>
                     )}
                     {current || enabled ? (
-                      <span className="rounded-full bg-success-soft px-3 py-1 text-caption font-medium text-success-text">
-                        {enabled ? "已启用" : "使用中"}
-                      </span>
+                      <>
+                        <span className="rounded-full bg-success-soft px-3 py-1 text-caption font-medium text-success-text">
+                          {enabled ? "已启用" : "使用中"}
+                        </span>
+                        {canReapplyCodex && (
+                          <Button
+                            variant="outline"
+                            size="compact"
+                            disabled={busy}
+                            aria-label={`重新启用 ${card.provider.name}`}
+                            onClick={() =>
+                              card.configured
+                                ? void operate(card, true)
+                                : edit(card)
+                            }
+                          >
+                            重新启用
+                          </Button>
+                        )}
+                      </>
                     ) : (
                       <Button
                         variant="outline"
@@ -408,8 +435,19 @@ export function ToolPage({
                         : dshUnknown
                           ? { label: "状态未知", dot: "muted" }
                           : undefined,
-                    buttons:
-                      current || enabled
+                    buttons: canReapplyCodex
+                      ? [
+                          {
+                            key: "switch",
+                            label: `重新启用 ${card.provider.name}`,
+                            disabledReason: busy ? "正在切换配置" : undefined,
+                            onClick: () =>
+                              card.configured
+                                ? void operate(card, true)
+                                : edit(card),
+                          },
+                        ]
+                      : current || enabled
                         ? []
                         : [
                             {

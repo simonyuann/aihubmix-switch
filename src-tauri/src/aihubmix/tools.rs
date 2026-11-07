@@ -27,6 +27,21 @@ fn service_id(app: &str, user: i64, group: i64) -> String {
         crate::product_policy::provider_id(app, user)
     )
 }
+fn persist_key_binding(store: &mut super::store::Store, id: &str, key_id: i64) -> Result<()> {
+    if store.settings.service_key_ids.get(id) == Some(&key_id) {
+        return Ok(());
+    }
+    let old = store.settings.service_key_ids.insert(id.to_owned(), key_id);
+    if let Err(error) = store.save() {
+        if let Some(old) = old {
+            store.settings.service_key_ids.insert(id.to_owned(), old);
+        } else {
+            store.settings.service_key_ids.remove(id);
+        }
+        return Err(error);
+    }
+    Ok(())
+}
 fn eligible_key(key: &Value, group_id: i64, key_id: i64) -> bool {
     key_id > 0
         && key["id"].as_i64() == Some(key_id)
@@ -392,23 +407,7 @@ pub(super) async fn dispatch(
     }
     if let Some(key_id) = selected_key_id {
         let backend = _account_guard.as_mut().ok_or("平台服务未初始化")?;
-        let old = backend
-            .store
-            .settings
-            .service_key_ids
-            .insert(id.clone(), key_id);
-        if let Err(error) = backend.store.save() {
-            if let Some(old) = old {
-                backend
-                    .store
-                    .settings
-                    .service_key_ids
-                    .insert(id.clone(), old);
-            } else {
-                backend.store.settings.service_key_ids.remove(&id);
-            }
-            return Err(error);
-        }
+        persist_key_binding(&mut backend.store, &id, key_id)?;
     }
     let mut warnings = Vec::new();
     if command == "start-tool-card" {
@@ -447,7 +446,13 @@ pub(super) async fn dispatch(
             && crate::aihubmix::native_imagegen::supported(&provider)
             && crate::settings::preserve_codex_official_auth_on_switch()
         {
-            warnings.push("已保留官方登录；Codex 的免费官方账号可能不显示内置生图工具。需要内置生图时，可关闭保留官方登录后重新切换分组并重启 Codex".into());
+            use crate::aihubmix::native_imagegen::{current_image_auth_status, ImageAuthState};
+            match current_image_auth_status() {
+                (ImageAuthState::Free, true) => warnings.push("已保留官方账号的原有登录。使用中转分组期间 Codex 会暂时隐藏官方登录，请勿在此期间重新登录官方账号；切回官方并重启 Codex 后恢复。请重启 Codex 后使用生图。".into()),
+                (ImageAuthState::Unknown, true) => warnings.push("此前的官方登录处于临时隐藏状态，但无法确认原生生图是否兼容。请勿在此期间重新登录；切回官方并重启 Codex 后检查登录。".into()),
+                (ImageAuthState::Free, false) | (ImageAuthState::Unknown, false) => warnings.push("无法确认当前 Codex 官方登录与原生生图是否兼容；已保留原有凭据和设置，未自动更改官方登录方式。".into()),
+                (ImageAuthState::OtherOrNone, _) => {}
+            }
         }
     }
     let selected_model = if command == "start-tool-card" && app == AppType::Claude {
@@ -461,6 +466,20 @@ pub(super) async fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_key_binding_needs_no_write_and_failed_changes_roll_back() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = super::super::store::Store::for_test(temp.path().join("state"));
+        store.settings.service_key_ids.insert("card".into(), 7);
+        store.dir = temp.path().join("not-a-directory");
+        std::fs::write(&store.dir, "fixture").unwrap();
+        assert!(persist_key_binding(&mut store, "card", 7).is_ok());
+        assert!(persist_key_binding(&mut store, "card", 8).is_err());
+        assert_eq!(store.settings.service_key_ids.get("card"), Some(&7));
+        assert!(persist_key_binding(&mut store, "new-card", 9).is_err());
+        assert!(!store.settings.service_key_ids.contains_key("new-card"));
+    }
 
     #[test]
     fn dsh_cards_mask_keys_and_preserve_group_separation() {

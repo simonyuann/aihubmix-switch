@@ -2,6 +2,7 @@
 //! This module never logs or returns the selected provider's credential.
 use crate::live::patch::{toml, toml::TomlDocPatch, LivePatch, LiveWriteError};
 use crate::{app_config::AppType, error::AppError, provider::Provider, store::AppState};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, InlineTable, Item, TableLike, Value};
 
@@ -156,8 +157,208 @@ pub(crate) fn marked(table: &dyn TableLike) -> bool {
         })
 }
 
+/// Report a retained platform bearer without exposing its value or removing
+/// user-owned profiles. An inactive provider can still be used by a profile.
+pub(crate) fn has_inactive_platform_bearer(config: &str) -> bool {
+    let Ok(doc) = config.parse::<DocumentMut>() else {
+        return false;
+    };
+    let selected = doc
+        .get("model_provider")
+        .and_then(Item::as_str)
+        .unwrap_or("openai");
+    doc.get("model_providers")
+        .and_then(Item::as_table_like)
+        .is_some_and(|providers| {
+            providers.iter().any(|(id, item)| {
+                id != selected
+                    && item.as_table_like().is_some_and(|table| {
+                        table
+                            .get("base_url")
+                            .and_then(Item::as_str)
+                            .is_some_and(platform_url)
+                            && table
+                                .get("experimental_bearer_token")
+                                .and_then(Item::as_str)
+                                .is_some_and(|key| !key.trim().is_empty())
+                    })
+            })
+        })
+}
+
 const AUTH_STORE_KEY: &str = "cli_auth_credentials_store";
 const AUTH_STORE_MARKER: &str = "[aihubmix-previous-auth-store:";
+
+/// Classification affects only local tool availability, never authentication
+/// or billing. Unknown stores or tokens must never be guessed from auth.json.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImageAuthState {
+    Free,
+    OtherOrNone,
+    Unknown,
+}
+
+fn prior_auth_store(value: &Value) -> Option<&str> {
+    let suffix = value.decor().suffix()?.as_str()?;
+    let start = suffix.rfind(AUTH_STORE_MARKER)? + AUTH_STORE_MARKER.len();
+    let end = suffix[start..].find(']')? + start;
+    match &suffix[start..end] {
+        "missing" => Some("file"), // Codex CLI's documented default
+        "file" => Some("file"),
+        "auto" => Some("auto"),
+        "keyring" => Some("keyring"),
+        _ => None,
+    }
+}
+
+pub(crate) fn image_auth_state(
+    config: &str,
+    auth: Option<&[u8]>,
+    readable: bool,
+) -> ImageAuthState {
+    if !readable {
+        return ImageAuthState::Unknown;
+    }
+    let Ok(doc) = config.parse::<DocumentMut>() else {
+        return ImageAuthState::Unknown;
+    };
+    // An active profile (including one selected by the launcher) can change
+    // effective settings. Do not infer its auth store from the top-level key.
+    if doc.get("profile").is_some() || doc.get("profiles").is_some() {
+        return ImageAuthState::Unknown;
+    }
+    let store = match doc.get(AUTH_STORE_KEY) {
+        None => Some("file"),
+        Some(item) => item.as_value().and_then(|value| match value.as_str() {
+            Some("ephemeral") => prior_auth_store(value),
+            other => other,
+        }),
+    };
+    // Never infer the live keyring account from a stale auth.json. A user-set
+    // ephemeral setting without our marker is also left entirely untouched.
+    if store != Some("file") {
+        return ImageAuthState::Unknown;
+    }
+    let Some(bytes) = auth else {
+        return ImageAuthState::OtherOrNone;
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return ImageAuthState::Unknown;
+    };
+    if value.get("auth_mode").and_then(|v| v.as_str()) != Some("chatgpt") {
+        return if value.get("tokens").is_none() {
+            ImageAuthState::OtherOrNone
+        } else {
+            ImageAuthState::Unknown
+        };
+    }
+    if ["access_token", "refresh_token", "account_id"]
+        .iter()
+        .any(|key| {
+            value
+                .get("tokens")
+                .and_then(|v| v.get(*key))
+                .and_then(|v| v.as_str())
+                .is_none_or(|s| s.trim().is_empty())
+        })
+    {
+        return ImageAuthState::Unknown;
+    }
+    let plan = value
+        .pointer("/tokens/id_token")
+        .and_then(|v| v.as_str())
+        .and_then(|jwt| {
+            let parts: Vec<_> = jwt.split('.').collect();
+            if parts.len() != 3
+                || parts[0].len() > 4096
+                || parts[1].len() > 16384
+                || parts[2].is_empty()
+            {
+                return None;
+            }
+            let header: serde_json::Value =
+                serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[0]).ok()?).ok()?;
+            header
+                .get("alg")?
+                .as_str()
+                .filter(|v| !v.trim().is_empty())?;
+            let payload = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;
+            let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
+            claims
+                .pointer("/https:~1~1api.openai.com~1auth/chatgpt_plan_type")?
+                .as_str()
+                .map(str::to_ascii_lowercase)
+        });
+    match plan.as_deref() {
+        Some("free") => ImageAuthState::Free,
+        Some("plus" | "pro" | "team" | "business" | "enterprise" | "edu" | "go") => {
+            ImageAuthState::OtherOrNone
+        }
+        _ => ImageAuthState::Unknown,
+    }
+}
+
+/// A classification-based decision is valid only while the exact login and
+/// effective store remain unchanged. No token enters errors or logs.
+pub(crate) struct ImageAuthStorePatch {
+    pub state: ImageAuthState,
+    pub auth_path: PathBuf,
+    pub auth_snapshot: Option<Vec<u8>>,
+    /// Non-native routes only restore our marker, independent of the login.
+    pub guard_auth: bool,
+}
+
+impl TomlDocPatch for ImageAuthStorePatch {
+    fn apply_to(&self, path: &Path, doc: &mut DocumentMut) -> Result<(), LiveWriteError> {
+        if self.state == ImageAuthState::Unknown {
+            return Ok(());
+        }
+        if self.guard_auth {
+            let now = match std::fs::read(&self.auth_path) {
+                Ok(bytes) => Some(bytes),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+                Err(_) => {
+                    return Err(LiveWriteError::Conflict {
+                        path: path.to_owned(),
+                    })
+                }
+            };
+            if self.auth_snapshot != now
+                || image_auth_state(&doc.to_string(), now.as_deref(), true) != self.state
+            {
+                return Err(LiveWriteError::Conflict {
+                    path: path.to_owned(),
+                });
+            }
+        }
+        AuthStorePatch(self.state == ImageAuthState::Free).apply_to(path, doc)
+    }
+}
+
+pub(crate) fn current_image_auth_status() -> (ImageAuthState, bool) {
+    let config = match std::fs::read_to_string(crate::codex_config::get_codex_config_path()) {
+        Ok(value) => value,
+        Err(_) => return (ImageAuthState::Unknown, false),
+    };
+    let (auth, readable) = match std::fs::read(crate::codex_config::get_codex_auth_path()) {
+        Ok(value) => (Some(value), true),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (None, true),
+        Err(_) => (None, false),
+    };
+    let state = image_auth_state(&config, auth.as_deref(), readable);
+    let hidden = config
+        .parse::<DocumentMut>()
+        .ok()
+        .and_then(|doc| {
+            doc.get(AUTH_STORE_KEY)
+                .and_then(Item::as_value)
+                .map(|value| {
+                    value.as_str() == Some("ephemeral") && prior_auth_store(value).is_some()
+                })
+        })
+        .unwrap_or(false);
+    (state, hidden)
+}
 
 /// Hide persisted ChatGPT login from the API-key route without deleting it.
 /// The non-secret original setting is carried in a comment so that leaving the
@@ -234,6 +435,7 @@ struct UpgradePatch {
     expected_token: String,
     legacy_auth_path: Option<PathBuf>,
     isolate_login: bool,
+    auth_decision: Option<ImageAuthStorePatch>,
 }
 
 impl UpgradePatch {
@@ -285,7 +487,11 @@ impl UpgradePatch {
                     toml_edit::value(self.expected_token.clone()),
                 );
             }
-            AuthStorePatch(self.isolate_login).apply_to(path, doc)?;
+            if let Some(decision) = &self.auth_decision {
+                decision.apply_to(path, doc)?;
+            } else {
+                AuthStorePatch(self.isolate_login).apply_to(path, doc)?;
+            }
         }
         Ok(())
     }
@@ -687,11 +893,25 @@ pub(crate) fn migrate_current(state: &AppState, user: i64) -> Result<(), AppErro
     if expected_token.is_empty() {
         return Ok(());
     }
+    let auth_path = crate::codex_config::get_codex_auth_path();
+    let (auth_snapshot, readable) = match std::fs::read(&auth_path) {
+        Ok(bytes) => (Some(bytes), true),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (None, true),
+        Err(_) => (None, false),
+    };
+    let config_text = crate::services::provider::codex_direct::read_config_text();
+    let auth_state = image_auth_state(&config_text, auth_snapshot.as_deref(), readable);
     let patch = UpgradePatch {
         expected_url,
         expected_token,
         legacy_auth_path: (!proxy).then(crate::codex_config::get_codex_auth_path),
         isolate_login: !crate::settings::preserve_codex_official_auth_on_switch(),
+        auth_decision: Some(ImageAuthStorePatch {
+            state: auth_state,
+            auth_path,
+            auth_snapshot,
+            guard_auth: true,
+        }),
     };
     let write = crate::mode::operation::AppWrite::begin(&state.db, app.as_str())?;
     write.run(
@@ -711,6 +931,220 @@ pub(crate) fn migrate_current(state: &AppState, user: i64) -> Result<(), AppErro
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn warns_only_for_inactive_platform_tables_with_bearer() {
+        let config = "model_provider = 'custom'\n\
+            [model_providers.custom]\nbase_url = 'https://other.example/v1'\n\
+            experimental_bearer_token = 'other-fixture'\n\
+            [model_providers.OpenAI]\nbase_url = 'https://csmy.fun:23457/v1'\n\
+            experimental_bearer_token = 'platform-fixture'\n\
+            [profiles.saved]\nmodel_provider = 'OpenAI'\n";
+        assert!(has_inactive_platform_bearer(config));
+        assert!(!has_inactive_platform_bearer(&config.replace(
+            "model_provider = 'custom'",
+            "model_provider = 'OpenAI'"
+        )));
+        assert!(!has_inactive_platform_bearer(&config.replace(
+            "https://csmy.fun:23457/v1",
+            "https://another.example/v1"
+        )));
+        assert!(!has_inactive_platform_bearer(&config.replace(
+            "experimental_bearer_token = 'platform-fixture'",
+            "experimental_bearer_token = '  '"
+        )));
+        assert!(!has_inactive_platform_bearer("invalid = ["));
+    }
+
+    fn login_with_plan(plan: &str) -> Vec<u8> {
+        let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"none"}"#);
+        let payload = URL_SAFE_NO_PAD.encode(
+            json!({"https://api.openai.com/auth": {
+                "chatgpt_plan_type": plan
+            }})
+            .to_string(),
+        );
+        serde_json::to_vec(&json!({"auth_mode":"chatgpt", "tokens": {
+            "id_token":format!("{header}.{payload}.signature"), "access_token":"fixture-secret", "refresh_token":"fixture-refresh", "account_id":"fixture-account"
+        }}))
+        .unwrap()
+    }
+
+    #[test]
+    fn image_login_classification_is_conservative_and_handles_old_markers() {
+        let free = login_with_plan("free");
+        let plus = login_with_plan("plus");
+        for config in [
+            "",
+            "cli_auth_credentials_store = 'file'\n",
+            "cli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:file]\n",
+            "cli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:missing]\n",
+        ] {
+            assert_eq!(
+                image_auth_state(config, Some(&free), true),
+                ImageAuthState::Free
+            );
+            assert_eq!(
+                image_auth_state(config, Some(&plus), true),
+                ImageAuthState::OtherOrNone
+            );
+            assert_eq!(
+                image_auth_state(config, None, true),
+                ImageAuthState::OtherOrNone
+            );
+        }
+        for config in [
+            "cli_auth_credentials_store = 'keyring'\n",
+            "cli_auth_credentials_store = 'auto'\n",
+            "cli_auth_credentials_store = 'ephemeral'\n",
+            "cli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:keyring]\n",
+            "cli_auth_credentials_store = 'keyring' # [aihubmix-previous-auth-store:file]\n",
+            "profile = 'work'\ncli_auth_credentials_store = 'file'\n",
+            "cli_auth_credentials_store = 'file'\n[profiles.work]\nmodel = 'gpt-5.5'\n",
+        ] {
+            assert_eq!(
+                image_auth_state(config, Some(&free), true),
+                ImageAuthState::Unknown
+            );
+        }
+        assert_eq!(
+            image_auth_state("", Some(b"not-json"), true),
+            ImageAuthState::Unknown
+        );
+        assert_eq!(
+            image_auth_state("", Some(&login_with_plan("unknown")), true),
+            ImageAuthState::Unknown
+        );
+        let mut incomplete: serde_json::Value = serde_json::from_slice(&free).unwrap();
+        incomplete["tokens"]
+            .as_object_mut()
+            .unwrap()
+            .remove("refresh_token");
+        assert_eq!(
+            image_auth_state("", Some(&serde_json::to_vec(&incomplete).unwrap()), true),
+            ImageAuthState::Unknown
+        );
+        assert_eq!(
+            image_auth_state("", Some(&free), false),
+            ImageAuthState::Unknown
+        );
+    }
+
+    #[test]
+    fn free_isolation_checks_live_file_and_rechecks_changed_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("auth.json");
+        let free = login_with_plan("free");
+        std::fs::write(&path, &free).unwrap();
+        let patch = ImageAuthStorePatch {
+            state: ImageAuthState::Free,
+            auth_path: path.clone(),
+            auth_snapshot: Some(free.clone()),
+            guard_auth: true,
+        };
+        let mut doc = "model = 'x'\n".parse::<DocumentMut>().unwrap();
+        patch.apply_to(Path::new("config.toml"), &mut doc).unwrap();
+        assert_eq!(doc[AUTH_STORE_KEY].as_str(), Some("ephemeral"));
+        assert_eq!(std::fs::read(&path).unwrap(), free);
+        let mut manual = "cli_auth_credentials_store = 'keyring'\n"
+            .parse::<DocumentMut>()
+            .unwrap();
+        assert!(patch
+            .apply_to(Path::new("config.toml"), &mut manual)
+            .is_err());
+        std::fs::write(&path, login_with_plan("plus")).unwrap();
+        let mut unchanged = "model = 'x'\n".parse::<DocumentMut>().unwrap();
+        assert!(patch
+            .apply_to(Path::new("config.toml"), &mut unchanged)
+            .is_err());
+        assert!(unchanged.get(AUTH_STORE_KEY).is_none());
+    }
+
+    #[test]
+    fn non_free_isolation_checks_login_and_store_for_all_races() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("auth.json");
+        let plus = login_with_plan("plus");
+        let free = login_with_plan("free");
+        let original =
+            "cli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:file]\n";
+        let apply = |snapshot: Option<Vec<u8>>, current: Option<&[u8]>, config: &str| {
+            if let Some(bytes) = current {
+                std::fs::write(&path, bytes).unwrap();
+            } else if path.exists() {
+                std::fs::remove_file(&path).unwrap();
+            }
+            let mut doc = config.parse::<DocumentMut>().unwrap();
+            let before = doc.to_string();
+            let result = ImageAuthStorePatch {
+                state: ImageAuthState::OtherOrNone,
+                auth_path: path.clone(),
+                auth_snapshot: snapshot,
+                guard_auth: true,
+            }
+            .apply_to(Path::new("config.toml"), &mut doc);
+            (result, before, doc.to_string())
+        };
+        // None -> Some and Some -> None must conflict, even if both classify
+        // as non-free. A Plus -> Free change must not expose the Free login.
+        for (snapshot, current) in [
+            (None, Some(plus.as_slice())),
+            (Some(plus.clone()), None),
+            (Some(plus.clone()), Some(free.as_slice())),
+        ] {
+            let (result, before, after) = apply(snapshot, current, original);
+            assert!(result.is_err());
+            assert_eq!(after, before);
+            assert!(!format!("{:?}", result.err()).contains("fixture-secret"));
+        }
+        // A concurrent manual change of the effective store wins.
+        let manual =
+            "cli_auth_credentials_store = 'keyring' # [aihubmix-previous-auth-store:file]\n";
+        let (result, before, after) = apply(Some(plus.clone()), Some(&plus), manual);
+        assert!(result.is_err());
+        assert_eq!(after, before);
+        // With an unchanged Plus login, restoring our marker remains valid.
+        let (result, _, after) = apply(Some(plus.clone()), Some(&plus), original);
+        assert!(result.is_ok());
+        assert_eq!(
+            after.parse::<DocumentMut>().unwrap()[AUTH_STORE_KEY].as_str(),
+            Some("file")
+        );
+
+        // Leaving the native route restores the owned marker independently of
+        // account classification; it never changes the current auth file.
+        std::fs::write(&path, &free).unwrap();
+        let mut doc = original.parse::<DocumentMut>().unwrap();
+        ImageAuthStorePatch {
+            state: ImageAuthState::OtherOrNone,
+            auth_path: path.clone(),
+            auth_snapshot: None,
+            guard_auth: false,
+        }
+        .apply_to(Path::new("config.toml"), &mut doc)
+        .unwrap();
+        assert_eq!(doc[AUTH_STORE_KEY].as_str(), Some("file"));
+        assert_eq!(std::fs::read(path).unwrap(), free);
+    }
+
+    #[test]
+    fn unknown_mode_does_not_modify_a_user_or_managed_setting() {
+        for original in [
+            "cli_auth_credentials_store = 'keyring'\n",
+            "cli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:keyring]\n",
+        ] {
+            let mut doc = original.parse::<DocumentMut>().unwrap();
+            ImageAuthStorePatch {
+                state: ImageAuthState::Unknown,
+                auth_path: "unused".into(),
+                auth_snapshot: None,
+                guard_auth: true,
+            }
+            .apply_to(Path::new("config.toml"), &mut doc)
+            .unwrap();
+            assert_eq!(doc.to_string(), original);
+        }
+    }
 
     #[test]
     fn logout_refuses_reactivating_custom_global_openai_endpoint() {
@@ -884,6 +1318,7 @@ mod tests {
             expected_token: key.into(),
             legacy_auth_path: None,
             isolate_login: true,
+            auth_decision: None,
         };
         String::from_utf8(
             patch
@@ -931,6 +1366,7 @@ mod tests {
             expected_token: "fixture-key".into(),
             legacy_auth_path: None,
             isolate_login: false,
+            auth_decision: None,
         };
         let result = patch
             .apply(Path::new("config.toml"), Some(old.as_bytes()))
@@ -956,6 +1392,7 @@ mod tests {
             expected_token: "y".into(),
             legacy_auth_path: None,
             isolate_login: true,
+            auth_decision: None,
         };
         assert!(patch
             .apply_file(Path::new("missing.toml"), None)
@@ -973,6 +1410,7 @@ mod tests {
             expected_token: "fixture-key".into(),
             legacy_auth_path: Some(auth_path.clone()),
             isolate_login: true,
+            auth_decision: None,
         };
         let old = "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\n";
         let apply = |text: &str| {

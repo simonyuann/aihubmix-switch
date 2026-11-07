@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ dispatch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ dispatch: vi.fn(), imagegenGuide: vi.fn() }));
 vi.mock("@/lib/api/aihubmix", () => ({ dispatch: mocks.dispatch }));
 vi.mock("@tauri-apps/api/core", async (importOriginal) => {
   const original =
@@ -24,7 +24,7 @@ vi.mock("@tauri-apps/api/core", async (importOriginal) => {
         : never
     ) =>
       command === "codex_imagegen_guide"
-        ? Promise.resolve({ status: "unavailable" })
+        ? mocks.imagegenGuide()
         : original.invoke(command, ...args),
   };
 });
@@ -51,6 +51,7 @@ const service = {
   configured: false,
   keyMasked: "",
   groupId: 7,
+  platform: "openai",
   selectedKeyId: null,
 };
 const keys = [
@@ -92,6 +93,7 @@ function wrap(node: React.ReactNode) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.imagegenGuide.mockResolvedValue({ status: "unavailable" });
   mocks.dispatch.mockImplementation((command) =>
     Promise.resolve(
       command === "tool-cards"
@@ -202,6 +204,169 @@ describe("dedicated service cards", () => {
         providerId: service.provider.id,
       }),
     );
+  });
+  it.each([true, false])(
+    "allows the active Codex group to be reapplied (simple=%s)",
+    async (simple) => {
+      mocks.dispatch.mockImplementation((command) =>
+        Promise.resolve(
+          command === "tool-cards"
+            ? {
+                cards: [official, { ...service, configured: true }],
+                groups: [],
+                currentProviderId: service.provider.id,
+              }
+            : {},
+        ),
+      );
+      wrap(<ToolPage app="codex" simple={simple} />);
+      const button = await screen.findByRole("button", {
+        name: "重新启用 AIHubMix · OpenAI",
+      });
+      expect(screen.getByText("使用中")).toBeInTheDocument();
+      fireEvent.click(button);
+      await waitFor(() =>
+        expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
+          app: "codex",
+          providerId: service.provider.id,
+        }),
+      );
+      const notice = await screen.findByText(/请重启 Codex，使配置生效/);
+      expect(notice).toHaveAttribute("role", "status");
+      expect(notice).toHaveTextContent(
+        "命令行生图备用方式未能自动接入，这不代表原生生图不可用",
+      );
+    },
+  );
+  it.each(
+    [true, false].flatMap((simple) =>
+      [
+        ["openai", true],
+        ["openai_responses", true],
+        ["OpenAI", true],
+        ["openai_chat", false],
+        ["anthropic", false],
+        ["deepseek", false],
+        [undefined, false],
+      ].map(([platform, expected]) => ({ simple, platform, expected })),
+    ),
+  )(
+    "shows reapply only for known direct Responses platforms (simple=$simple, platform=$platform)",
+    async ({ simple, platform, expected }) => {
+      mocks.dispatch.mockImplementation((command) =>
+        Promise.resolve(
+          command === "tool-cards"
+            ? {
+                cards: [{ ...service, configured: true, platform }],
+                groups: [],
+                currentProviderId: service.provider.id,
+              }
+            : {},
+        ),
+      );
+      wrap(<ToolPage app="codex" simple={Boolean(simple)} />);
+      await screen.findByText("使用中");
+      const button = screen.queryByRole("button", {
+        name: "重新启用 AIHubMix · OpenAI",
+      });
+      if (expected) expect(button).toBeEnabled();
+      else expect(button).not.toBeInTheDocument();
+    },
+  );
+  it("does not offer Codex reapply to other tools", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      Promise.resolve(
+        command === "tool-cards"
+          ? {
+              cards: [{ ...service, configured: true }],
+              groups: [],
+              currentProviderId: service.provider.id,
+            }
+          : {},
+      ),
+    );
+    wrap(<ToolPage app="claude" simple />);
+    await screen.findByText("使用中");
+    expect(
+      screen.queryByRole("button", { name: /重新启用/ }),
+    ).not.toBeInTheDocument();
+  });
+  it("asks for a group key before reapplying an unconfigured active group", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      Promise.resolve(
+        command === "tool-cards"
+          ? {
+              cards: [service],
+              groups: [],
+              currentProviderId: service.provider.id,
+            }
+          : command === "keys"
+            ? keys
+            : {},
+      ),
+    );
+    wrap(<ToolPage app="codex" simple />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "重新启用 AIHubMix · OpenAI",
+      }),
+    );
+    expect(await screen.findByLabelText("API Key")).toBeInTheDocument();
+    expect(
+      mocks.dispatch.mock.calls.some(
+        ([command]) => command === "start-tool-card",
+      ),
+    ).toBe(false);
+  });
+  it("does not issue duplicate reapply requests while one is pending", async () => {
+    let finish!: (value: object) => void;
+    mocks.dispatch.mockImplementation((command) =>
+      command === "tool-cards"
+        ? Promise.resolve({
+            cards: [{ ...service, configured: true }],
+            groups: [],
+            currentProviderId: service.provider.id,
+          })
+        : new Promise((resolve) => {
+            finish = resolve;
+          }),
+    );
+    wrap(<ToolPage app="codex" simple />);
+    const button = await screen.findByRole("button", {
+      name: "重新启用 AIHubMix · OpenAI",
+    });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(
+      mocks.dispatch.mock.calls.filter(
+        ([command]) => command === "start-tool-card",
+      ),
+    ).toHaveLength(1);
+    await act(async () => finish({}));
+  });
+  it("labels successful CLI setup as a fallback and does not claim native images were verified", async () => {
+    mocks.imagegenGuide.mockResolvedValue({ status: "written" });
+    mocks.dispatch.mockImplementation((command) =>
+      Promise.resolve(
+        command === "tool-cards"
+          ? {
+              cards: [{ ...service, configured: true }],
+              groups: [],
+              currentProviderId: service.provider.id,
+            }
+          : {},
+      ),
+    );
+    wrap(<ToolPage app="codex" simple />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "重新启用 AIHubMix · OpenAI",
+      }),
+    );
+    const notice = await screen.findByText(/请重启 Codex，使配置生效/);
+    expect(notice).toHaveTextContent("命令行生图备用方式");
+    expect(notice).not.toHaveTextContent("原生生图已配置");
   });
   it("reuses CC cards with official restore, no model picker, and no arbitrary supplier actions", async () => {
     wrap(<ToolPage app="codex" />);

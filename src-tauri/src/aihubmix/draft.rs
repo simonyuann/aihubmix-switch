@@ -284,6 +284,55 @@ mod tests {
             .collect()
     }
     #[test]
+    fn codex_openai_group_projects_to_platform_api_key_mode() {
+        use crate::live::project::codex::{CodexProjection, Route, RouteAuth, RowInput};
+
+        let available = [super::super::types::Model {
+            id: "gpt-6.1-terra".into(),
+            name: "GPT-6.1 Terra".into(),
+            input: vec!["text".into(), "image".into()],
+            ..Default::default()
+        }];
+        let mut provider = catalog(
+            "codex",
+            "openai",
+            "fixture-platform-key",
+            &available,
+            "aihubmix-codex-account-17-service-5",
+        )
+        .unwrap();
+        provider.name = "AIHubMix · OpenAI".into();
+        assert!(crate::aihubmix::native_imagegen::supported(&provider));
+        let projection = CodexProjection::of(&RowInput {
+            settings: &provider.settings_config,
+            official: false,
+            proxy_injected_oauth: false,
+        })
+        .unwrap();
+        let Route::Custom {
+            mut table,
+            auth: RouteAuth::Bearer,
+        } = projection.route
+        else {
+            panic!("platform provider must use bearer authentication");
+        };
+        assert!(crate::aihubmix::native_imagegen::mark(&mut table));
+        assert_eq!(
+            table["base_url"].as_str(),
+            Some("https://csmy.fun:23457/v1")
+        );
+        assert_eq!(table["wire_api"].as_str(), Some("responses"));
+        assert_eq!(table["requires_openai_auth"].as_bool(), Some(false));
+        assert_eq!(
+            table["experimental_bearer_token"].as_str(),
+            Some("fixture-platform-key")
+        );
+        assert_eq!(
+            table["http_headers"]["x-openai-actor-authorization"].as_str(),
+            Some("local-image-extension")
+        );
+    }
+    #[test]
     fn cli_catalogs_leave_model_selection_to_agents() {
         for app in ["claude", "codex", "gemini", "agy"] {
             let p = catalog(

@@ -18,9 +18,10 @@ PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR
 
 
 class FakeApi(http.server.ThreadingHTTPServer):
-    def __init__(self, image_tool):
+    def __init__(self, image_tool, code_mode=False):
         super().__init__(("127.0.0.1", 0), FakeHandler)
         self.image_tool = image_tool
+        self.code_mode = code_mode
         self.requests = []
         self.thread = threading.Thread(target=self.serve_forever, daemon=True)
         self.thread.start()
@@ -52,8 +53,12 @@ class FakeHandler(http.server.BaseHTTPRequestHandler):
         elif self.path.startswith("/v1/responses"):
             count = sum(path.startswith("/v1/responses") for path, _, _ in self.server.requests)
             if self.server.image_tool and count == 1:
-                item = {"type": "function_call", "call_id": "call_fixture", "namespace": "image_gen",
-                        "name": "imagegen", "arguments": json.dumps({"prompt": "A blue square"})}
+                if self.server.code_mode:
+                    item = {"type": "custom_tool_call", "call_id": "call_fixture", "name": "exec",
+                            "input": 'const r = await tools.image_gen__imagegen({prompt: "A blue square"}); generatedImage(r);'}
+                else:
+                    item = {"type": "function_call", "call_id": "call_fixture", "namespace": "image_gen",
+                            "name": "imagegen", "arguments": json.dumps({"prompt": "A blue square"})}
             else:
                 item = {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed",
                         "content": [{"type": "output_text", "text": "ok", "annotations": []}]}
@@ -86,6 +91,53 @@ def fake_free_auth(plan="free"):
 
 @unittest.skipUnless(shutil.which("codex"), "Codex CLI is not installed")
 class NativeImageGenerationTest(unittest.TestCase):
+    def test_code_mode_exec_invokes_native_image_tool(self):
+        server = FakeApi(True, code_mode=True)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                auth = json.dumps(fake_free_auth("free"))
+                (home / "auth.json").write_text(auth)
+                template = json.loads((Path(__file__).resolve().parents[1] /
+                    "src-tauri/src/resources/gpt5_5_template.json").read_text())
+                template.update({"slug": "gpt-6.1-terra", "display_name": "GPT-6.1 Terra",
+                                 "input_modalities": ["text", "image"], "tool_mode": "code_mode_only"})
+                catalog = home / "catalog.json"
+                catalog.write_text(json.dumps({"models": [template]}))
+                (home / "config.toml").write_text(
+                    'cli_auth_credentials_store = "ephemeral"\nmodel_provider = "relay"\n'
+                    'model = "gpt-6.1-terra"\nmodel_catalog_json = ' + json.dumps(str(catalog)) + '\n'
+                    '[features]\nplugins = false\nplugin_discovery_prefetch = false\n'
+                    '[model_providers.relay]\nname = "relay"\nbase_url = "http://127.0.0.1:' +
+                    str(server.server_port) + '/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n'
+                    'experimental_bearer_token = "fixture-relay-key"\n'
+                    'http_headers = { "x-openai-actor-authorization" = "local-image-extension" }\n'
+                )
+                env = {k: v for k, v in os.environ.items() if k.upper() not in {
+                    "OPENAI_API_KEY", "OPENAI_BASE_URL", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}}
+                env.update({"CODEX_HOME": directory, "NO_PROXY": "*"})
+                result = subprocess.run(["codex", "exec", "--ephemeral", "--skip-git-repo-check", "--json", "Draw a square"],
+                    cwd=directory, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
+                self.assertEqual(result.returncode, 0, "Codex CLI failed in the isolated mock test")
+                responses = [r for r in server.requests if r[0].startswith("/v1/responses")]
+                self.assertGreaterEqual(len(responses), 2)
+                tools = responses[0][2]["tools"]
+                exec_tool = next(t for t in tools if t.get("name") == "exec")
+                self.assertEqual(exec_tool.get("type"), "custom")
+                self.assertIn("image_gen__imagegen", exec_tool.get("description", ""))
+                images = [r for r in server.requests if r[0].startswith("/v1/images/generations")]
+                self.assertEqual(len(images), 1)
+                self.assertEqual(images[0][1].get("authorization"), "Bearer fixture-relay-key")
+                self.assertEqual(images[0][2]["prompt"], "A blue square")
+                official_token = fake_free_auth("free")["tokens"]["access_token"]
+                for _, headers, body in server.requests:
+                    self.assertTrue(all(official_token not in value for value in headers.values()))
+                    self.assertNotIn(official_token, json.dumps(body))
+                    self.assertNotIn("chatgpt-account-id", headers)
+                self.assertEqual((home / "auth.json").read_text(), auth)
+        finally:
+            server.close()
+
     def test_preserved_plus_login_and_terra_catalog_allow_native_image_tool(self):
         server = FakeApi(True)
         try:
