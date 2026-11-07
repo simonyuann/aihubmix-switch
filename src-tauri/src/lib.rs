@@ -57,10 +57,6 @@ mod tray;
 mod tray_panel;
 mod usage_events;
 mod usage_script;
-#[cfg(target_os = "windows")]
-mod windows_wallet_display;
-#[cfg(any(target_os = "windows", test))]
-mod windows_wallet_icon;
 
 pub use app_config::{AppType, InstalledSkill, McpApps, McpServer, MultiAppConfig, SkillApps};
 pub use codex_config::{

@@ -349,7 +349,7 @@ fn allowed_ws_url(url: &str, expected_port: u16) -> bool {
         && parsed.fragment().is_none()
 }
 
-fn select_target(targets: &[DebugTarget], port: u16, kind: &str) -> Option<String> {
+fn select_targets(targets: &[DebugTarget], port: u16, kind: &str) -> Vec<String> {
     targets
         .iter()
         .filter(|t| {
@@ -361,8 +361,17 @@ fn select_target(targets: &[DebugTarget], port: u16, kind: &str) -> Option<Strin
             }
         })
         .filter_map(|t| t.websocket_url.as_ref())
-        .find(|url| allowed_ws_url(url, port))
+        .filter(|url| allowed_ws_url(url, port))
         .cloned()
+        .collect()
+}
+
+fn renderer_ready(value: &serde_json::Value) -> bool {
+    value
+        .as_str()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|v| v["ready"].as_bool())
+        == Some(true)
 }
 
 #[cfg(target_os = "macos")]
@@ -421,8 +430,18 @@ async fn wait_target(
                 if let Ok(response) = request {
                     if response.status().is_success() {
                         if let Ok(targets) = response.json::<Vec<DebugTarget>>().await {
-                            if let Some(url) = select_target(&targets, port, kind) {
-                                return Ok(url);
+                            for url in select_targets(&targets, port, kind) {
+                                if kind != "page" {
+                                    return Ok(url);
+                                }
+                                if let Ok(mut cdp) = CdpClient::connect(&url, port).await {
+                                    let probe = r#"JSON.stringify({ready:!!(window.electronBridge && typeof window.electronBridge.sendMessageFromView === 'function') && (!!document.querySelector('#root') || (document.body && (document.body.innerText || '').length >= 40))})"#;
+                                    if let Ok(value) = cdp.evaluate(probe, false).await {
+                                        if renderer_ready(&value) {
+                                            return Ok(url);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -604,7 +623,11 @@ async fn apply_locale_inner(
             serde_json::json!({"source": bootstrap}),
         )
         .await?;
-        let _ = cdp.evaluate(&bootstrap, false).await?;
+        // Match the upstream launcher: wait briefly for the i18n client to be
+        // patched before applying the locale. Applying immediately can race
+        // the renderer's initialization and leave the interface in English.
+        let wait = r#"(async function(){var start=Date.now();while(Date.now()-start<10000){var s=window.__codexZhI18nState||{};if((s.patchedClients||0)>0&&(s.patchedConfigs||0)>0)break;await new Promise(function(r){setTimeout(r,100)});}return true;})()"#;
+        let _ = cdp.evaluate(&format!("{bootstrap};\n{wait}"), true).await?;
     }
     let locale_js = include_str!("../resources/codex_zh/locale-script.js").replace(
         "__LOCALE_JSON__",
@@ -776,6 +799,7 @@ async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, St
         if let Some(inspector) = inspector {
             command.arg(format!("--inspect=127.0.0.1:{inspector}"));
         }
+        command.arg(format!("--lang={language}"));
     }
     let status = command
         .stdout(std::process::Stdio::null())
@@ -984,10 +1008,13 @@ mod tests {
             },
         ];
         assert_eq!(
-            select_target(&targets, 1234, "page").as_deref(),
-            Some("ws://127.0.0.1:1234/devtools/page/b")
+            select_targets(&targets, 1234, "page"),
+            vec!["ws://127.0.0.1:1234/devtools/page/b"]
         );
-        assert_eq!(select_target(&targets, 1235, "page"), None);
+        assert!(select_targets(&targets, 1235, "page").is_empty());
+        assert!(renderer_ready(&serde_json::json!("{\"ready\":true}")));
+        assert!(!renderer_ready(&serde_json::json!("{\"ready\":false}")));
+        assert!(!renderer_ready(&serde_json::json!("not-json")));
     }
     #[test]
     fn result_requires_explicit_verified_status() {
@@ -1095,6 +1122,13 @@ mod tests {
             let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", targets.len(), targets);
             http.write_all(response.as_bytes()).await.unwrap();
             drop(http);
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut probe = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let message = probe.next().await.unwrap().unwrap().into_text().unwrap();
+            let request: serde_json::Value = serde_json::from_str(&message).unwrap();
+            assert_eq!(request["method"], "Runtime.evaluate");
+            probe.send(Message::Text(serde_json::json!({"id":request["id"],"result":{"result":{"value":"{\"ready\":true}"}}}).to_string().into())).await.unwrap();
+            drop(probe);
             let (stream, _) = listener.accept().await.unwrap();
             let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
             for method in ["Page.addScriptToEvaluateOnNewDocument", "Runtime.evaluate"] {

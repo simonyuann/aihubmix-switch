@@ -438,6 +438,9 @@ pub(crate) async fn launch(language: &str, plugins: bool) -> Result<LaunchOutcom
     if let Some(port) = inspector {
         args.push(format!("--inspect=127.0.0.1:{port}"));
     }
+    if language != "system" {
+        args.push(format!("--lang={language}"));
+    }
     // Activation is required for Store apps; the C# source contains no dynamic input.
     let script = r#"
 if ($env:AIHUB_APP_ID) {
