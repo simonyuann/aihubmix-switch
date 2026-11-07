@@ -558,6 +558,12 @@ impl Backend {
                 if current_owner.is_some() && command == "register" {
                     return Err("请先退出当前账号，再登录其他账号".into());
                 }
+                if current_owner.is_some() {
+                    let saved = self.store.secret("session-owner");
+                    if !saved.is_empty() && saved != self.session_binding()? {
+                        return Err("本机账号信息不一致，请先退出当前账号".into());
+                    }
+                }
                 let email = string(&input, "email").trim().to_string();
                 let password = string(&input, "password");
                 if email.is_empty() || password.is_empty() {
@@ -1157,6 +1163,19 @@ mod auth_tests {
         backend.store.memory_secret("access", "old-access");
         backend.store.memory_secret("refresh", "old-refresh");
         backend.ephemeral_keys.insert(7, "group-key".into());
+        backend
+            .store
+            .memory_secret("session-owner", "mismatched-owner");
+        let mismatch = backend
+            .dispatch(
+                "login",
+                json!({"email":"owner@example.test","password":"correct"}),
+            )
+            .await
+            .unwrap_err();
+        assert!(mismatch.contains("请先退出当前账号"));
+        assert_eq!(backend.store.secret("access"), "old-access");
+        backend.store.memory_secret("session-owner", "");
         let error = backend
             .dispatch(
                 "login",
