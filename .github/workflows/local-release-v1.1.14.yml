@@ -118,6 +118,12 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
       - uses: ilammy/msvc-dev-cmd@v1
+      - name: Use the isolated Windows build cache on data
+        shell: powershell
+        run: |
+          $target = '\\host.lan\Data\aihubmix-v114-win-target'
+          if (!(Test-Path $target)) { throw 'Missing isolated Windows build cache' }
+          New-Item -ItemType SymbolicLink -Path "$env:GITHUB_WORKSPACE\src-tauri\target" -Target $target -ErrorAction Stop | Out-Null
       - run: pnpm install --frozen-lockfile
       - name: Make 7-Zip available for installer verification
         shell: powershell
