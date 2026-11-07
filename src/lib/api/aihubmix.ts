@@ -17,6 +17,7 @@ export interface LegacyMapping {
   model: string;
 }
 export interface AccountState {
+  sessionOffline?: boolean;
   legacyMappings?: LegacyMapping[];
   relayBaseUrl: string;
   account: {

@@ -84,6 +84,25 @@ impl Store {
     }
 
     #[cfg(test)]
+    pub fn reopen_for_test(dir: PathBuf) -> Self {
+        let settings =
+            serde_json::from_slice(&fs::read(dir.join("state-v2.json")).unwrap()).unwrap();
+        let bytes = fs::read(dir.join("vault-v2.bin")).unwrap();
+        let key = vec![9; 32];
+        let plain = ChaCha20Poly1305::new_from_slice(&key)
+            .unwrap()
+            .decrypt(Nonce::from_slice(&bytes[..12]), &bytes[12..])
+            .unwrap();
+        Self {
+            settings,
+            dir,
+            secure_error: None,
+            secrets: serde_json::from_slice(&plain).unwrap(),
+            master: Some(key),
+        }
+    }
+
+    #[cfg(test)]
     pub fn memory_secret(&mut self, name: &str, value: &str) {
         self.secrets.insert(name.into(), value.into());
     }

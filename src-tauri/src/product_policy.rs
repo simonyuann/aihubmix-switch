@@ -7,6 +7,7 @@ pub const ORIGIN: &str = "https://csmy.fun:23457";
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static ACCOUNT_ID: AtomicI64 = AtomicI64::new(0);
 static SESSION_UNTIL: AtomicU64 = AtomicU64::new(0);
+static OFFLINE_SESSION: AtomicBool = AtomicBool::new(false);
 thread_local! {
     static RECOVERY_ACCOUNT: Cell<Option<i64>> = const { Cell::new(None) };
 }
@@ -36,13 +37,20 @@ pub fn restricted() -> bool {
     active() && !crate::settings::get_settings().enable_other_providers
 }
 pub fn set_session(expires_at: u64) {
+    OFFLINE_SESSION.store(false, Ordering::SeqCst);
     SESSION_UNTIL.store(expires_at, Ordering::SeqCst);
+}
+/// A locally restored session permits access to local UI and configuration only;
+/// platform requests still require the server to accept the saved credentials.
+pub fn set_offline_session() {
+    SESSION_UNTIL.store(0, Ordering::SeqCst);
+    OFFLINE_SESSION.store(true, Ordering::SeqCst);
 }
 pub fn set_account(id: i64) {
     ACCOUNT_ID.store(id, Ordering::SeqCst);
 }
 pub fn authenticated() -> bool {
-    SESSION_UNTIL.load(Ordering::SeqCst) > now()
+    OFFLINE_SESSION.load(Ordering::SeqCst) || SESSION_UNTIL.load(Ordering::SeqCst) > now()
 }
 fn now() -> u64 {
     std::time::SystemTime::now()
@@ -209,6 +217,11 @@ fn command_allowed(command: &str, signed_in: bool, other_providers: bool) -> Res
             | "get_optimizer_config"
             | "get_models_dev_sync_config"
             | "is_lightweight_mode"
+            | "tray_panel_state"
+            | "tray_panel_placement"
+            | "tray_panel_layout"
+            | "tray_panel_hide"
+            | "tray_panel_action"
     ) {
         return Ok(());
     }
@@ -265,6 +278,20 @@ fn command_allowed(command: &str, signed_in: bool, other_providers: bool) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tray_panel_bootstraps_while_signed_out() {
+        for command in [
+            "tray_panel_state",
+            "tray_panel_placement",
+            "tray_panel_layout",
+            "tray_panel_hide",
+            "tray_panel_action",
+        ] {
+            assert!(command_allowed(command, false, false).is_ok(), "{command}");
+        }
+        assert!(command_allowed("get_providers", false, false).is_err());
+    }
 
     #[test]
     fn platform_card_owner_is_enforced_in_simple_and_advanced_modes() {

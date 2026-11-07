@@ -1081,6 +1081,7 @@ mod platform {
 #[serde(rename_all = "camelCase")]
 pub struct TrayPanelState {
     pub texts: PanelTexts,
+    pub signed_in: bool,
     #[serde(flatten)]
     pub model: crate::tray::PanelModel,
 }
@@ -1093,7 +1094,18 @@ pub async fn tray_panel_state(app: AppHandle) -> Result<TrayPanelState, String> 
         let state = app.state::<AppState>();
         Ok(TrayPanelState {
             texts: PanelTexts::current(),
-            model: crate::tray::collect_panel_model(state.inner()).map_err(|e| e.to_string())?,
+            signed_in: !crate::product_policy::active() || crate::product_policy::authenticated(),
+            model: if crate::product_policy::active() && !crate::product_policy::authenticated() {
+                crate::tray::PanelModel {
+                    problems: vec![],
+                    feedback: None,
+                    apps: vec![],
+                    lightweight: false,
+                    quit_hint: None,
+                }
+            } else {
+                crate::tray::collect_panel_model(state.inner()).map_err(|e| e.to_string())?
+            },
         })
     })
     .await
@@ -1181,18 +1193,44 @@ pub fn tray_panel_hide(app: AppHandle) {
 /// 必须是 async 命令：轻量模式下打开主窗口要新建窗口，Windows 上在同步命令里
 /// `WebviewWindowBuilder::build()` 会死锁（WebView2 限制）。原生菜单的事件回调没有这个问题。
 #[tauri::command]
-pub async fn tray_panel_action(app: AppHandle, id: String) {
+pub async fn tray_panel_action(app: AppHandle, id: String) -> Result<(), String> {
+    if !tray_action_allowed(
+        &id,
+        !crate::product_policy::active() || crate::product_policy::authenticated(),
+    ) {
+        return Err("AUTH_REQUIRED: 请先登录账号".into());
+    }
     let stays_open =
         id.starts_with("prov:") || id.starts_with("profile_") || id == "lightweight_mode";
     if !stays_open {
         hide_panel(&app);
     }
     crate::tray::handle_tray_menu_event(&app, &id);
+    Ok(())
+}
+
+fn tray_action_allowed(id: &str, signed_in: bool) -> bool {
+    signed_in || matches!(id, "show_main" | "quit")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signed_out_panel_only_allows_open_and_quit() {
+        assert!(tray_action_allowed("quit", false));
+        assert!(tray_action_allowed("show_main", false));
+        for id in [
+            "prov:codex:1",
+            "profile_switch",
+            "lightweight_mode",
+            "nav:settings:general",
+        ] {
+            assert!(!tray_action_allowed(id, false));
+            assert!(tray_action_allowed(id, true));
+        }
+    }
 
     const WORK: Area = Area {
         left: 0.0,

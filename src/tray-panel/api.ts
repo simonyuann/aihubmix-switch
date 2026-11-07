@@ -82,6 +82,7 @@ export interface PanelApp {
 
 export interface TrayPanelState {
   texts: PanelTexts;
+  signedIn: boolean;
   problems: PanelLink[];
   feedback: string | null;
   apps: PanelApp[];

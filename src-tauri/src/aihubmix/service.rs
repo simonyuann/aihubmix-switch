@@ -2,6 +2,17 @@ use super::{store::Store, types::*};
 use reqwest::{Client, Method};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, time::Duration};
+const TRANSIENT_SERVER: &str = "服务暂时不可用，请稍后重试";
+fn transient_session_error(error: &str) -> bool {
+    matches!(
+        error,
+        "连接服务超时，请检查系统代理、VPN 和防火墙；可对照浏览器能否打开官网"
+            | "等待服务响应超时，请稍后重试；登录请求不会自动重复提交"
+            | "无法建立安全连接，请检查系统代理、网络和系统受信任证书"
+            | "读取服务响应失败"
+            | TRANSIENT_SERVER
+    )
+}
 pub struct Backend {
     pub store: Store,
     client: Client,
@@ -217,6 +228,8 @@ impl Backend {
             || path == "/v1/usage"
             || path == "/v1/sub2api/billing"
             || path == "/api/v1/auth/logout"
+            || path == "/api/v1/auth/me"
+            || path == "/api/v1/auth/refresh"
         {
             request = request.timeout(Duration::from_secs(6));
         }
@@ -241,6 +254,9 @@ impl Backend {
         Ok((status, value))
     }
     pub async fn verify_session(&mut self) -> Result<()> {
+        if let Some(error) = &self.store.secure_error {
+            return Err(error.clone());
+        }
         if !self.store.settings.account.logged_in {
             crate::product_policy::set_session(0);
             return Err("AUTH_REQUIRED: 请先登录账号".into());
@@ -266,8 +282,42 @@ impl Backend {
             self.invalidate_local_auth()?;
             return Err("AUTH_REQUIRED: 登录信息已变更，请重新登录".into());
         }
+        let binding = self.session_binding()?;
+        if self.store.secret("session-owner") != binding {
+            self.store.set_secrets(&[("session-owner", &binding)])?;
+        }
         crate::product_policy::set_account(self.store.settings.account.user_id.unwrap_or_default());
         crate::product_policy::set_session(self.store.settings.account.expires_at);
+        Ok(())
+    }
+    fn session_binding(&self) -> Result<String> {
+        let id = self
+            .store
+            .settings
+            .account
+            .user_id
+            .filter(|id| *id > 0)
+            .ok_or("缺少账号信息，请联网验证")?;
+        Ok(json!([normalize(&self.store.settings.relay_base_url)?, id]).to_string())
+    }
+
+    fn restore_offline_session(&self) -> Result<()> {
+        if self.store.secure_error.is_some()
+            || !self.store.settings.account.logged_in
+            || (self.store.secret("access").is_empty() && self.store.secret("refresh").is_empty())
+        {
+            return Err("AUTH_REQUIRED: 请先登录账号".into());
+        }
+        let binding = self.session_binding()?;
+        let saved = self.store.secret("session-owner");
+        // Existing installations predate the encrypted owner binding. They may
+        // restore their encrypted credentials; the next online verification
+        // records the binding. An existing binding must always match.
+        if !saved.is_empty() && saved != binding {
+            return Err("登录信息与本机保存的账号不匹配，请联网验证".into());
+        }
+        crate::product_policy::set_account(self.store.settings.account.user_id.unwrap_or_default());
+        crate::product_policy::set_offline_session();
         Ok(())
     }
     async fn refresh_access(&mut self) -> Result<()> {
@@ -287,6 +337,9 @@ impl Backend {
             self.invalidate_local_auth()?;
             return Err("AUTH_REQUIRED: 登录已失效，请重新登录".into());
         }
+        if status >= 500 || status == 429 {
+            return Err(TRANSIENT_SERVER.into());
+        }
         let value = unwrap_response(status, value)?;
         if value["user"]["id"]
             .as_i64()
@@ -304,12 +357,14 @@ impl Backend {
         self.ephemeral_keys.clear();
         crate::product_policy::set_session(0);
         self.store.save()?;
-        self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
+        self.store
+            .set_secrets(&[("access", ""), ("refresh", ""), ("session-owner", "")])?;
         Ok(())
     }
 
     pub(super) fn finish_account_recovery(&mut self) -> Result<()> {
-        self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
+        self.store
+            .set_secrets(&[("access", ""), ("refresh", ""), ("session-owner", "")])?;
         self.store.settings.account = Account::default();
         self.store.settings.selected_key = None;
         self.ephemeral_keys.clear();
@@ -366,9 +421,12 @@ impl Backend {
                 self.refresh_access().await?;
                 continue;
             }
-            if status == 401 {
+            if status == 401 || (status == 403 && path == "/api/v1/auth/me") {
                 self.invalidate_local_auth()?;
                 return Err("AUTH_REQUIRED: 登录已失效，请重新登录".into());
+            }
+            if status >= 500 || status == 429 {
+                return Err(TRANSIENT_SERVER.into());
             }
             return unwrap_response(status, value)
                 .map_err(|error| error.replace(&token, "[已隐藏]"));
@@ -438,10 +496,20 @@ impl Backend {
             return Err("本客户端固定使用平台 API，请通过「申请 API」获取 Key".into());
         }
         match command {
-            "session" => {
-                self.verify_session().await?;
-                self.state()
-            }
+            "session" => match self.verify_session().await {
+                Ok(()) => {
+                    let mut state = self.state()?;
+                    state["sessionOffline"] = json!(false);
+                    Ok(state)
+                }
+                Err(error) if transient_session_error(&error) => {
+                    self.restore_offline_session()?;
+                    let mut state = self.state()?;
+                    state["sessionOffline"] = json!(true);
+                    Ok(state)
+                }
+                Err(error) => Err(error),
+            },
             "auth-settings" => {
                 let (status, value) = self
                     .raw(Method::GET, "/api/v1/settings/public", None, None)
@@ -519,7 +587,11 @@ impl Backend {
                     .and_then(|(status, value)| unwrap_response(status, value))
                     .is_err()
                 };
-                self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
+                self.store.set_secrets(&[
+                    ("access", ""),
+                    ("refresh", ""),
+                    ("session-owner", ""),
+                ])?;
                 crate::product_policy::set_session(0);
                 self.store.settings.account = Account::default();
                 if self.store.settings.selected_key.is_some_and(|id| id > 0) {
@@ -658,7 +730,11 @@ impl Backend {
             "set-base" => {
                 let base = normalize(&string(&input, "baseUrl"))?;
                 if base != self.store.settings.relay_base_url {
-                    self.store.set_secrets(&[("access", ""), ("refresh", "")])?;
+                    self.store.set_secrets(&[
+                        ("access", ""),
+                        ("refresh", ""),
+                        ("session-owner", ""),
+                    ])?;
                     self.store.settings.account = Account::default();
                     self.ephemeral_keys.clear();
                     self.store.settings.relay_base_url = base;
@@ -743,7 +819,7 @@ fn discard_cross_origin_session(store: &mut Store) -> Result<()> {
     store.settings.relay_base_url = DEFAULT_BASE.into();
     store.settings.selected_key = None;
     store.save()?;
-    store.set_secrets(&[("access", ""), ("refresh", "")])?;
+    store.set_secrets(&[("access", ""), ("refresh", ""), ("session-owner", "")])?;
     Ok(())
 }
 
@@ -1032,6 +1108,87 @@ mod auth_tests {
     };
     use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn encrypted_session_survives_restart_offline_and_is_verified_on_reconnect() {
+        use axum::http::{HeaderMap, StatusCode};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::for_test(dir.path().into());
+        store.settings.relay_base_url = format!("http://{address}");
+        store.settings.account = Account {
+            logged_in: true,
+            user_id: Some(8),
+            expires_at: now().saturating_sub(3600),
+            ..Default::default()
+        };
+        store
+            .set_secrets(&[("access", "fixture-access"), ("refresh", "fixture-refresh")])
+            .unwrap();
+        store.save().unwrap();
+        let mut backend = Backend::new(Store::reopen_for_test(dir.path().into())).unwrap();
+        backend.client = Client::builder().no_proxy().build().unwrap();
+        let offline = backend.dispatch("session", Value::Null).await.unwrap();
+        assert_eq!(offline["sessionOffline"], true);
+        assert!(crate::product_policy::authenticated());
+        assert!(!offline.to_string().contains("fixture-"));
+        let revoked = Arc::new(AtomicBool::new(false));
+        let flag = revoked.clone();
+        let refresh_flag = revoked.clone();
+        let app = Router::new()
+            .route(
+                "/api/v1/auth/me",
+                get(move |headers: HeaderMap| {
+                    let flag = flag.clone();
+                    async move {
+                        assert_eq!(
+                            headers.get("authorization").unwrap(),
+                            "Bearer fixture-access"
+                        );
+                        if flag.load(Ordering::SeqCst) {
+                            (StatusCode::UNAUTHORIZED, Json(json!({})))
+                        } else {
+                            (StatusCode::OK, Json(json!({"code":0,"data":{"id":8}})))
+                        }
+                    }
+                }),
+            )
+            .route("/api/v1/auth/refresh", post(move |Json(body): Json<Value>| {
+                let flag = refresh_flag.clone();
+                async move {
+                    assert_eq!(body["refresh_token"], "fixture-refresh");
+                    if flag.load(Ordering::SeqCst) {
+                        (StatusCode::UNAUTHORIZED, Json(json!({})))
+                    } else {
+                        (StatusCode::OK, Json(json!({"code":0,"data":{"access_token":"fixture-access","refresh_token":"fixture-refresh","expires_in":3600,"user":{"id":8}}})))
+                    }
+                }
+            }));
+        let listener = tokio::net::TcpListener::bind(address).await.unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let online = backend.dispatch("session", Value::Null).await.unwrap();
+        assert_eq!(online["sessionOffline"], false);
+        assert!(!backend.store.secret("session-owner").is_empty());
+        backend.store.settings.account.user_id = Some(9);
+        assert!(backend.restore_offline_session().is_err());
+        backend.store.settings.account.user_id = Some(8);
+        revoked.store(true, Ordering::SeqCst);
+        assert!(backend
+            .dispatch("session", Value::Null)
+            .await
+            .unwrap_err()
+            .contains("AUTH_REQUIRED"));
+        assert!(!backend.store.settings.account.logged_in);
+        assert!(backend.store.secret("access").is_empty());
+        assert!(backend.store.secret("session-owner").is_empty());
+        task.abort();
+        assert!(backend.dispatch("session", Value::Null).await.is_err());
+        crate::product_policy::set_session(0);
+    }
 
     #[test]
     fn cross_origin_session_never_loses_the_previous_owner() {

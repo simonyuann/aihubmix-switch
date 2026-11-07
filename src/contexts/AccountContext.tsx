@@ -83,7 +83,11 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       }
       activeAccount.current = identity;
       setState(next);
-      setError("");
+      setError(
+        next.sessionOffline
+          ? "当前离线，正在使用本机保存的登录状态；联网后会自动验证。"
+          : "",
+      );
     } catch (e) {
       if (rev !== revision.current) return;
       const message = String(e);
@@ -95,14 +99,18 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         walletRevision.current++;
         activeAccount.current = null;
         client.clear();
-        setError(/登录已失效|登录信息已变更|登录已过期/.test(message)
-          ? "登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。"
-          : "");
+        setError(
+          /登录已失效|登录信息已变更|登录已过期/.test(message)
+            ? "登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。"
+            : "",
+        );
       } else {
-        // Keep only a session already verified in this process. An offline cold
-        // start still stays at login; network failures must not log out an
-        // already verified user or discard their view and cached state.
-        setError("连接暂时不可用，请检查网络后重试。");
+        // Keep an existing session when verification cannot be completed.
+        setError(
+          message.includes("无法解锁系统凭据存储")
+            ? "无法解锁系统凭据存储。请解锁钥匙串或凭据管理器后重启应用；已有数据未被覆盖。"
+            : "连接暂时不可用，请检查网络后重试。",
+        );
       }
     } finally {
       if (rev === revision.current) setChecking(false);
@@ -130,7 +138,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       setState(null);
       setWallet(null);
       setChecking(false);
-      setError("登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。");
+      setError(
+        "登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。",
+      );
       activeAccount.current = null;
       client.clear();
     };
@@ -152,7 +162,13 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       void refresh();
     }, 60_000);
     return () => window.clearInterval(timer);
-  }, [state?.account.userId, state?.account.loggedIn, refresh, refreshWallet]);
+  }, [
+    state?.account.userId,
+    state?.account.loggedIn,
+    state?.sessionOffline,
+    refresh,
+    refreshWallet,
+  ]);
   async function authenticate(command: "login" | "register", payload: unknown) {
     const rev = ++revision.current;
     await dispatch(command, payload);
@@ -190,7 +206,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     setState(null);
     setWallet(null);
     setWalletError("");
-    setError(`${revocationWarning ? `${revocationWarning} ` : ""}请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据。为保护自定义配置，DSH 凭据文件可能保留旧引用。`);
+    setError(
+      `${revocationWarning ? `${revocationWarning} ` : ""}请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据。为保护自定义配置，DSH 凭据文件可能保留旧引用。`,
+    );
     setChecking(false);
     activeAccount.current = null;
     client.clear();

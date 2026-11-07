@@ -281,139 +281,141 @@ export function ToolPage({
               </Button>
             </p>
           )}
-          {data?.cards.map((card) => {
-            const current =
-              app !== "dsh" && card.provider.id === data.currentProviderId;
-            const enabled = app === "dsh" && card.inLive === true;
-            const dshUnknown = app === "dsh" && card.inLive == null;
-            const group = groups.find((item) => item.id === card.groupId);
-            const brandIcon =
-              card.groupId == null
-                ? undefined
-                : groupBrandIcon(
-                    group?.name,
-                    group?.subscriptionType,
-                    card.provider.name,
-                    card.platform,
-                  );
-            if (simple) {
-              const official = card.provider.category === "official";
+          {data?.cards
+            .filter((card) => !simple || card.groupId != null)
+            .map((card) => {
+              const current =
+                app !== "dsh" && card.provider.id === data.currentProviderId;
+              const enabled = app === "dsh" && card.inLive === true;
+              const dshUnknown = app === "dsh" && card.inLive == null;
+              const group = groups.find((item) => item.id === card.groupId);
+              const brandIcon =
+                card.groupId == null
+                  ? undefined
+                  : groupBrandIcon(
+                      group?.name,
+                      group?.subscriptionType,
+                      card.provider.name,
+                      card.platform,
+                    );
+              if (simple) {
+                return (
+                  <article
+                    key={card.provider.id}
+                    className="flex flex-wrap items-center gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition-colors hover:border-border-strong motion-reduce:transition-none"
+                  >
+                    <ProviderIconBox
+                      icon={brandIcon ?? card.provider.icon}
+                      name={card.provider.name}
+                      color={brandIcon ? undefined : card.provider.iconColor}
+                      className="h-10 w-10"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate font-semibold text-fg-1">
+                        {card.provider.name}
+                      </h3>
+                      <p className="mt-1 text-caption text-fg-3">
+                        {card.configured ? "API 已配置" : "选择 API 后即可使用"}
+                      </p>
+                    </div>
+                    {card.configured && (
+                      <Button
+                        variant="ghost"
+                        size="compact"
+                        disabled={busy}
+                        aria-label={`管理 ${card.provider.name} 的 API`}
+                        onClick={() => edit(card)}
+                      >
+                        管理 API
+                      </Button>
+                    )}
+                    {current || enabled ? (
+                      <span className="rounded-full bg-success-soft px-3 py-1 text-caption font-medium text-success-text">
+                        {enabled ? "已启用" : "使用中"}
+                      </span>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="compact"
+                        disabled={busy}
+                        aria-label={`${card.configured ? (app === "dsh" ? "启用" : "切换到") : app === "dsh" ? "选择 API 并启用" : "选择 API 并使用"} ${card.provider.name}`}
+                        onClick={() =>
+                          card.configured
+                            ? void operate(card, true)
+                            : edit(card)
+                        }
+                      >
+                        {card.configured
+                          ? app === "dsh"
+                            ? "启用"
+                            : "切换"
+                          : "选择 API"}
+                      </Button>
+                    )}
+                    {dshUnknown && (
+                      <span className="text-caption text-fg-3">状态未知</span>
+                    )}
+                  </article>
+                );
+              }
               return (
-                <article
+                <ProviderCard
                   key={card.provider.id}
-                  className="flex flex-wrap items-center gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition-colors hover:border-border-strong motion-reduce:transition-none"
-                >
-                  <ProviderIconBox
-                    icon={brandIcon ?? card.provider.icon}
-                    name={card.provider.name}
-                    color={brandIcon ? undefined : card.provider.iconColor}
-                    className="h-10 w-10"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate font-semibold text-fg-1">
-                      {card.provider.name}
-                    </h3>
-                    <p className="mt-1 text-caption text-fg-3">
-                      {official
-                        ? "使用已登录的官方账号"
-                        : card.configured
-                          ? "API 已配置"
-                          : "选择 API 后即可使用"}
-                    </p>
-                  </div>
-                  {!official && card.configured && (
-                    <Button
-                      variant="ghost"
-                      size="compact"
-                      disabled={busy}
-                      aria-label={`管理 ${card.provider.name} 的 API`}
-                      onClick={() => edit(card)}
-                    >
-                      管理 API
-                    </Button>
-                  )}
-                  {current || enabled ? (
-                    <span className="rounded-full bg-success-soft px-3 py-1 text-caption font-medium text-success-text">
-                      {enabled ? "已启用" : "使用中"}
-                    </span>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="compact"
-                      disabled={busy}
-                      aria-label={`${card.configured ? (app === "dsh" ? "启用" : "切换到") : app === "dsh" ? "选择 API 并启用" : "选择 API 并使用"} ${card.provider.name}`}
-                      onClick={() =>
-                        card.configured ? void operate(card, true) : edit(card)
-                      }
-                    >
-                      {card.configured
-                        ? app === "dsh"
-                          ? "启用"
-                          : "切换"
-                        : "选择 API"}
-                    </Button>
-                  )}
-                  {dshUnknown && (
-                    <span className="text-caption text-fg-3">状态未知</span>
-                  )}
-                </article>
+                  provider={{
+                    ...card.provider,
+                    icon: brandIcon ?? card.provider.icon,
+                    iconColor: brandIcon ? undefined : card.provider.iconColor,
+                  }}
+                  appId={app}
+                  fixedService
+                  isCurrent={current}
+                  isInConfig={app === "dsh" ? enabled : undefined}
+                  presentation={{
+                    tone: current || enabled ? "direct" : undefined,
+                    status:
+                      current || enabled
+                        ? {
+                            label: enabled ? "已启用" : "使用中",
+                            dot: "direct",
+                          }
+                        : dshUnknown
+                          ? { label: "状态未知", dot: "muted" }
+                          : undefined,
+                    buttons:
+                      current || enabled
+                        ? []
+                        : [
+                            {
+                              key: "switch",
+                              label: `${app === "dsh" ? "启用" : "启动"} ${card.provider.name}`,
+                              disabledReason: busy ? "正在切换配置" : undefined,
+                              onClick: () =>
+                                card.configured
+                                  ? void operate(card, true)
+                                  : edit(card),
+                            },
+                          ],
+                    chips:
+                      card.provider.category === "official"
+                        ? []
+                        : [
+                            {
+                              key: "key",
+                              label: card.configured
+                                ? card.keyMasked || "已配置"
+                                : "待选择 API",
+                              tone: "outline",
+                            },
+                          ],
+                    editDisabledReason: busy ? "正在保存配置" : undefined,
+                  }}
+                  onEdit={() => edit(card)}
+                  onDelete={() => {}}
+                  onConfigureUsage={() => {}}
+                  onOpenWebsite={(url) => void settingsApi.openExternal(url)}
+                />
               );
-            }
-            return (
-              <ProviderCard
-                key={card.provider.id}
-                provider={{
-                  ...card.provider,
-                  icon: brandIcon ?? card.provider.icon,
-                  iconColor: brandIcon ? undefined : card.provider.iconColor,
-                }}
-                appId={app}
-                fixedService
-                isCurrent={current}
-                isInConfig={app === "dsh" ? enabled : undefined}
-                presentation={{
-                  tone: current || enabled ? "direct" : undefined,
-                  status:
-                    current || enabled
-                      ? { label: enabled ? "已启用" : "使用中", dot: "direct" }
-                      : dshUnknown
-                        ? { label: "状态未知", dot: "muted" }
-                        : undefined,
-                  buttons:
-                    current || enabled
-                      ? []
-                      : [
-                          {
-                            key: "switch",
-                            label: `${app === "dsh" ? "启用" : "启动"} ${card.provider.name}`,
-                            disabledReason: busy ? "正在切换配置" : undefined,
-                            onClick: () =>
-                              card.configured
-                                ? void operate(card, true)
-                                : edit(card),
-                          },
-                        ],
-                  chips:
-                    card.provider.category === "official"
-                      ? []
-                      : [
-                          {
-                            key: "key",
-                            label: card.configured
-                              ? card.keyMasked || "已配置"
-                              : "待选择 API",
-                            tone: "outline",
-                          },
-                        ],
-                  editDisabledReason: busy ? "正在保存配置" : undefined,
-                }}
-                onEdit={() => edit(card)}
-                onDelete={() => {}}
-                onConfigureUsage={() => {}}
-                onOpenWebsite={(url) => void settingsApi.openExternal(url)}
-              />
-            );
-          })}
+            })}
           {data &&
             simple &&
             !data.warning &&

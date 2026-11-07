@@ -70,6 +70,26 @@ describe("account session connectivity", () => {
     await screen.findByText("连接暂时不可用，请检查网络后重试。");
     expect(screen.getByTestId("account")).toHaveTextContent("logged-out");
   });
+  it("restores a backend-validated local session and revalidates on reconnect", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      command === "session"
+        ? Promise.resolve({ ...verified, sessionOffline: true })
+        : Promise.resolve(null),
+    );
+    mount();
+    await screen.findByText("user@example.test");
+    expect(screen.getByRole("status")).toHaveTextContent("当前离线");
+    mocks.dispatch.mockImplementation((command) =>
+      command === "session" ? Promise.resolve(verified) : Promise.resolve(null),
+    );
+    fireEvent(window, new Event("online"));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toBeEmptyDOMElement(),
+    );
+    expect(screen.getByTestId("account")).toHaveTextContent(
+      "user@example.test",
+    );
+  });
   it("clears the verified session on authentication failure", async () => {
     mount();
     await screen.findByText("user@example.test");
@@ -95,7 +115,9 @@ describe("account session connectivity", () => {
     await screen.findByText("user@example.test");
     fireEvent.click(screen.getByText("退出"));
     await screen.findByText(/无法确认服务端会话已撤销/);
-    expect(screen.getByRole("status")).toHaveTextContent("DSH 凭据文件可能保留旧引用");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "DSH 凭据文件可能保留旧引用",
+    );
     expect(screen.getByTestId("account")).toHaveTextContent("logged-out");
   });
 });

@@ -127,7 +127,7 @@ describe("dedicated service cards", () => {
     expect(
       screen.getByRole("button", { name: "申请 API" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("OpenAI Official")).toBeInTheDocument();
+    expect(screen.queryByText("OpenAI Official")).not.toBeInTheDocument();
   });
   it("explains how to activate a simple-home service and only opens key selection when needed", async () => {
     wrap(<ToolPage app="codex" simple />);
@@ -155,7 +155,9 @@ describe("dedicated service cards", () => {
       ),
     );
     wrap(<ToolPage app="codex" simple />);
-    expect(await screen.findByText("使用中")).toBeInTheDocument();
+    await screen.findByText("AIHubMix · OpenAI");
+    expect(screen.queryByText("OpenAI Official")).not.toBeInTheDocument();
+    expect(screen.queryByText("使用中")).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "切换到 AIHubMix · OpenAI" }),
     );

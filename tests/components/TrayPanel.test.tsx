@@ -31,16 +31,15 @@ vi.mock("@/tray-panel/api", async (importOriginal) => ({
 }));
 vi.mock("@/tray-panel/UsageTab", () => ({ UsageTab: () => <div>Usage</div> }));
 vi.mock("@/lib/api/aihubmix", () => ({
-  dispatch: vi
-    .fn()
-    .mockResolvedValue({
-      email: "account@example.test",
-      balance: 12.34,
-      currency: "USD",
-    }),
+  dispatch: vi.fn().mockResolvedValue({
+    email: "account@example.test",
+    balance: 12.34,
+    currency: "USD",
+  }),
 }));
 
 const state: TrayPanelState = {
+  signedIn: true,
   texts: {
     switchProvider: "Switch provider",
     searchPlaceholder: "Search providers",
@@ -176,6 +175,24 @@ describe("TrayPanel window layout", () => {
     window.localStorage.removeItem("cc-switch-tray-tab");
     delete document.documentElement.dataset.glass;
     delete document.documentElement.dataset.layout;
+  });
+
+  it("offers a working quit action when signed out on Windows", async () => {
+    vi.mocked(trayPanelApi.state).mockResolvedValue({
+      ...state,
+      signedIn: false,
+      apps: [],
+    });
+    vi.mocked(trayPanelApi.placement).mockResolvedValue(windows);
+    renderPanel();
+    const quit = await screen.findByRole("button", { name: "Quit" });
+    expect(
+      screen.queryByRole("button", { name: "Settings" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(dispatch).not.toHaveBeenCalledWith("payment-balance");
+    fireEvent.click(quit);
+    expect(trayPanelApi.action).toHaveBeenCalledWith("quit");
   });
 
   it("colors only the balance amount green, like the provider card", async () => {
