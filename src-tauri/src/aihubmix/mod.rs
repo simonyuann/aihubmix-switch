@@ -96,10 +96,14 @@ pub async fn aihubmix_dispatch(
             .store
             .settings
             .account;
-        if account.logged_in {
+        if account.logged_in && command == "register" {
             return Err("请先退出当前账号，再登录其他账号".into());
         }
-        if let Some(user) = account.user_id {
+        if account.logged_in {
+            // A failed startup verification can leave the login page visible
+            // while encrypted credentials still exist. The service validates
+            // the returned user ID before replacing those credentials.
+        } else if let Some(user) = account.user_id {
             prepare_account_exit(app_state.inner(), user).await?;
             guard
                 .as_mut()

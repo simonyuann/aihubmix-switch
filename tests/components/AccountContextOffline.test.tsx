@@ -15,7 +15,8 @@ const verified = {
   storageError: null,
 };
 function View() {
-  const { state, checking, error, refresh, logout } = useAccount();
+  const { state, checking, error, refresh, logout, authenticate } =
+    useAccount();
   return (
     <>
       <span data-testid="account">
@@ -24,6 +25,16 @@ function View() {
       <span role="status">{error}</span>
       <button onClick={() => void refresh()}>刷新会话</button>
       <button onClick={() => void logout()}>退出</button>
+      <button
+        onClick={() =>
+          void authenticate("login", {
+            email: "user@example.test",
+            password: "test",
+          })
+        }
+      >
+        登录
+      </button>
     </>
   );
 }
@@ -89,6 +100,22 @@ describe("account session connectivity", () => {
     expect(screen.getByTestId("account")).toHaveTextContent(
       "user@example.test",
     );
+  });
+  it("enters the account immediately after successful login when session verification was unavailable", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      command === "session"
+        ? Promise.reject("session unavailable")
+        : command === "login"
+          ? Promise.resolve(verified)
+          : Promise.resolve(null),
+    );
+    mount();
+    await screen.findByText("连接暂时不可用，请检查网络后重试。");
+    fireEvent.click(screen.getByText("登录"));
+    await screen.findByText("user@example.test");
+    expect(
+      mocks.dispatch.mock.calls.filter(([command]) => command === "session"),
+    ).toHaveLength(1);
   });
   it("clears the verified session on authentication failure", async () => {
     mount();

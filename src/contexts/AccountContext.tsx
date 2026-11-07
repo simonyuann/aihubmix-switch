@@ -171,10 +171,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   ]);
   async function authenticate(command: "login" | "register", payload: unknown) {
     const rev = ++revision.current;
-    await dispatch(command, payload);
-    if (rev !== revision.current) return;
-    // Verification failure must remain visible on the login form.
-    const next = await dispatch<AccountState>("session");
+    // The server's successful login response already identifies the account.
+    // A second request here could fail after the backend saved the session and
+    // leave the frontend stuck on the login page with an active backend.
+    const next = await dispatch<AccountState>(command, payload);
     if (rev !== revision.current) return;
     if (!next.account.loggedIn) throw new Error("请重新登录");
     walletRevision.current++;

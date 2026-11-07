@@ -386,4 +386,28 @@ describe("dedicated client account boundary", () => {
       screen.getByRole("heading", { name: "登录你的账户" }),
     ).toBeInTheDocument();
   });
+  it("lets the user clear a hidden old account when signing in as another user", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      command === "login"
+        ? Promise.reject("请先退出当前账号，再登录其他账号")
+        : response(command),
+    );
+    mount();
+    await screen.findByRole("heading", { name: "登录你的账户" });
+    fireEvent.change(screen.getByLabelText("邮箱"), {
+      target: { value: "other@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("密码", { selector: "input" }), {
+      target: { value: "fixture-password" },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "登录" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "退出本机旧账号" }),
+    );
+    await screen.findByText("已退出本机旧账号，请重新登录。");
+    expect(mocks.dispatch).toHaveBeenCalledWith("logout");
+  });
 });

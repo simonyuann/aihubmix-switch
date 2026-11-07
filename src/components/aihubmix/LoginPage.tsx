@@ -130,6 +130,21 @@ export function LoginPage() {
       if (active.current) setBusy(false);
     }
   }
+  async function clearPreviousAccount() {
+    if (gate.current) return;
+    gate.current = true;
+    setBusy(true);
+    try {
+      const result = await dispatch<{ revocationWarning?: string }>("logout");
+      setError("");
+      setNotice(result?.revocationWarning || "已退出本机旧账号，请重新登录。");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      gate.current = false;
+      setBusy(false);
+    }
+  }
   const title =
     mode === "login"
       ? "登录你的账户"
@@ -328,6 +343,17 @@ export function LoginPage() {
             <p role="alert" className="mt-4 text-body text-destructive">
               {error || session.error}
             </p>
+          )}
+          {error.includes("请先退出当前账号") && (
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-3 w-full"
+              disabled={busy}
+              onClick={() => void clearPreviousAccount()}
+            >
+              退出本机旧账号
+            </Button>
           )}
           {notice && (
             <p role="status" className="mt-4 flex gap-2 text-body text-fg-2">

@@ -544,6 +544,20 @@ impl Backend {
             "state" => self.state(),
             "refresh" => self.state(),
             "login" | "register" => {
+                let current_owner = if self.store.settings.account.logged_in {
+                    Some(
+                        self.store
+                            .settings
+                            .account
+                            .user_id
+                            .ok_or("无法确认本机账号，请先退出当前账号")?,
+                    )
+                } else {
+                    None
+                };
+                if current_owner.is_some() && command == "register" {
+                    return Err("请先退出当前账号，再登录其他账号".into());
+                }
                 let email = string(&input, "email").trim().to_string();
                 let password = string(&input, "password");
                 if email.is_empty() || password.is_empty() {
@@ -560,11 +574,17 @@ impl Backend {
                     .await?;
                 let value = unwrap_response(status, value)
                     .map_err(|error| error.replace(&password, "[已隐藏]"))?;
-                if value["user"]["id"].as_i64().is_none() {
-                    return Err("服务未返回账号信息，请重试".into());
+                let returned_owner = value["user"]["id"]
+                    .as_i64()
+                    .filter(|id| *id > 0)
+                    .ok_or("服务未返回账号信息，请重试")?;
+                if current_owner.is_some_and(|id| id != returned_owner) {
+                    return Err("请先退出当前账号，再登录其他账号".into());
                 }
-                self.ephemeral_keys.clear();
-                self.store.settings.selected_key = None;
+                if current_owner.is_none() {
+                    self.ephemeral_keys.clear();
+                    self.store.settings.selected_key = None;
+                }
                 self.save_auth(value, Some(&email))?;
                 self.state()
             }
@@ -1108,6 +1128,73 @@ mod auth_tests {
     };
     use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn login_recovers_same_owner_without_replacing_another_account() {
+        use axum::http::StatusCode;
+        let app = Router::new().route("/api/v1/auth/login", post(|Json(body): Json<Value>| async move {
+            if body["password"] != "correct" {
+                return (StatusCode::UNAUTHORIZED, Json(json!({"message":"secret should not appear"})));
+            }
+            let id = if body["email"] == "other@example.test" { 9 } else { 8 };
+            (StatusCode::OK, Json(json!({"code":0,"data":{"access_token":format!("new-token-{id}"),"refresh_token":format!("new-refresh-{id}"),"expires_in":3600,"user":{"id":id}}})))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let dir = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(dir.path().into())).unwrap();
+        backend.client = Client::builder().no_proxy().build().unwrap();
+        backend.store.settings.relay_base_url = base;
+        backend.store.settings.account = Account {
+            logged_in: true,
+            user_id: Some(8),
+            email: Some("owner@example.test".into()),
+            expires_at: now() + 3600,
+        };
+        backend.store.settings.selected_key = Some(7);
+        backend.store.memory_secret("access", "old-access");
+        backend.store.memory_secret("refresh", "old-refresh");
+        backend.ephemeral_keys.insert(7, "group-key".into());
+        let error = backend
+            .dispatch(
+                "login",
+                json!({"email":"other@example.test","password":"correct"}),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.contains("请先退出当前账号"));
+        assert!(!error.contains("new-token"));
+        assert_eq!(backend.store.secret("access"), "old-access");
+        assert_eq!(backend.store.settings.account.user_id, Some(8));
+        assert_eq!(backend.store.settings.selected_key, Some(7));
+        assert!(backend
+            .dispatch(
+                "login",
+                json!({"email":"owner@example.test","password":"wrong"})
+            )
+            .await
+            .is_err());
+        assert_eq!(backend.store.secret("refresh"), "old-refresh");
+        let result = backend
+            .dispatch(
+                "login",
+                json!({"email":"owner@example.test","password":"correct"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["account"]["userId"], 8);
+        assert_eq!(backend.store.secret("access"), "new-token-8");
+        assert_eq!(backend.store.settings.selected_key, Some(7));
+        assert_eq!(
+            backend.ephemeral_keys.get(&7).map(String::as_str),
+            Some("group-key")
+        );
+        assert!(!result.to_string().contains("new-token"));
+        task.abort();
+        crate::product_policy::set_session(0);
+    }
 
     #[tokio::test]
     #[serial_test::serial]

@@ -1,13 +1,12 @@
 //! Product boundary around the reused CC services. Activated by the desktop entrypoint.
 use crate::{app_config::AppType, error::AppError, provider::Provider};
 use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 pub const ORIGIN: &str = "https://csmy.fun:23457";
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static ACCOUNT_ID: AtomicI64 = AtomicI64::new(0);
-static SESSION_UNTIL: AtomicU64 = AtomicU64::new(0);
-static OFFLINE_SESSION: AtomicBool = AtomicBool::new(false);
+static LOCAL_SESSION: AtomicBool = AtomicBool::new(false);
 thread_local! {
     static RECOVERY_ACCOUNT: Cell<Option<i64>> = const { Cell::new(None) };
 }
@@ -37,26 +36,20 @@ pub fn restricted() -> bool {
     active() && !crate::settings::get_settings().enable_other_providers
 }
 pub fn set_session(expires_at: u64) {
-    OFFLINE_SESSION.store(false, Ordering::SeqCst);
-    SESSION_UNTIL.store(expires_at, Ordering::SeqCst);
+    // Access-token expiry is handled by the account backend and server. It
+    // must not independently discard the local session before refresh runs.
+    LOCAL_SESSION.store(expires_at != 0, Ordering::SeqCst);
 }
 /// A locally restored session permits access to local UI and configuration only;
 /// platform requests still require the server to accept the saved credentials.
 pub fn set_offline_session() {
-    SESSION_UNTIL.store(0, Ordering::SeqCst);
-    OFFLINE_SESSION.store(true, Ordering::SeqCst);
+    LOCAL_SESSION.store(true, Ordering::SeqCst);
 }
 pub fn set_account(id: i64) {
     ACCOUNT_ID.store(id, Ordering::SeqCst);
 }
 pub fn authenticated() -> bool {
-    OFFLINE_SESSION.load(Ordering::SeqCst) || SESSION_UNTIL.load(Ordering::SeqCst) > now()
-}
-fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+    LOCAL_SESSION.load(Ordering::SeqCst)
 }
 pub fn require_session() -> Result<(), String> {
     if !active() || authenticated() {
@@ -278,6 +271,19 @@ fn command_allowed(command: &str, signed_in: bool, other_providers: bool) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[serial_test::serial]
+    fn expired_access_token_keeps_local_session_until_explicitly_cleared() {
+        set_session(1);
+        assert!(authenticated());
+        set_session(0);
+        assert!(!authenticated());
+        set_offline_session();
+        assert!(authenticated());
+        set_session(0);
+        assert!(!authenticated());
+    }
 
     #[test]
     fn tray_panel_bootstraps_while_signed_out() {
