@@ -578,6 +578,9 @@ impl Backend {
                         None,
                     )
                     .await?;
+                if command == "login" && status == 401 {
+                    return Err("邮箱或密码不正确，请检查后重试".into());
+                }
                 let value = unwrap_response(status, value)
                     .map_err(|error| error.replace(&password, "[已隐藏]"))?;
                 let returned_owner = value["user"]["id"]
@@ -1188,13 +1191,16 @@ mod auth_tests {
         assert_eq!(backend.store.secret("access"), "old-access");
         assert_eq!(backend.store.settings.account.user_id, Some(8));
         assert_eq!(backend.store.settings.selected_key, Some(7));
-        assert!(backend
+        let error = backend
             .dispatch(
                 "login",
                 json!({"email":"owner@example.test","password":"wrong"})
             )
             .await
-            .is_err());
+            .unwrap_err();
+        assert_eq!(error, "邮箱或密码不正确，请检查后重试");
+        assert!(!error.contains("wrong"));
+        assert!(!error.contains("secret"));
         assert_eq!(backend.store.secret("refresh"), "old-refresh");
         let result = backend
             .dispatch(
