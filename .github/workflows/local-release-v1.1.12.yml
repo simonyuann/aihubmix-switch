@@ -131,6 +131,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm tauri bundle --target x86_64-pc-windows-msvc --bundles nsis --ci --config .github/local-release-windows-v1.1.12.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $installer = @(Get-ChildItem 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -File -Filter "*_${version}_*.exe")
+          if ($installer.Count -ne 1 -or $installer[0].VersionInfo.ProductVersion -ne $version) { throw 'Windows installer version does not match the release' }
+          $portable = Get-Item "artifacts/AIHubMix-Switch_${version}_windows-x64-portable.exe"
+          if ($portable.VersionInfo.ProductVersion -ne $version) { throw 'Windows portable version does not match the release' }
           node scripts/check-update-format.mjs x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/collect-artifacts.mjs x86_64-pc-windows-msvc

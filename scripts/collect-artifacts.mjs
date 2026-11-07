@@ -2,6 +2,7 @@ import { mkdir, readdir, copyFile, access } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { selectReleaseFile } from './select-release-file.mjs'
 
 const target = process.argv[2]
 if (
@@ -27,8 +28,7 @@ const prefix = `AIHubMix-Switch_${version}_${platform}`
 await mkdir('artifacts', { recursive: true })
 if (platform.startsWith('macos')) {
   const folder = join(release, 'bundle', 'dmg')
-  const file = (await readdir(folder)).find((f) => f.endsWith('.dmg'))
-  if (!file) throw new Error('DMG was not generated')
+  const file = selectReleaseFile(await readdir(folder), version, '.dmg')
   await copyFile(join(folder, file), join('artifacts', `${prefix}.dmg`))
   const folderMac = join(release, 'bundle', 'macos')
   const archive = (await readdir(folderMac)).find((file) => file.endsWith('.app.tar.gz'))
@@ -40,14 +40,12 @@ if (platform.startsWith('macos')) {
     ['appimage', '.AppImage']
   ]) {
     const folder = join(release, 'bundle', format)
-    const file = (await readdir(folder)).find((name) => name.endsWith(extension))
-    if (!file) throw new Error(`Linux ${format} bundle was not generated`)
+    const file = selectReleaseFile(await readdir(folder), version, extension)
     await copyFile(join(folder, file), join('artifacts', `${prefix}${extension}`))
   }
 } else {
   const folder = join(release, 'bundle', 'nsis')
-  const file = (await readdir(folder)).find((f) => f.endsWith('.exe'))
-  if (!file) throw new Error('Windows installer was not generated')
+  const file = selectReleaseFile(await readdir(folder), version, '.exe')
   await copyFile(join(folder, file), join('artifacts', `${prefix}-setup.exe`))
   await access(join('artifacts', `${prefix}-portable.exe`))
 }

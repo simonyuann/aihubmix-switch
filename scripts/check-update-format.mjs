@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { existsSync } from 'node:fs'
+import { selectReleaseFile } from './select-release-file.mjs'
 const target = process.argv[2]
+const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const release = join('src-tauri', 'target', target, 'release')
 function check(file, expected) {
   const value = execFileSync(resolve(file), ['--print-update-format'], {
@@ -20,15 +22,13 @@ function check(file, expected) {
   console.log(`Native update format verified: ${expected}`)
 }
 if (target.includes('windows')) {
-  const portable = (await readdir('artifacts')).find((name) => name.endsWith('-portable.exe'))
-  if (!portable) throw new Error('Portable executable is missing')
+  const portable = selectReleaseFile(await readdir('artifacts'), version, '-portable.exe')
   if (existsSync(join('artifacts', 'portable.ini')))
     throw new Error('Portable regression must run without portable.ini')
   check(join('artifacts', portable), 'portable')
   // Tauri restores the raw executable after bundling. Inspect the actual installer payload.
   const folder = join(release, 'bundle', 'nsis')
-  const installer = (await readdir(folder)).find((name) => name.endsWith('.exe'))
-  if (!installer) throw new Error('NSIS installer is missing')
+  const installer = selectReleaseFile(await readdir(folder), version, '.exe')
   const directory = await mkdtemp(join(tmpdir(), 'aihubmix-nsis-check-'))
   try {
     execFileSync('7z', ['x', resolve(folder, installer), `-o${directory}`, '-y'], { stdio: 'pipe' })
@@ -46,13 +46,9 @@ if (target.includes('windows')) {
     'app'
   )
 } else if (target.includes('linux')) {
-  const image = (await readdir(join(release, 'bundle', 'appimage'))).find((name) =>
-    name.endsWith('.AppImage')
-  )
-  if (!image) throw new Error('AppImage is missing')
+  const image = selectReleaseFile(await readdir(join(release, 'bundle', 'appimage')), version, '.AppImage')
   check(join(release, 'bundle', 'appimage', image), 'appimage')
-  const deb = (await readdir(join(release, 'bundle', 'deb'))).find((name) => name.endsWith('.deb'))
-  if (!deb) throw new Error('Debian package is missing')
+  const deb = selectReleaseFile(await readdir(join(release, 'bundle', 'deb')), version, '.deb')
   const directory = await mkdtemp(join(tmpdir(), 'aihubmix-deb-check-'))
   try {
     execFileSync('dpkg-deb', ['--extract', join(release, 'bundle', 'deb', deb), directory])
