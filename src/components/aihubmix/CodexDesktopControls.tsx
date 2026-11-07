@@ -34,6 +34,16 @@ function startMessage(result: CodexDesktopLaunchResult, preferences: CodexDeskto
   return parts.join("");
 }
 
+const safeLaunchErrors = new Set([
+  "无法检查系统环境",
+  "无法检查 Codex Desktop",
+  "检查 Codex Desktop 超时",
+  "无法分配本地调试端口",
+  "无法分配独立的本地调试接口",
+  "无法启动 Codex Desktop",
+  "无法更新启动状态",
+]);
+
 /** Desktop launch is explicit; merely configuring a provider does not start Codex. */
 export function CodexDesktopControls() {
   const preferences = useCodexDesktopPreferences();
@@ -61,8 +71,9 @@ export function CodexDesktopControls() {
       if (result.status === "started" || result.status === "partial" || result.status === "already_running") {
         setStatus((old) => ({ installed: true, running: true, platform: old?.platform ?? "" }));
       }
-    } catch {
-      setMessage("启动失败，请检查 Codex Desktop 是否已安装后重试。");
+    } catch (error) {
+      const detail = typeof error === "string" && safeLaunchErrors.has(error) ? error : "启动失败，请检查 Codex Desktop 是否已安装后重试。";
+      setMessage(detail);
     } finally {
       setLaunching(false);
     }

@@ -226,6 +226,15 @@ struct WindowsInstall {
 
 #[cfg(target_os = "windows")]
 fn powershell(script: &str, env: &[(&str, String)]) -> Result<std::process::Output, String> {
+    powershell_with_timeout(script, env, std::time::Duration::from_secs(5))
+}
+
+#[cfg(target_os = "windows")]
+fn powershell_with_timeout(
+    script: &str,
+    env: &[(&str, String)],
+    timeout: std::time::Duration,
+) -> Result<std::process::Output, String> {
     use std::os::windows::process::CommandExt;
     let system_root = std::env::var_os("SystemRoot").ok_or("无法检查系统环境")?;
     let mut command = std::process::Command::new(
@@ -250,7 +259,7 @@ fn powershell(script: &str, env: &[(&str, String)]) -> Result<std::process::Outp
     let mut child = command
         .spawn()
         .map_err(|_| "无法检查 Codex Desktop".to_string())?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + timeout;
     loop {
         match child.try_wait() {
             Ok(Some(_)) => {
@@ -474,13 +483,14 @@ $p.Id
 }
 "#;
     let result = tokio::task::spawn_blocking(move || {
-        powershell(
+        powershell_with_timeout(
             script,
             &[
                 ("AIHUB_APP_ID", install.app_id),
                 ("AIHUB_CODEX_EXE", install.exe),
                 ("AIHUB_ARGS", args.join(" ")),
             ],
+            std::time::Duration::from_secs(30),
         )
     })
     .await

@@ -42,6 +42,25 @@ describe("Codex Desktop controls", () => {
     expect(screen.queryByText(/已生效/)).not.toBeInTheDocument();
   });
 
+  it("shows only known safe launch errors", async () => {
+    backend.invoke.mockImplementation((command: string) => command === "codex_desktop_status"
+      ? Promise.resolve({ installed: true, running: false, platform: "windows" })
+      : Promise.reject("检查 Codex Desktop 超时"));
+    render(<CodexDesktopControls />);
+    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    expect(await screen.findByText("检查 Codex Desktop 超时")).toBeInTheDocument();
+  });
+
+  it("does not show unexpected launch errors containing sensitive information", async () => {
+    backend.invoke.mockImplementation((command: string) => command === "codex_desktop_status"
+      ? Promise.resolve({ installed: true, running: false, platform: "windows" })
+      : Promise.reject("secret-api-key"));
+    render(<CodexDesktopControls />);
+    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    expect(await screen.findByText(/启动失败，请检查/)).toBeInTheDocument();
+    expect(screen.queryByText(/secret-api-key/)).not.toBeInTheDocument();
+  });
+
   it("only stores the plugin preference after the market is registered", async () => {
     backend.invoke.mockImplementation((command: string) => {
       if (command === "enable_codex_plugin_market") return Promise.resolve({ revision: "fixed-revision", restartRequired: true });
