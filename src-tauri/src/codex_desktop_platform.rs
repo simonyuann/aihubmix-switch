@@ -296,12 +296,14 @@ if ($exe) { @{exe=$exe;app_id=''} | ConvertTo-Json -Compress }
 }
 
 #[cfg(target_os = "windows")]
-fn windows_running(_exe: &str) -> Result<bool, String> {
+fn windows_running(exe: &str) -> Result<bool, String> {
     // Multiple Desktop installations can share the same user configuration.
-    // Refuse to start if *any* similarly named process is running, including
-    // an installation we could not inspect, rather than attach to a stranger.
-    let script = r#"$p = @(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe'" -ErrorAction Stop); if ($p.Count -gt 0) { 'busy' } else { 'idle' }"#;
-    let result = powershell(script, &[])?;
+    // Refuse to start if another desktop instance is running or its path cannot
+    // be inspected, rather than attach to a stranger.
+    // The desktop app starts a separate codex.exe CLI, and users may run the
+    // same CLI independently. Neither is itself a desktop installation.
+    let script = r#"$p = @(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe'" -ErrorAction Stop | Where-Object { $process = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; $process -and ($_.Name -ieq 'ChatGPT.exe' -or !$_.ExecutablePath -or [string]::Equals($_.ExecutablePath, $env:AIHUB_CODEX_EXE, [StringComparison]::OrdinalIgnoreCase) -or $process.MainWindowHandle -ne 0) }); if ($p.Count -gt 0) { 'busy' } else { 'idle' }"#;
+    let result = powershell(script, &[("AIHUB_CODEX_EXE", exe.to_string())])?;
     if !result.status.success() {
         return Err("无法确认 Codex 是否正在运行".into());
     }
@@ -320,7 +322,20 @@ foreach ($item in $processes) {
       ![string]::Equals($item.ExecutablePath, $env:AIHUB_CODEX_EXE, [StringComparison]::OrdinalIgnoreCase) -or
       ($item.CommandLine -and $item.CommandLine -match '(^|\s)--type=')) { continue }
   $process = Get-Process -Id $item.ProcessId -ErrorAction SilentlyContinue
-  if ($process) { [void]$process.CloseMainWindow() }
+  if (!$process) { continue }
+  [void]$process.CloseMainWindow()
+  Start-Sleep -Seconds 2
+  $current = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $item.ProcessId) -ErrorAction SilentlyContinue
+  $remaining = Get-Process -Id $item.ProcessId -ErrorAction SilentlyContinue
+  # Electron may hide its window and continue in the tray after WM_CLOSE.
+  # End only the exact original, verified desktop process in this session;
+  # never force a window that refused to close or a reused process ID.
+  if ($current -and $remaining -and $current.CreationDate -eq $item.CreationDate -and
+      $current.SessionId -eq $session -and
+      [string]::Equals($current.ExecutablePath, $env:AIHUB_CODEX_EXE, [StringComparison]::OrdinalIgnoreCase) -and
+      $remaining.MainWindowHandle -eq [IntPtr]::Zero) {
+    Stop-Process -Id $item.ProcessId -Force -ErrorAction Stop
+  }
 }
 "#;
     let result = powershell(script, &[("AIHUB_CODEX_EXE", exe.to_string())])?;

@@ -59,8 +59,8 @@ pub(crate) fn outcome(status: &str, locale: &str, plugins: &str, message: &str) 
     }
 }
 
-/// Request a normal quit once, and never launch another instance until the
-/// previous one is actually gone. A refused quit or timeout is not forced.
+/// Request a quit once, and never launch another instance until the previous
+/// one is actually gone. A visible window that refuses to close is not forced.
 pub(crate) fn prepare_restart<C, Q>(
     mut running: C,
     mut request_quit: Q,

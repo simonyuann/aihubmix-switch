@@ -69,7 +69,7 @@ export function CodexDesktopControls() {
   }
 
   const idle = status?.running
-    ? "Codex 正在运行；启动时会先正常退出，再应用设置重新启动。"
+    ? "启动会先退出当前 Codex，正在运行的任务可能中断，请先保存工作。"
     : status?.installed === false
       ? "未检测到 Codex Desktop。"
       : "从这里启动，可应用设置中的语言和插件支持。";
