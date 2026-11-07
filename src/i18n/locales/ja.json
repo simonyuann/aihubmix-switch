@@ -877,7 +877,7 @@
     "skipClaudeOnboardingDescription": "Claude Code は初回起動時にオンボーディングを行い、テーマの選択と Anthropic アカウントへのログインを求めます。サードパーティのプロバイダーを使う場合は公式アカウントへのログインが不要なため、オンにするとこの手順を飛ばしてすぐに使えます。仕組みとしては ~/.claude.json に hasCompletedOnboarding: true を書き込みます。オフにするとこのフィールドを削除し、次回起動時に再びオンボーディングが表示されます。",
     "codexAuth": "Codex アプリ拡張",
     "preserveCodexOfficialAuthOnSwitch": "直接切替時に公式ログインを保持",
-    "preserveCodexOfficialAuthOnSwitchDescription": "切り替え時に Codex の公式ログインと認証情報の保存方法を保持します。Codex のバージョンによっては内蔵画像生成ツールが表示されない場合があります。変更後は切り替え直して Codex を再起動してください。",
+    "preserveCodexOfficialAuthOnSwitchDescription": "切り替え時に Codex の公式ログインと認証情報の保存方法を保持します。Codex の無料公式アカウントでは内蔵画像生成ツールが表示されない場合があります。変更後は切り替え直して Codex を再起動してください。",
     "unifyCodexSessionHistory": "Codex セッション履歴を統一",
     "unifyCodexSessionHistoryDescription": "Codex CLI にのみ影響します：CLI の resume 一覧には現在のプロバイダーのセッションしか表示されません。オンにすると公式サブスクリプションも共有の custom プロバイダー ID で動作し、公式とサードパーティのセッションが同じ一覧に表示されます。Codex デスクトップ版はアップデートで全セッションを表示できるようになったため、デスクトップ版だけなら不要です。既存の公式セッションの移行も選択できます（移行前に自動バックアップ）。オフにする際はバックアップから復元できます。注意：プロバイダーをまたいで古いセッションを再開すると、encrypted_content の推論内容を相手のバックエンドが復号できず、再開に失敗する場合があります。",
     "codexStackClassicSubagents": "集約モードでサブエージェントにクラシックツールを使う",

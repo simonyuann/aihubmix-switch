@@ -86,6 +86,47 @@ def fake_free_auth(plan="free"):
 
 @unittest.skipUnless(shutil.which("codex"), "Codex CLI is not installed")
 class NativeImageGenerationTest(unittest.TestCase):
+    def test_preserved_plus_login_and_terra_catalog_allow_native_image_tool(self):
+        server = FakeApi(True)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                auth = json.dumps(fake_free_auth("plus"))
+                (home / "auth.json").write_text(auth)
+                template = json.loads((Path(__file__).resolve().parents[1] /
+                    "src-tauri/src/resources/gpt5_5_template.json").read_text())
+                template.update({"slug": "gpt-6.1-terra", "display_name": "GPT-6.1 Terra",
+                                 "input_modalities": ["text", "image"]})
+                catalog = home / "catalog.json"
+                catalog.write_text(json.dumps({"models": [template]}))
+                (home / "config.toml").write_text(
+                    'cli_auth_credentials_store = "file"\nmodel_provider = "relay"\n'
+                    'model = "gpt-6.1-terra"\nmodel_catalog_json = ' + json.dumps(str(catalog)) + '\n'
+                    '[model_providers.relay]\nname = "relay"\nbase_url = "http://127.0.0.1:' +
+                    str(server.server_port) + '/v1"\nwire_api = "responses"\nrequires_openai_auth = false\n'
+                    'experimental_bearer_token = "fixture-relay-key"\n'
+                    'http_headers = { "x-openai-actor-authorization" = "local-image-extension" }\n'
+                )
+                env = {k: v for k, v in os.environ.items() if k.upper() not in {
+                    "OPENAI_API_KEY", "OPENAI_BASE_URL", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}}
+                env.update({"CODEX_HOME": directory, "NO_PROXY": "*"})
+                result = subprocess.run(["codex", "exec", "--ephemeral", "--skip-git-repo-check", "--json", "Draw a square"],
+                    cwd=directory, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace")[-1000:])
+                responses = [r for r in server.requests if r[0].startswith("/v1/responses")]
+                self.assertTrue(any(t.get("name") == "image_gen" for t in responses[0][2]["tools"]))
+                images = [r for r in server.requests if r[0].startswith("/v1/images/generations")]
+                self.assertEqual(len(images), 1)
+                self.assertEqual(images[0][1].get("authorization"), "Bearer fixture-relay-key")
+                self.assertEqual(images[0][2]["prompt"], "A blue square")
+                official_token = fake_free_auth("plus")["tokens"]["access_token"]
+                for _, headers, _ in server.requests:
+                    self.assertNotEqual(headers.get("authorization"), "Bearer " + official_token)
+                    self.assertNotIn("chatgpt-account-id", headers)
+                self.assertEqual((home / "auth.json").read_text(), auth)
+        finally:
+            server.close()
+
     def test_preserved_official_login_keeps_relay_credentials_scoped(self):
         server = FakeApi(False)
         try:

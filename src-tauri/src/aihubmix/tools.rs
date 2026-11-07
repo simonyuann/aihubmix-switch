@@ -447,7 +447,7 @@ pub(super) async fn dispatch(
             && crate::aihubmix::native_imagegen::supported(&provider)
             && crate::settings::preserve_codex_official_auth_on_switch()
         {
-            warnings.push("已保留官方登录；Codex 在官方登录状态下可能不显示内置生图工具。需要内置生图时，可关闭保留官方登录后重新切换分组并重启 Codex".into());
+            warnings.push("已保留官方登录；Codex 的免费官方账号可能不显示内置生图工具。需要内置生图时，可关闭保留官方登录后重新切换分组并重启 Codex".into());
         }
     }
     let selected_model = if command == "start-tool-card" && app == AppType::Claude {
