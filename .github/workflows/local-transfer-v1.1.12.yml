@@ -27,8 +27,10 @@ jobs:
             const path = require('path');
             const { createHash } = require('crypto');
             const { owner, repo } = context.repo;
-            const { data: release } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: 'v1.1.12' });
-            if (!release.draft) throw new Error('Expected an unpublished release draft');
+            const releases = await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
+            const matches = releases.filter(item => item.tag_name === 'v1.1.12');
+            if (matches.length !== 1 || !matches[0].draft) throw new Error('Expected one unpublished release draft');
+            const release = matches[0];
             const names = ['windows-x64-portable.exe', 'windows-x64-setup.exe'].flatMap(s =>
               [`AIHubMix-Switch_1.1.12_${s}`, `AIHubMix-Switch_1.1.12_${s}.sig`]);
             const directory = path.join(process.env.RUNNER_TEMP, 'aihubmix-v112-transfer');
