@@ -114,6 +114,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Make Windows build tools available
+        shell: powershell
+        run: |
+          Add-Content $env:GITHUB_PATH 'C:\Program Files\Git\bin'
+          Add-Content $env:GITHUB_PATH 'C:\Program Files\Git\cmd'
+          Add-Content $env:GITHUB_PATH 'C:\Windows\System32\config\systemprofile\.cargo\bin'
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           targets: x86_64-pc-windows-msvc
