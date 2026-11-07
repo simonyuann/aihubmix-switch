@@ -1,0 +1,81 @@
+import { useMemo, useSyncExternalStore } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
+export type CodexDesktopLanguage = "zh-CN" | "en-US" | "system";
+
+export interface CodexDesktopPreferences {
+  language: CodexDesktopLanguage;
+  plugins: boolean;
+}
+
+export interface CodexDesktopStatus {
+  installed: boolean;
+  running: boolean;
+  platform: string;
+  message?: string;
+}
+
+export interface CodexDesktopLaunchResult {
+  status: "started" | "already_running" | "not_installed" | "unsupported" | "partial";
+  locale: "applied" | "partial" | "not_requested" | "unsupported" | "failed";
+  plugins: string;
+  message?: string;
+}
+
+const KEY = "aihubmix:codex-desktop-preferences";
+const CHANGE = "aihubmix:codex-desktop-preferences-changed";
+const DEFAULT = '{"language":"zh-CN","plugins":false}';
+
+function snapshot(): string {
+  try {
+    return localStorage.getItem(KEY) ?? DEFAULT;
+  } catch {
+    return DEFAULT;
+  }
+}
+
+function subscribe(listener: () => void) {
+  window.addEventListener(CHANGE, listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener(CHANGE, listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+function decode(raw: string): CodexDesktopPreferences {
+  try {
+    const value = JSON.parse(raw) as Partial<CodexDesktopPreferences>;
+    return {
+      language: value.language === "en-US" || value.language === "system" ? value.language : "zh-CN",
+      plugins: value.plugins === true,
+    };
+  } catch {
+    return { language: "zh-CN", plugins: false };
+  }
+}
+
+export function useCodexDesktopPreferences(): CodexDesktopPreferences {
+  const raw = useSyncExternalStore(subscribe, snapshot, () => DEFAULT);
+  return useMemo(() => decode(raw), [raw]);
+}
+
+export function setCodexDesktopPreferences(updates: Partial<CodexDesktopPreferences>): boolean {
+  try {
+    const next = { ...decode(snapshot()), ...updates };
+    localStorage.setItem(KEY, JSON.stringify(next));
+    window.dispatchEvent(new Event(CHANGE));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const codexDesktop = {
+  status: () => invoke<CodexDesktopStatus>("codex_desktop_status"),
+  launch: (preferences: CodexDesktopPreferences) =>
+    invoke<CodexDesktopLaunchResult>("launch_codex_desktop", {
+      language: preferences.language,
+      plugins: preferences.plugins,
+    }),
+};

@@ -9,6 +9,25 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ dispatch: vi.fn() }));
 vi.mock("@/lib/api/aihubmix", () => ({ dispatch: mocks.dispatch }));
+vi.mock("@tauri-apps/api/core", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@tauri-apps/api/core")>();
+  return {
+    ...original,
+    invoke: (
+      command: string,
+      ...args: Parameters<typeof original.invoke> extends [
+        string,
+        ...infer Rest,
+      ]
+        ? Rest
+        : never
+    ) =>
+      command === "codex_imagegen_guide"
+        ? Promise.resolve({ status: "unavailable" })
+        : original.invoke(command, ...args),
+  };
+});
 import { ToolPage } from "@/components/aihubmix/ToolPage";
 import { ApplyApiDialog } from "@/components/aihubmix/ApplyApiDialog";
 const official = {

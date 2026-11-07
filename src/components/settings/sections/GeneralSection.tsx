@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { isLinux } from "@/lib/platform";
 import { TerminalSelect } from "@/components/settings/TerminalSettings";
+import { CodexDesktopSettings } from "@/components/settings/CodexDesktopSettings";
 import {
   setAdvancedInterface,
   useAdvancedInterface,
@@ -139,6 +140,8 @@ export function GeneralSection({
           )}
         </SettingsCard>
       </SettingsBlock>
+
+      <CodexDesktopSettings />
 
       <SettingsBlock title={t("settings.general.sidebarAndHeader")}>
         <SettingsCard>

@@ -9,6 +9,9 @@ mod claude_desktop_config;
 mod claude_mcp;
 mod claude_plugin;
 mod codex_config;
+mod codex_desktop;
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+mod codex_desktop_platform;
 mod codex_history_migration;
 mod codex_rollout_file;
 mod codex_state_db;
@@ -753,6 +756,10 @@ pub fn run() {
             // 补完上次崩溃时写到一半的客户端文件（写前意图在 ~/.aihubmix-switch/live-state.json），
             // 要在任何写客户端文件的启动步骤之前。
             crate::mode::operation::recover_on_startup(&app_state.db);
+
+            // A pre-existing Codex installation gets the secret-free image
+            // CLI integration without requiring the user to reselect a card.
+            let _ = commands::initialize_codex_imagegen(&app_state.db);
 
             // ============================================================
             // 按表独立判断的导入逻辑（各类数据独立检查，互不影响）
@@ -1581,6 +1588,13 @@ pub fn run() {
         .invoke_handler({
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
             aihubmix::aihubmix_dispatch,
+            codex_desktop::codex_desktop_status,
+            codex_desktop::launch_codex_desktop,
+            commands::codex_market::list_codex_market_plugins,
+            commands::codex_market::enable_codex_plugin_market,
+            commands::codex_market::disable_codex_plugin_market,
+            commands::codex_market::install_codex_market_plugin,
+            commands::codex_market::uninstall_codex_market_plugin,
             product::product_update_target,
             commands::get_providers,
             commands::get_current_provider,
@@ -1605,6 +1619,7 @@ pub fn run() {
             commands::open_config_folder,
             commands::pick_directory,
             commands::open_external,
+            commands::codex_imagegen_guide,
             commands::get_init_error,
             commands::get_migration_result,
             commands::get_skills_migration_result,

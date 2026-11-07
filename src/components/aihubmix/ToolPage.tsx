@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { invoke } from "@tauri-apps/api/core";
 import { Layers, Plus } from "lucide-react";
 import { APP_IDS } from "@/config/appConfig";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
@@ -23,6 +24,7 @@ import { groupBrandIcon } from "./groupBrandIcon";
 import { AnnouncementBanner } from "./Announcements";
 import { useWalletActions } from "./WalletPanel";
 import { HomeWalletBalance } from "./BalanceDisplay";
+import { CodexDesktopControls } from "./CodexDesktopControls";
 interface ToolCard {
   provider: Provider;
   configured: boolean;
@@ -128,11 +130,26 @@ export function ToolPage({
       });
       setEditing(null);
       setKeyId("");
+      let imagegenNote = "";
+      if (start && app === "codex") {
+        try {
+          const setup = await invoke<{ status: string }>(
+            "codex_imagegen_guide",
+          );
+          imagegenNote =
+            setup.status === "written"
+              ? "命令行生图需重启 Codex Desktop，并在本机安装 Python 3.11+ 和 OpenAI SDK；WSL、远程主机和容器需分别配置。"
+              : "命令行生图未能自动接入。请检查 Codex 的 shell_environment_policy 和 PYTHONPATH 设置，修复后重启 Codex Desktop。";
+        } catch {
+          imagegenNote =
+            "命令行生图接入状态不可用，请检查 Codex 配置后重启 Desktop。";
+        }
+      }
       setNotice(
         start
           ? app === "dsh"
             ? `已启用 ${card.provider.name}。可以同时启用多个分组；请在 DeepSeek Harness 中选择模型。`
-            : `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。`
+            : `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。${imagegenNote}`
           : "API Key 已保存。",
       );
       if (result?.warnings?.length)
@@ -213,6 +230,7 @@ export function ToolPage({
                 切换工具
               </span>
             </button>
+            {app === "codex" && <CodexDesktopControls />}
           </div>
         )}
         {simple && (
