@@ -233,6 +233,7 @@ struct UpgradePatch {
     expected_url: String,
     expected_token: String,
     legacy_auth_path: Option<PathBuf>,
+    isolate_login: bool,
 }
 
 impl UpgradePatch {
@@ -284,7 +285,7 @@ impl UpgradePatch {
                     toml_edit::value(self.expected_token.clone()),
                 );
             }
-            AuthStorePatch(true).apply_to(path, doc)?;
+            AuthStorePatch(self.isolate_login).apply_to(path, doc)?;
         }
         Ok(())
     }
@@ -690,6 +691,7 @@ pub(crate) fn migrate_current(state: &AppState, user: i64) -> Result<(), AppErro
         expected_url,
         expected_token,
         legacy_auth_path: (!proxy).then(crate::codex_config::get_codex_auth_path),
+        isolate_login: !crate::settings::preserve_codex_official_auth_on_switch(),
     };
     let write = crate::mode::operation::AppWrite::begin(&state.db, app.as_str())?;
     write.run(
@@ -881,6 +883,7 @@ mod tests {
             expected_url: base.into(),
             expected_token: key.into(),
             legacy_auth_path: None,
+            isolate_login: true,
         };
         String::from_utf8(
             patch
@@ -921,6 +924,29 @@ mod tests {
     }
 
     #[test]
+    fn upgrade_restores_persisted_login_when_preservation_is_enabled() {
+        let old = "cli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:file]\nmodel_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\nexperimental_bearer_token = 'fixture-key'\n";
+        let patch = UpgradePatch {
+            expected_url: "https://csmy.fun:23457/v1".into(),
+            expected_token: "fixture-key".into(),
+            legacy_auth_path: None,
+            isolate_login: false,
+        };
+        let result = patch
+            .apply(Path::new("config.toml"), Some(old.as_bytes()))
+            .unwrap();
+        let doc = String::from_utf8(result)
+            .unwrap()
+            .parse::<DocumentMut>()
+            .unwrap();
+        assert_eq!(doc[AUTH_STORE_KEY].as_str(), Some("file"));
+        assert!(!doc.to_string().contains(AUTH_STORE_MARKER));
+        assert!(marked(
+            doc["model_providers"]["custom"].as_table_like().unwrap()
+        ));
+    }
+
+    #[test]
     fn migration_never_crosses_addresses_or_keys() {
         let old = "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\nexperimental_bearer_token = 'fixture-key'\n";
         assert_eq!(upgrade(old, "other-key", "https://csmy.fun:23457/v1"), old);
@@ -929,6 +955,7 @@ mod tests {
             expected_url: "x".into(),
             expected_token: "y".into(),
             legacy_auth_path: None,
+            isolate_login: true,
         };
         assert!(patch
             .apply_file(Path::new("missing.toml"), None)
@@ -945,6 +972,7 @@ mod tests {
             expected_url: "https://csmy.fun:23457/v1".into(),
             expected_token: "fixture-key".into(),
             legacy_auth_path: Some(auth_path.clone()),
+            isolate_login: true,
         };
         let old = "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\n";
         let apply = |text: &str| {

@@ -30,7 +30,9 @@ export function CodexDesktopSettings() {
   const gate = useRef(false);
 
   function save(updates: Parameters<typeof setCodexDesktopPreferences>[0]) {
-    setError(setCodexDesktopPreferences(updates) ? "" : "偏好保存失败，请重试。");
+    setError(
+      setCodexDesktopPreferences(updates) ? "" : "偏好保存失败，请重试。",
+    );
   }
 
   async function togglePlugins(plugins: boolean) {
@@ -45,10 +47,19 @@ export function CodexDesktopSettings() {
       if (!setCodexDesktopPreferences({ plugins })) {
         setError("偏好保存失败，请重试。");
       } else {
-        setNotice(plugins ? "插件目录已设置，请新建会话或重启 Codex。" : "插件市场已关闭，但已安装的插件不会卸载或停用；如需移除，请重新启用市场后逐个卸载。" );
+        setNotice(
+          plugins
+            ? "插件目录已设置，请新建会话或重启 Codex，然后在「插件 → 个人」中查看 AIHubMix 社区插件。"
+            : "插件市场已关闭，但已安装的插件不会卸载或停用；如需移除，请重新启用市场后逐个卸载。",
+        );
       }
     } catch (cause) {
-      setError(codexMarketError(cause, "操作未能确认，请检查网络和 Codex 安装状态后重试。"));
+      setError(
+        codexMarketError(
+          cause,
+          "操作未能确认，请检查网络和 Codex 安装状态后重试。",
+        ),
+      );
     } finally {
       gate.current = false;
       setPluginsBusy(false);
@@ -64,9 +75,14 @@ export function CodexDesktopSettings() {
           control={
             <Select
               value={preferences.language}
-              onValueChange={(value) => save({ language: value as CodexDesktopLanguage })}
+              onValueChange={(value) =>
+                save({ language: value as CodexDesktopLanguage })
+              }
             >
-              <SelectTrigger className="h-8 w-[160px]" aria-label="Codex 界面语言">
+              <SelectTrigger
+                className="h-8 w-[160px]"
+                aria-label="Codex 界面语言"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -79,18 +95,40 @@ export function CodexDesktopSettings() {
         />
         <SettingsRow
           label="社区插件市场"
-          description="关闭市场不会卸载或停用已安装的插件。部分插件连接服务时仍需单独授权。"
+          description="开启后在 Codex 的「插件 → 个人」中查看社区插件；关闭市场不会卸载已安装的插件。部分插件连接服务时仍需单独授权。"
           control={
             <>
-              <Button variant="outline" size="compact" onClick={() => setShowPlugins(true)} disabled={pluginsBusy}>管理插件</Button>
-              <Switch aria-label="社区插件市场" checked={preferences.plugins} onCheckedChange={(plugins) => void togglePlugins(plugins)} disabled={pluginsBusy} />
+              <Button
+                variant="outline"
+                size="compact"
+                onClick={() => setShowPlugins(true)}
+                disabled={pluginsBusy}
+              >
+                管理插件
+              </Button>
+              <Switch
+                aria-label="社区插件市场"
+                checked={preferences.plugins}
+                onCheckedChange={(plugins) => void togglePlugins(plugins)}
+                disabled={pluginsBusy}
+              />
             </>
           }
         />
       </SettingsCard>
-      {error && <p role="alert" className="text-caption text-destructive">{error}</p>}
-      {notice && <p role="status" className="text-caption text-fg-3">{notice}</p>}
-      {showPlugins && <CodexPluginMarketDialog onClose={() => setShowPlugins(false)} />}
+      {error && (
+        <p role="alert" className="text-caption text-destructive">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="text-caption text-fg-3">
+          {notice}
+        </p>
+      )}
+      {showPlugins && (
+        <CodexPluginMarketDialog onClose={() => setShowPlugins(false)} />
+      )}
     </SettingsBlock>
   );
 }

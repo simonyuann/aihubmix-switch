@@ -2812,10 +2812,10 @@ mod mode_tests {
         assert!(native.contains("local-image-extension"));
         assert!(native.contains("requires_openai_auth = false"));
         assert!(native.contains("fixture-own"));
-        assert_eq!(
-            toml::from_str::<toml::Value>(&native).unwrap()["cli_auth_credentials_store"].as_str(),
-            Some("ephemeral")
-        );
+        assert!(toml::from_str::<toml::Value>(&native)
+            .unwrap()
+            .get("cli_auth_credentials_store")
+            .is_none());
         assert_eq!(
             crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path())
                 .unwrap(),
@@ -2845,10 +2845,10 @@ mod mode_tests {
         crate::aihubmix::native_imagegen::migrate_current(&state, 17).unwrap();
         assert!(read().contains("local-image-extension"));
         assert!(read().contains("requires_openai_auth = false"));
-        assert_eq!(
-            toml::from_str::<toml::Value>(&read()).unwrap()["cli_auth_credentials_store"].as_str(),
-            Some("ephemeral")
-        );
+        assert!(toml::from_str::<toml::Value>(&read())
+            .unwrap()
+            .get("cli_auth_credentials_store")
+            .is_none());
         assert_eq!(
             crate::config::read_json_file::<Value>(&crate::codex_config::get_codex_auth_path())
                 .unwrap(),

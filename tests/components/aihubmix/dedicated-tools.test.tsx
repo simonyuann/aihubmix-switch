@@ -129,6 +129,41 @@ describe("dedicated service cards", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("OpenAI Official")).not.toBeInTheDocument();
   });
+  it("offers a direct official restore on the Codex home without a group card", async () => {
+    wrap(<ToolPage app="codex" simple />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "恢复官方登录" }),
+    );
+    await waitFor(() =>
+      expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
+        app: "codex",
+        providerId: "codex-official",
+      }),
+    );
+    expect(
+      await screen.findByText(/请重启 Codex；如果官方登录已失效/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("OpenAI Official", { selector: "h3" }),
+    ).not.toBeInTheDocument();
+  });
+  it("shows when the official account is already active", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      Promise.resolve(
+        command === "tool-cards"
+          ? {
+              cards: [official, service],
+              groups: [],
+              currentProviderId: "codex-official",
+            }
+          : {},
+      ),
+    );
+    wrap(<ToolPage app="codex" simple />);
+    expect(
+      await screen.findByRole("button", { name: "当前为官方配置" }),
+    ).toBeDisabled();
+  });
   it("explains how to activate a simple-home service and only opens key selection when needed", async () => {
     wrap(<ToolPage app="codex" simple />);
     fireEvent.click(

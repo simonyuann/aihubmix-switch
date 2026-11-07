@@ -85,7 +85,10 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
       const saved = setCodexDesktopPreferences({ plugins: true });
       await reload();
       if (mounted.current) {
-        if (saved) setNotice("插件目录已设置，请新建会话或重启 Codex。");
+        if (saved)
+          setNotice(
+            "插件目录已设置，请新建会话或重启 Codex，在「插件 → 个人」中查看社区插件。",
+          );
         else setError("插件目录已设置，但偏好保存失败；请重新检查设置。");
       }
     } catch (cause) {
@@ -153,7 +156,8 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>Codex 插件</DialogTitle>
           <DialogDescription>
-            来自社区公开插件缓存。插件连接第三方服务时可能需要单独登录或授权；安装后请新建会话。
+            来自社区公开插件缓存。插件连接第三方服务时可能需要单独登录或授权；安装后请新建会话。Codex
+            中安装失败时，可在这里重试。
           </DialogDescription>
           <p className="text-caption text-fg-3">
             社区插件可能读取本机文件或运行代码，安装前请确认来源。

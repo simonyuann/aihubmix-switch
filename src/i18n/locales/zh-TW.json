@@ -877,7 +877,7 @@
     "skipClaudeOnboardingDescription": "Claude Code 第一次啟動時會先走一遍引導流程，要求選擇主題並登入 Anthropic 帳號。如果你用的是第三方供應商，不需要登入官方帳號，開啟後就能略過這一步直接使用。原理是在 ~/.claude.json 中寫入 hasCompletedOnboarding: true；關閉時刪除該欄位，下次啟動會重新出現引導。",
     "codexAuth": "Codex 應用增強",
     "preserveCodexOfficialAuthOnSwitch": "非接管切換時保留官方登入",
-    "preserveCodexOfficialAuthOnSwitchDescription": "控制未開啟本機路由時切換第三方供應商是否保留 Codex 官方登入；路由接管期間一律保留",
+    "preserveCodexOfficialAuthOnSwitchDescription": "開啟後切換第三方時保留 Codex 官方登入與憑證儲存方式；部分 Codex 版本可能因此不提供內建生圖工具。修改後請重新切換分組並重啟 Codex。",
     "unifyCodexSessionHistory": "統一 Codex 會話歷史",
     "unifyCodexSessionHistoryDescription": "只影響 Codex CLI：CLI 的 resume 清單只顯示目前供應商的會話，開啟後官方訂閱改以共享的 custom 供應商標識執行，官方與第三方會話出現在同一清單中。Codex 桌面版更新後已經可以顯示全部會話，只用桌面版無需開啟。可選擇把現有官方會話一併遷入（遷移前自動備份），關閉時可按備份恢復。注意：跨供應商繼續舊會話時，對方後端可能無法解密會話中的 encrypted_content 推理內容，導致繼續失敗",
     "codexStackClassicSubagents": "聚合模式下子 agent 用經典工具",

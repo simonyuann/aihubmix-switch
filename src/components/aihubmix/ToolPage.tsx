@@ -85,6 +85,13 @@ export function ToolPage({
       key.groupId === editing?.groupId,
   );
   const groups = data?.groups ?? [];
+  const officialCodex =
+    app === "codex"
+      ? data?.cards.find(
+          (card) =>
+            card.provider.category === "official" && card.groupId == null,
+        )
+      : undefined;
   const availableGroups = groups.filter(
     (group) => !data?.cards.some((card) => card.groupId === group.id),
   );
@@ -131,7 +138,7 @@ export function ToolPage({
       setEditing(null);
       setKeyId("");
       let imagegenNote = "";
-      if (start && app === "codex") {
+      if (start && app === "codex" && card.provider.category !== "official") {
         try {
           const setup = await invoke<{ status: string }>(
             "codex_imagegen_guide",
@@ -147,9 +154,11 @@ export function ToolPage({
       }
       setNotice(
         start
-          ? app === "dsh"
-            ? `已启用 ${card.provider.name}。可以同时启用多个分组；请在 DeepSeek Harness 中选择模型。`
-            : `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。${imagegenNote}`
+          ? app === "codex" && card.provider.category === "official"
+            ? `已切换到 ${card.provider.name}。请重启 Codex；如果官方登录已失效，请在 Codex 中重新登录。`
+            : app === "dsh"
+              ? `已启用 ${card.provider.name}。可以同时启用多个分组；请在 DeepSeek Harness 中选择模型。`
+              : `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。${imagegenNote}`
           : "API Key 已保存。",
       );
       if (result?.warnings?.length)
@@ -241,22 +250,40 @@ export function ToolPage({
                 选择当前工具使用的服务
               </p>
             </div>
-            <Button
-              variant="outline"
-              disabled={busy || isPending || !!loadError}
-              onClick={() => {
-                setError("");
-                if (!groups.length) {
-                  setApply(true);
-                } else {
-                  setGroupId(String(availableGroups[0]?.id ?? ""));
-                  setAdding(true);
-                  void refetch();
-                }
-              }}
-            >
-              添加分组
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {officialCodex && (
+                <Button
+                  variant="outline"
+                  disabled={
+                    busy ||
+                    isPending ||
+                    !!loadError ||
+                    officialCodex.provider.id === data?.currentProviderId
+                  }
+                  onClick={() => void operate(officialCodex, true)}
+                >
+                  {officialCodex.provider.id === data?.currentProviderId
+                    ? "当前为官方配置"
+                    : "恢复官方登录"}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                disabled={busy || isPending || !!loadError}
+                onClick={() => {
+                  setError("");
+                  if (!groups.length) {
+                    setApply(true);
+                  } else {
+                    setGroupId(String(availableGroups[0]?.id ?? ""));
+                    setAdding(true);
+                    void refetch();
+                  }
+                }}
+              >
+                添加分组
+              </Button>
+            </div>
           </div>
         )}
         <div className="space-y-3">

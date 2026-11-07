@@ -443,6 +443,12 @@ pub(super) async fn dispatch(
             .map_err(|_| "切换配置任务失败")??
             .warnings;
         }
+        if app == AppType::Codex
+            && crate::aihubmix::native_imagegen::supported(&provider)
+            && crate::settings::preserve_codex_official_auth_on_switch()
+        {
+            warnings.push("已保留官方登录；Codex 在官方登录状态下可能不显示内置生图工具。需要内置生图时，可关闭保留官方登录后重新切换分组并重启 Codex".into());
+        }
     }
     let selected_model = if command == "start-tool-card" && app == AppType::Claude {
         crate::aihubmix::claude_models::default_model(&provider).map(|m| m.model.clone())

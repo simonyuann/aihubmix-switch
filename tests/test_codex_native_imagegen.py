@@ -36,6 +36,7 @@ class FakeHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        self.server.requests.append((self.path, {k.lower(): v for k, v in self.headers.items()}, {}))
         self.send_response(404)
         self.end_headers()
 
@@ -72,12 +73,12 @@ class FakeHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(content)
 
 
-def fake_free_auth():
+def fake_free_auth(plan="free"):
     def encode(value):
         return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
     token = encode({"alg": "none", "typ": "JWT"}) + "." + encode({
         "email": "fixture@example.com", "https://api.openai.com/auth": {
-            "chatgpt_account_id": "fixture", "chatgpt_plan_type": "free"}}) + ".c2ln"
+            "chatgpt_account_id": "fixture", "chatgpt_plan_type": plan}}) + ".c2ln"
     return {"auth_mode": "chatgpt", "OPENAI_API_KEY": None, "tokens": {
         "id_token": token, "access_token": token, "refresh_token": "fixture", "account_id": "fixture"},
         "last_refresh": "2099-01-01T00:00:00Z"}
@@ -85,6 +86,35 @@ def fake_free_auth():
 
 @unittest.skipUnless(shutil.which("codex"), "Codex CLI is not installed")
 class NativeImageGenerationTest(unittest.TestCase):
+    def test_preserved_official_login_keeps_relay_credentials_scoped(self):
+        server = FakeApi(False)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                auth = json.dumps(fake_free_auth("plus"))
+                (home / "auth.json").write_text(auth)
+                (home / "config.toml").write_text(
+                    'cli_auth_credentials_store = "file"\nmodel_provider = "relay"\nmodel = "gpt-5.5"\n'
+                    '[model_providers.relay]\nname = "relay"\nbase_url = "http://127.0.0.1:' + str(server.server_port) +
+                    '/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nexperimental_bearer_token = "fixture-relay-key"\n'
+                    'http_headers = { "x-openai-actor-authorization" = "local-image-extension" }\n'
+                )
+                env = {k: v for k, v in os.environ.items() if k.upper() not in {
+                    "OPENAI_API_KEY", "OPENAI_BASE_URL", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}}
+                env.update({"CODEX_HOME": directory, "NO_PROXY": "*"})
+                result = subprocess.run(["codex", "exec", "--ephemeral", "--skip-git-repo-check", "--json", "Hello"],
+                    cwd=directory, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace")[-1000:])
+                response = next(r for r in server.requests if r[0].startswith("/v1/responses"))
+                self.assertEqual(response[1].get("authorization"), "Bearer fixture-relay-key")
+                self.assertNotIn("chatgpt-account-id", response[1])
+                official_token = fake_free_auth("plus")["tokens"]["access_token"]
+                for _, headers, _ in server.requests:
+                    self.assertNotEqual(headers.get("authorization"), "Bearer " + official_token)
+                self.assertEqual((home / "auth.json").read_text(), auth)
+        finally:
+            server.close()
+
     def test_native_call_and_provider_switch_keep_credentials_scoped(self):
         first, second = FakeApi(True), FakeApi(False)
         try:
