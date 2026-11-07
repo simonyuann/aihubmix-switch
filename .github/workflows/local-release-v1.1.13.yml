@@ -138,6 +138,6 @@ jobs:
       - name: Preserve signed Windows artifacts locally
         shell: powershell
         run: |
-          $dest = "\\host.lan\Data\aihubmix-output-windows"
+          $dest = "\\host.lan\Data\aihubmix-output-windows-new"
           New-Item -ItemType Directory -Force $dest | Out-Null
           Copy-Item artifacts\* $dest

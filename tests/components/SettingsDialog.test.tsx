@@ -1,9 +1,10 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsPage } from "@/components/settings/SettingsPage";
+import { setAdvancedInterface } from "@/lib/interfaceMode";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
@@ -187,6 +188,7 @@ const renderSettingsPage = (
 
 describe("SettingsPage", () => {
   beforeEach(() => {
+    setAdvancedInterface(false);
     tMock.mockImplementation((key: string) => key);
     settingsMock = createSettingsMock();
     importExportMock = createImportExportMock();
@@ -195,6 +197,30 @@ describe("SettingsPage", () => {
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
     restartMock.mockClear();
+  });
+
+  it("exposes the existing Codex configuration in basic settings only", () => {
+    const { container, rerenderWith } = renderSettingsPage();
+    expect(container.querySelector("#app-config-codex")).toBeInTheDocument();
+    expect(
+      container.querySelector("#app-config-claude"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("codex-auth-settings")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.browseDirectory" }),
+    );
+    expect(settingsMock.browseDirectory).toHaveBeenCalledWith("codex");
+
+    act(() => setAdvancedInterface(true));
+    rerenderWith({ section: "general" });
+    expect(
+      container.querySelector("#app-config-codex"),
+    ).not.toBeInTheDocument();
+    rerenderWith({ section: "appConfig" });
+    expect(container.querySelector("#app-config-codex")).toBeInTheDocument();
+    expect(container.querySelector("#app-config-claude")).toBeInTheDocument();
+    act(() => setAdvancedInterface(false));
   });
 
   it("shows a spinner instead of the form while loading", () => {

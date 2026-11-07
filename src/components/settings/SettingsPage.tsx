@@ -52,6 +52,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import type { SettingsFormState } from "@/hooks/useSettings";
 import { isTextEditableTarget } from "@/utils/domUtils";
+import { useAdvancedInterface } from "@/lib/interfaceMode";
 
 const SECTION_ICON: Record<
   SettingsSection,
@@ -88,6 +89,7 @@ export function SettingsPage({
   onOpenApp,
 }: SettingsPageProps) {
   const { t } = useTranslation();
+  const advancedInterface = useAdvancedInterface();
   const {
     settings,
     isLoading,
@@ -378,6 +380,20 @@ export function SettingsPage({
               onAutoSave={handleAutoSave}
               onOpenApps={onOpenApps}
             />
+            {!advancedInterface && (
+              <AppConfigSection
+                apps={["codex"]}
+                settings={settings}
+                savedSettings={savedSettings}
+                resolvedDirs={resolvedDirs}
+                isSaving={isSaving}
+                onAutoSave={handleAutoSave}
+                onDirectoryChange={updateDirectory}
+                onBrowseDirectory={browseDirectory}
+                onResetDirectory={resetDirectory}
+                onSaveDirectories={handleSave}
+              />
+            )}
           </>
         );
       case "appConfig":

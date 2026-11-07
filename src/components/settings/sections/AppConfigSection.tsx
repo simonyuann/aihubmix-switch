@@ -62,6 +62,7 @@ const normalizeDir = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
 
 interface AppConfigSectionProps {
+  apps?: readonly DirectoryAppId[];
   settings: SettingsFormState;
   savedSettings?: Settings;
   resolvedDirs: ResolvedDirectories;
@@ -78,6 +79,7 @@ interface AppConfigSectionProps {
  * 目录改动要点「保存」才写入（各节自己的保存按钮，保存时一并写入所有改过的目录）。
  */
 export function AppConfigSection({
+  apps = DIRECTORY_APPS,
   settings,
   savedSettings,
   resolvedDirs,
@@ -144,7 +146,7 @@ export function AppConfigSection({
 
   return (
     <>
-      {DIRECTORY_APPS.map((app) => (
+      {apps.map((app) => (
         <SettingsBlock
           key={app}
           id={`app-config-${app}`}
