@@ -95,6 +95,7 @@ jobs:
     timeout-minutes: 180
     env:
       CARGO_BUILD_JOBS: '4'
+      PSExecutionPolicyPreference: Bypass
       GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
       GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
