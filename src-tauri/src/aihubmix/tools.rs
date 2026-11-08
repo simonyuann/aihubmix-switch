@@ -446,13 +446,10 @@ pub(super) async fn dispatch(
             && crate::aihubmix::native_imagegen::supported(&provider)
             && crate::settings::preserve_codex_official_auth_on_switch()
         {
-            use crate::aihubmix::native_imagegen::{current_image_auth_status, ImageAuthState};
-            match current_image_auth_status() {
-                (ImageAuthState::Free, true) => warnings.push("已保留官方账号的原有登录。使用中转分组期间 Codex 会暂时隐藏官方登录，请勿在此期间重新登录官方账号；切回官方并重启 Codex 后恢复。请重启 Codex 后使用生图。".into()),
-                (ImageAuthState::Unknown, true) => warnings.push("此前的官方登录处于临时隐藏状态，但无法确认原生生图是否兼容。请勿在此期间重新登录；切回官方并重启 Codex 后检查登录。".into()),
-                (ImageAuthState::Free, false) | (ImageAuthState::Unknown, false) => warnings.push("无法确认当前 Codex 官方登录与原生生图是否兼容；已保留原有凭据和设置，未自动更改官方登录方式。".into()),
-                (ImageAuthState::OtherOrNone, _) => {}
-            }
+            warnings.push(
+                "已保留官方登录，请重启 Codex。官方账号保持显示时，生图兼容性可能因账号类型而异。"
+                    .into(),
+            );
         }
     }
     let selected_model = if command == "start-tool-card" && app == AppType::Claude {

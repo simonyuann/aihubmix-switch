@@ -79,15 +79,22 @@ test('production updater checks only the download station', async () => {
   assert.equal(packageUrl('1.0.2', 'package.exe'), 'https://dl.csmy.fun:23457/updates/aihubmix-switch/v1.0.2/package.exe')
 })
 
+test('Windows updater retains the existing NSIS product identity', async () => {
+  const windows = JSON.parse(await readFile('src-tauri/tauri.windows.conf.json', 'utf8'))
+  assert.equal(windows.productName, 'AIHubMix Switch')
+  assert.equal(windows.app.windows[0].title, 'AIHub Switch')
+})
+
 test('Linux window keeps the common settings and uses the application title', async () => {
   const common = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'))
   const linux = JSON.parse(await readFile('src-tauri/tauri.linux.conf.json', 'utf8'))
-  assert.deepEqual(Object.keys(linux), ['app'])
+  assert.deepEqual(Object.keys(linux), ['productName', 'app'])
+  assert.equal(linux.productName, 'AIHubMix Switch')
   assert.deepEqual(Object.keys(linux.app), ['windows'])
   assert.equal(common.app.windows.length, 1)
   assert.equal(common.app.windows[0].title, '')
   assert.deepEqual(linux.app.windows, [
-    { ...common.app.windows[0], title: 'AIHubMix Switch' }
+    { ...common.app.windows[0], title: 'AIHub Switch' }
   ])
 })
 

@@ -194,7 +194,7 @@ export function SessionSourcesDialog({
             <DialogDescription className="text-body text-fg-2">
               {t("sessionManager.whereLead", {
                 defaultValue:
-                  "AIHubMix Switch 从这些位置读取会话。Claude Desktop 没有单独的会话记录。",
+                  "AIHub Switch 从这些位置读取会话。Claude Desktop 没有单独的会话记录。",
               })}
             </DialogDescription>
           </div>

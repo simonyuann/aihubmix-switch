@@ -170,7 +170,7 @@ export function LoginPage() {
           <div className="mb-10 flex items-center justify-center gap-3">
             <img src={logo} alt="" className="h-10 w-10 rounded-xl" />
             <span className="text-xl font-semibold tracking-tight">
-              AIHubMix Switch
+              AIHub Switch
             </span>
           </div>
           {mode !== "login" && (

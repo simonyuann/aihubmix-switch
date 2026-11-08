@@ -306,10 +306,16 @@ pub(crate) struct ImageAuthStorePatch {
     pub auth_snapshot: Option<Vec<u8>>,
     /// Non-native routes only restore our marker, independent of the login.
     pub guard_auth: bool,
+    /// An explicit user choice to keep the official login visible.
+    pub preserve_login: bool,
 }
 
 impl TomlDocPatch for ImageAuthStorePatch {
     fn apply_to(&self, path: &Path, doc: &mut DocumentMut) -> Result<(), LiveWriteError> {
+        if self.preserve_login {
+            // Restore only our own marker; never change a user-owned store setting.
+            return AuthStorePatch(false).apply_to(path, doc);
+        }
         if self.state == ImageAuthState::Unknown {
             return Ok(());
         }
@@ -335,34 +341,6 @@ impl TomlDocPatch for ImageAuthStorePatch {
     }
 }
 
-pub(crate) fn current_image_auth_status() -> (ImageAuthState, bool) {
-    let config = match std::fs::read_to_string(crate::codex_config::get_codex_config_path()) {
-        Ok(value) => value,
-        Err(_) => return (ImageAuthState::Unknown, false),
-    };
-    let (auth, readable) = match std::fs::read(crate::codex_config::get_codex_auth_path()) {
-        Ok(value) => (Some(value), true),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (None, true),
-        Err(_) => (None, false),
-    };
-    let state = image_auth_state(&config, auth.as_deref(), readable);
-    let hidden = config
-        .parse::<DocumentMut>()
-        .ok()
-        .and_then(|doc| {
-            doc.get(AUTH_STORE_KEY)
-                .and_then(Item::as_value)
-                .map(|value| {
-                    value.as_str() == Some("ephemeral") && prior_auth_store(value).is_some()
-                })
-        })
-        .unwrap_or(false);
-    (state, hidden)
-}
-
-/// Hide persisted ChatGPT login from the API-key route without deleting it.
-/// The non-secret original setting is carried in a comment so that leaving the
-/// route restores it, even after a restart; later manual edits take precedence.
 pub(crate) struct AuthStorePatch(pub bool);
 
 impl TomlDocPatch for AuthStorePatch {
@@ -911,6 +889,7 @@ pub(crate) fn migrate_current(state: &AppState, user: i64) -> Result<(), AppErro
             auth_path,
             auth_snapshot,
             guard_auth: true,
+            preserve_login: crate::settings::preserve_codex_official_auth_on_switch(),
         }),
     };
     let write = crate::mode::operation::AppWrite::begin(&state.db, app.as_str())?;
@@ -1031,6 +1010,22 @@ mod tests {
     }
 
     #[test]
+    fn preserve_login_restores_only_our_isolation_marker() {
+        for (original, expected) in [
+            ("cli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:file]\n", Some("file")),
+            ("cli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:missing]\n", None),
+            ("cli_auth_credentials_store = 'ephemeral' # user setting\n", Some("ephemeral")),
+            ("cli_auth_credentials_store = 'keyring'\n", Some("keyring")),
+        ] {
+            let mut doc = original.parse::<DocumentMut>().unwrap();
+            ImageAuthStorePatch { state: ImageAuthState::Unknown, auth_path: "unused".into(), auth_snapshot: None, guard_auth: true, preserve_login: true }
+                .apply_to(Path::new("config.toml"), &mut doc).unwrap();
+            assert_eq!(doc.get(AUTH_STORE_KEY).and_then(Item::as_str), expected);
+            assert!(!doc.to_string().contains(AUTH_STORE_MARKER));
+        }
+    }
+
+    #[test]
     fn free_isolation_checks_live_file_and_rechecks_changed_config() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("auth.json");
@@ -1041,6 +1036,7 @@ mod tests {
             auth_path: path.clone(),
             auth_snapshot: Some(free.clone()),
             guard_auth: true,
+            preserve_login: false,
         };
         let mut doc = "model = 'x'\n".parse::<DocumentMut>().unwrap();
         patch.apply_to(Path::new("config.toml"), &mut doc).unwrap();
@@ -1081,6 +1077,7 @@ mod tests {
                 auth_path: path.clone(),
                 auth_snapshot: snapshot,
                 guard_auth: true,
+                preserve_login: false,
             }
             .apply_to(Path::new("config.toml"), &mut doc);
             (result, before, doc.to_string())
@@ -1120,6 +1117,7 @@ mod tests {
             auth_path: path.clone(),
             auth_snapshot: None,
             guard_auth: false,
+            preserve_login: false,
         }
         .apply_to(Path::new("config.toml"), &mut doc)
         .unwrap();
@@ -1139,6 +1137,7 @@ mod tests {
                 auth_path: "unused".into(),
                 auth_snapshot: None,
                 guard_auth: true,
+                preserve_login: false,
             }
             .apply_to(Path::new("config.toml"), &mut doc)
             .unwrap();

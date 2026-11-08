@@ -3108,7 +3108,23 @@ mod mode_tests {
             let auth_path = crate::codex_config::get_codex_auth_path();
             let config = fs::read_to_string(&config_path).unwrap();
             assert!(config.contains("local-image-extension"));
-            assert!(config.contains("aihubmix-previous-auth-store:missing"));
+            let parsed: toml::Value = toml::from_str(&config).unwrap();
+            let selected = parsed["model_provider"].as_str().unwrap();
+            let route = &parsed["model_providers"][selected];
+            assert_eq!(
+                route["base_url"].as_str(),
+                Some("https://csmy.fun:23457/v1")
+            );
+            assert_eq!(
+                route["experimental_bearer_token"].as_str(),
+                Some("fixture-own")
+            );
+            assert_eq!(route["requires_openai_auth"].as_bool(), Some(false));
+            assert!(!config.contains("fixture-login"));
+            assert_eq!(
+                config.contains("aihubmix-previous-auth-store:missing"),
+                !preserve
+            );
             if preserve {
                 assert_eq!(
                     crate::config::read_json_file::<Value>(&auth_path).unwrap(),
@@ -3122,7 +3138,7 @@ mod mode_tests {
                     + "\n";
                 fs::write(&config_path, legacy).unwrap();
                 crate::aihubmix::native_imagegen::migrate_current(&state, 17).unwrap();
-                assert!(fs::read_to_string(&config_path)
+                assert!(!fs::read_to_string(&config_path)
                     .unwrap()
                     .contains("aihubmix-previous-auth-store:missing"));
                 ProviderService::switch(&state, AppType::Codex, &other.id).unwrap();
@@ -3135,7 +3151,7 @@ mod mode_tests {
                     login
                 );
                 ProviderService::switch(&state, AppType::Codex, &own.id).unwrap();
-                assert!(fs::read_to_string(&config_path)
+                assert!(!fs::read_to_string(&config_path)
                     .unwrap()
                     .contains("aihubmix-previous-auth-store:missing"));
             } else {

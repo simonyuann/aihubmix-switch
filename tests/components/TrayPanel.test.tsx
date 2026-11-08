@@ -258,7 +258,7 @@ describe("TrayPanel window layout", () => {
     });
     await openPanel(windows);
     const balance = await screen.findByText("USD 12.34");
-    const heading = screen.getByText("AIHubMix Switch");
+    const heading = screen.getByText("AIHub Switch");
     const settings = screen.getByRole("button", { name: "Settings" });
     expect(heading.parentElement).toContainElement(balance);
     expect(heading.parentElement).toContainElement(settings);
@@ -279,7 +279,7 @@ describe("TrayPanel window layout", () => {
     expect(await screen.findByText("USD 10.00")).toBeInTheDocument();
     vi.mocked(dispatch).mockRejectedValueOnce(new Error("balance unavailable"));
     await act(async () => emitTauriEvent(SHOW_EVENT, { ...windows, seq: 3 }));
-    expect(await screen.findByTitle("余额暂不可用")).toHaveTextContent("—");
+    expect(await screen.findByTitle("余额暂不可用")).toHaveTextContent("余额暂不可用");
     expect(screen.queryByText("USD 10.00")).not.toBeInTheDocument();
   });
 

@@ -6900,7 +6900,10 @@ mod tests {
     }
     impl TestHomeGuard {
         fn set(home: &Path) -> Self {
-            assert!(crate::settings::get_dsh_override_dir().is_none(), "DSH directory override must be unset for isolated skill tests");
+            assert!(
+                crate::settings::get_dsh_override_dir().is_none(),
+                "DSH directory override must be unset for isolated skill tests"
+            );
             let guard = Self {
                 home: home.to_path_buf(),
                 previous: std::env::var_os("CC_SWITCH_TEST_HOME"),

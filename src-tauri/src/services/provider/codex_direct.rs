@@ -1307,6 +1307,7 @@ pub(crate) fn run_with_edits(
         auth_path: auth_path.clone(),
         auth_snapshot: auth_pre.clone(),
         guard_auth: planned.native_image,
+        preserve_login: preserve,
     };
     config_steps.push(&auth_store);
     let config_patch = TomlSteps(config_steps);

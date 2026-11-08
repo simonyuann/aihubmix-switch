@@ -232,7 +232,7 @@ function SidebarTopBar({
             className="pointer-events-none h-5 w-5 shrink-0 rounded-md"
           />
           <span className="pointer-events-none me-auto min-w-0 leading-tight text-fg-1">
-            <span className="block text-body font-semibold">AIHubMix</span>
+            <span className="block text-body font-semibold">AIHub</span>
             <span className="block text-caption text-fg-3">Switch</span>
           </span>
           {toggleButton}
@@ -278,7 +278,7 @@ function SidebarTopBar({
             className="h-[22px] w-[22px] shrink-0 rounded-md"
           />
           <span className="min-w-0 leading-tight text-fg-1">
-            <span className="block text-body font-semibold">AIHubMix</span>
+            <span className="block text-body font-semibold">AIHub</span>
             <span className="block text-caption text-fg-3">Switch</span>
           </span>
         </span>
@@ -655,7 +655,7 @@ function NavItem({
   alert?: string;
   /** 圆点：有更新 */
   dot?: boolean;
-  /** 工具更新用中性色（很多人不想追新）；AIHubMix Switch 自己的更新用绿色，和工具更新分开 */
+  /** 工具更新用中性色（很多人不想追新）；AIHub Switch 自己的更新用绿色，和工具更新分开 */
   dotTone?: "neutral" | "success";
   /** 圆点放在行尾（设置目录里的「关于」），而不是图标角上 */
   endDot?: boolean;
@@ -868,7 +868,7 @@ function SettingsDirectory({
       </div>
       {!collapsed && version && (
         <div className="shrink-0 px-4 pb-4 text-caption text-fg-3">
-          AIHubMix Switch v{version}
+          AIHub Switch v{version}
         </div>
       )}
     </>

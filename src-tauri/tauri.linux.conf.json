@@ -1,9 +1,10 @@
 {
+  "productName": "AIHubMix Switch",
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "AIHubMix Switch",
+        "title": "AIHub Switch",
         "titleBarStyle": "Overlay",
         "trafficLightPosition": {
           "x": 14,

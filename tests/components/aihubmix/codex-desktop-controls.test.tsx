@@ -19,7 +19,7 @@ beforeEach(() => {
 
 describe("Codex Desktop controls", () => {
   it("launches with the requested language and never claims unverified plugin support", async () => {
-    setCodexDesktopPreferences({ language: "zh-CN", plugins: true });
+    setCodexDesktopPreferences({ language: "zh-CN", plugins: true, executablePath: "" });
     backend.invoke.mockImplementation((command: string) => {
       if (command === "codex_desktop_status") return Promise.resolve({ installed: true, running: false, platform: "macos" });
       if (command === "launch_codex_desktop") return Promise.resolve({ status: "partial", locale: "applied", plugins: "not_confirmed" });
@@ -27,7 +27,7 @@ describe("Codex Desktop controls", () => {
     });
     render(<CodexDesktopControls />);
     fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
-    await waitFor(() => expect(backend.invoke).toHaveBeenCalledWith("launch_codex_desktop", { language: "zh-CN", plugins: true }));
+    await waitFor(() => expect(backend.invoke).toHaveBeenCalledWith("launch_codex_desktop", { language: "zh-CN", plugins: true, executablePath: "" }));
     expect(await screen.findByText(/插件支持未能确认/)).toBeInTheDocument();
     expect(screen.queryByText(/插件支持已生效/)).not.toBeInTheDocument();
   });
@@ -73,7 +73,7 @@ describe("Codex Desktop controls", () => {
     await waitFor(() => expect(plugins).toBeChecked());
     expect(backend.invoke).toHaveBeenCalledWith("enable_codex_plugin_market");
     expect(localStorage.getItem("aihubmix:codex-desktop-preferences")).toContain('"plugins":true');
-    expect(screen.getByText(/关闭市场不会卸载或停用/)).toBeInTheDocument();
+    expect(screen.getByText(/关闭市场不会卸载已安装的插件/)).toBeInTheDocument();
     expect(screen.queryByText(/插件支持已生效/)).not.toBeInTheDocument();
   });
 

@@ -1,4 +1,6 @@
 import { useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { isWindows } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { CodexPluginMarketDialog } from "@/components/aihubmix/CodexPluginMarketDialog";
@@ -16,6 +18,7 @@ import {
   SettingsRow,
 } from "@/components/settings/SettingsLayout";
 import {
+  codexDesktop,
   setCodexDesktopPreferences,
   useCodexDesktopPreferences,
   type CodexDesktopLanguage,
@@ -69,6 +72,59 @@ export function CodexDesktopSettings() {
   return (
     <SettingsBlock title="Codex Desktop">
       <SettingsCard>
+        {isWindows() && (
+          <SettingsRow
+            label="Codex 程序位置（Windows）"
+            description={
+              preferences.executablePath ||
+              "自动查找；解压版可手动选择 ChatGPT.exe 或 Codex.exe。仅接受有效签名的官方程序。"
+            }
+            control={
+              <>
+                <Button
+                  variant="outline"
+                  size="compact"
+                  onClick={() =>
+                    void (async () => {
+                      try {
+                        const path = await open({
+                          multiple: false,
+                          directory: false,
+                          filters: [
+                            { name: "Codex 桌面程序", extensions: ["exe"] },
+                          ],
+                        });
+                        if (typeof path === "string") {
+                          const status = await codexDesktop.status(path);
+                          if (!status.installed) {
+                            setError(
+                              "无法验证该程序。请选择带有效官方签名的 ChatGPT.exe 或 Codex.exe。",
+                            );
+                            return;
+                          }
+                          save({ executablePath: path });
+                        }
+                      } catch {
+                        setError("无法打开文件选择器，请重试。");
+                      }
+                    })()
+                  }
+                >
+                  选择程序
+                </Button>
+                {preferences.executablePath && (
+                  <Button
+                    variant="outline"
+                    size="compact"
+                    onClick={() => save({ executablePath: "" })}
+                  >
+                    恢复自动查找
+                  </Button>
+                )}
+              </>
+            }
+          />
+        )}
         <SettingsRow
           label="Codex 界面语言"
           description="从首页启动 Codex 时应用，不改变本软件的语言。请保持 Switch 在后台运行，以便继续应用界面增强。"

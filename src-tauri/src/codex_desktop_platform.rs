@@ -52,7 +52,7 @@ fn linux_processes(exe: &std::path::Path) -> Result<Vec<u32>, String> {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn status() -> Result<DesktopStatus, String> {
+pub(crate) fn status(_executable_path: Option<&str>) -> Result<DesktopStatus, String> {
     let exe = linux_install();
     let running = match &exe {
         Some(p) => !linux_processes(p)?.is_empty(),
@@ -176,7 +176,11 @@ pub(crate) fn listener_owned_by(port: u16, pid: u32) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) async fn launch(_language: &str, _plugins: bool) -> Result<LaunchOutcome, String> {
+pub(crate) async fn launch(
+    _language: &str,
+    _plugins: bool,
+    _executable_path: Option<&str>,
+) -> Result<LaunchOutcome, String> {
     Ok(outcome(
         "unsupported",
         "not_requested",
@@ -294,10 +298,23 @@ if ($p) {
 }
 $candidates = @((Join-Path $env:LOCALAPPDATA 'Programs\Codex\Codex.exe'), (Join-Path $env:ProgramFiles 'Codex\Codex.exe'))
 if (${env:ProgramFiles(x86)}) { $candidates += Join-Path ${env:ProgramFiles(x86)} 'Codex\Codex.exe' }
-$exe = $candidates | Where-Object { if (!(Test-Path -LiteralPath $_ -PathType Leaf)) { return $false }; $s=Get-AuthenticodeSignature -LiteralPath $_; $s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -in @('CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B','CN=OpenAI, L.L.C.') } | Select-Object -First 1
+$exe = $candidates | Where-Object { if (!(Test-Path -LiteralPath $_ -PathType Leaf)) { return $false }; $s=Get-AuthenticodeSignature -LiteralPath $_; $s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -in @('CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B','CN=OpenAI, L.L.C.','CN="OpenAI OpCo, LLC", O="OpenAI OpCo, LLC", L=San Francisco, S=California, C=US') } | Select-Object -First 1
 if ($exe) { @{exe=$exe;app_id=''} | ConvertTo-Json -Compress }
 "#;
     let result = powershell(script, &[]).ok()?;
+    if !result.status.success() {
+        return None;
+    }
+    serde_json::from_slice(&result.stdout).ok()
+}
+
+#[cfg(target_os = "windows")]
+fn windows_selected_install(path: Option<&str>) -> Option<WindowsInstall> {
+    let Some(path) = path.filter(|p| !p.trim().is_empty()) else {
+        return windows_install();
+    };
+    let script = r#"$p=$env:AIHUB_CODEX_EXE; if (!(Test-Path -LiteralPath $p -PathType Leaf)) { exit 1 }; $name=[IO.Path]::GetFileName($p); if ($name -notin @('ChatGPT.exe','Codex.exe')) { exit 1 }; $s=Get-AuthenticodeSignature -LiteralPath $p; if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notin @('CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B','CN=OpenAI, L.L.C.','CN="OpenAI OpCo, LLC", O="OpenAI OpCo, LLC", L=San Francisco, S=California, C=US')) { exit 1 }; @{exe=(Resolve-Path -LiteralPath $p).Path;app_id=''} | ConvertTo-Json -Compress"#;
+    let result = powershell(script, &[("AIHUB_CODEX_EXE", path.to_string())]).ok()?;
     if !result.status.success() {
         return None;
     }
@@ -356,8 +373,8 @@ foreach ($item in $processes) {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn status() -> Result<DesktopStatus, String> {
-    let install = windows_install();
+pub(crate) fn status(executable_path: Option<&str>) -> Result<DesktopStatus, String> {
+    let install = windows_selected_install(executable_path);
     let running = match &install {
         Some(i) => windows_running(&i.exe)?,
         None => false,
@@ -403,10 +420,16 @@ pub(crate) fn listener_owned_by(port: u16, pid: u32) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) async fn launch(language: &str, plugins: bool) -> Result<LaunchOutcome, String> {
-    let Some(install) = tokio::task::spawn_blocking(windows_install)
-        .await
-        .map_err(|_| "无法检查 Codex Desktop".to_string())?
+pub(crate) async fn launch(
+    language: &str,
+    plugins: bool,
+    executable_path: Option<&str>,
+) -> Result<LaunchOutcome, String> {
+    let selected_path = executable_path.map(str::to_owned);
+    let Some(install) =
+        tokio::task::spawn_blocking(move || windows_selected_install(selected_path.as_deref()))
+            .await
+            .map_err(|_| "无法检查 Codex Desktop".to_string())?
     else {
         return Ok(outcome(
             "not_installed",

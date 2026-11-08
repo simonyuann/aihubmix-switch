@@ -992,7 +992,7 @@ export function TrayPanel() {
           className="flex shrink-0 items-center px-4 pb-2 pt-3"
         >
           <span className="min-w-0 truncate text-[15px] font-semibold">
-            AIHubMix Switch
+            AIHub Switch
           </span>
           <div className="flex min-w-0 flex-1 justify-center px-2">
             {state.signedIn && <TrayWalletBalance refreshKey={shownCount} />}

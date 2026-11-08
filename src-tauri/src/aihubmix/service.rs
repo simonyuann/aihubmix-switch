@@ -1194,7 +1194,7 @@ mod auth_tests {
         let error = backend
             .dispatch(
                 "login",
-                json!({"email":"owner@example.test","password":"wrong"})
+                json!({"email":"owner@example.test","password":"wrong"}),
             )
             .await
             .unwrap_err();

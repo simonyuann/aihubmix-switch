@@ -178,7 +178,7 @@ export function ToolPage({
   return (
     <>
       <AppPageHeader
-        title={simple ? "AIHubMix Switch" : APP_DISPLAY_NAME[app]}
+        title={simple ? "AIHub Switch" : APP_DISPLAY_NAME[app]}
         variant={simple ? "page" : "app"}
         hideBalance={simple}
         icon={simple ? undefined : <AppGlyph app={app} size={22} />}

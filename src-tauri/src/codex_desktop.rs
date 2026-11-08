@@ -278,12 +278,18 @@ fn running_processes(_bundle: &Path) -> Result<Vec<u32>, String> {
 }
 
 #[tauri::command]
-pub async fn codex_desktop_status() -> Result<DesktopStatus, String> {
+pub async fn codex_desktop_status(
+    executable_path: Option<String>,
+) -> Result<DesktopStatus, String> {
     let platform = std::env::consts::OS.to_string();
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    let _ = &executable_path;
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    return tokio::task::spawn_blocking(crate::codex_desktop_platform::status)
-        .await
-        .map_err(|_| "无法检查 Codex Desktop".to_string())?;
+    return tokio::task::spawn_blocking(move || {
+        crate::codex_desktop_platform::status(executable_path.as_deref())
+    })
+    .await
+    .map_err(|_| "无法检查 Codex Desktop".to_string())?;
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     return Ok(DesktopStatus {
         installed: false,
@@ -874,15 +880,20 @@ async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, St
 pub async fn launch_codex_desktop(
     language: String,
     plugins: bool,
+    executable_path: Option<String>,
 ) -> Result<LaunchOutcome, String> {
     let _guard = gate().lock().await;
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    let _ = &executable_path;
     if !matches!(language.as_str(), "system" | "zh-CN" | "en-US") {
         return Err("不支持的语言设置".into());
     }
     #[cfg(target_os = "macos")]
     let result = launch_macos(&language, plugins).await?;
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    let result = crate::codex_desktop_platform::launch(&language, plugins).await?;
+    let result =
+        crate::codex_desktop_platform::launch(&language, plugins, executable_path.as_deref())
+            .await?;
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     let result = {
         let _ = plugins;

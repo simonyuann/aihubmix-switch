@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs'
 import { selectReleaseFile } from './select-release-file.mjs'
 const target = process.argv[2]
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const { productName } = JSON.parse(await readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'))
 const release = join('src-tauri', 'target', target, 'release')
 function check(file, expected) {
   const value = execFileSync(resolve(file), ['--print-update-format'], {
@@ -42,7 +43,7 @@ if (target.includes('windows')) {
   }
 } else if (target.includes('apple')) {
   check(
-    join(release, 'bundle', 'macos', 'AIHubMix Switch.app', 'Contents', 'MacOS', 'cc-switch'),
+    join(release, 'bundle', 'macos', `${productName}.app`, 'Contents', 'MacOS', 'cc-switch'),
     'app'
   )
 } else if (target.includes('linux')) {

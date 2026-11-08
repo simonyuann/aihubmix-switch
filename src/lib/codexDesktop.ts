@@ -6,6 +6,7 @@ export type CodexDesktopLanguage = "zh-CN" | "en-US" | "system";
 export interface CodexDesktopPreferences {
   language: CodexDesktopLanguage;
   plugins: boolean;
+  executablePath: string;
 }
 
 export interface CodexDesktopStatus {
@@ -16,7 +17,12 @@ export interface CodexDesktopStatus {
 }
 
 export interface CodexDesktopLaunchResult {
-  status: "started" | "already_running" | "not_installed" | "unsupported" | "partial";
+  status:
+    | "started"
+    | "already_running"
+    | "not_installed"
+    | "unsupported"
+    | "partial";
   locale: "applied" | "partial" | "not_requested" | "unsupported" | "failed";
   plugins: string;
   message?: string;
@@ -47,11 +53,16 @@ function decode(raw: string): CodexDesktopPreferences {
   try {
     const value = JSON.parse(raw) as Partial<CodexDesktopPreferences>;
     return {
-      language: value.language === "en-US" || value.language === "system" ? value.language : "zh-CN",
+      language:
+        value.language === "en-US" || value.language === "system"
+          ? value.language
+          : "zh-CN",
       plugins: value.plugins === true,
+      executablePath:
+        typeof value.executablePath === "string" ? value.executablePath : "",
     };
   } catch {
-    return { language: "zh-CN", plugins: false };
+    return { language: "zh-CN", plugins: false, executablePath: "" };
   }
 }
 
@@ -60,7 +71,9 @@ export function useCodexDesktopPreferences(): CodexDesktopPreferences {
   return useMemo(() => decode(raw), [raw]);
 }
 
-export function setCodexDesktopPreferences(updates: Partial<CodexDesktopPreferences>): boolean {
+export function setCodexDesktopPreferences(
+  updates: Partial<CodexDesktopPreferences>,
+): boolean {
   try {
     const next = { ...decode(snapshot()), ...updates };
     localStorage.setItem(KEY, JSON.stringify(next));
@@ -72,10 +85,12 @@ export function setCodexDesktopPreferences(updates: Partial<CodexDesktopPreferen
 }
 
 export const codexDesktop = {
-  status: () => invoke<CodexDesktopStatus>("codex_desktop_status"),
+  status: (executablePath = "") =>
+    invoke<CodexDesktopStatus>("codex_desktop_status", { executablePath }),
   launch: (preferences: CodexDesktopPreferences) =>
     invoke<CodexDesktopLaunchResult>("launch_codex_desktop", {
       language: preferences.language,
       plugins: preferences.plugins,
+      executablePath: preferences.executablePath,
     }),
 };

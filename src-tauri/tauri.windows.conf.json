@@ -1,10 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AIHubMix Switch",
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "AIHubMix Switch",
+        "title": "AIHub Switch",
         "titleBarStyle": "Visible",
         "decorations": false,
         "shadow": true,
