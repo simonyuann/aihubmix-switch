@@ -1,5 +1,15 @@
 # CSMY 下载站更新源
 
+## 社区插件镜像
+
+`sync_plugin_market.py` 在 NAS 上同步社区插件快照，逐项验证 Git 树和大小，再以原子方式更新 `latest.json`。客户端只访问 `https://dl.csmy.fun:23457/files/manual/aihub-plugin-market/`；同步过程访问上游，客户端准备本地插件后 Codex 不需要 Git。运行示例：
+
+```sh
+python3 sync_plugin_market.py /srv/hdd/download-station/data/persistent/manual/aihub-plugin-market
+```
+
+NAS 的 `simon` 用户定时任务每天 04:17 执行 `/srv/hdd/download-station/aihub-plugin-market/sync_plugin_market.py`，日志写入同目录的 `sync.log`；同步失败时保留上一版。发布客户端前应确认公网目录、完整快照及 Windows 安装均通过验证。插件库约 375 MiB 下载、509 MiB 解压；旧版用户需要重新启用市场以切换本地来源。历史快照不会自动删除，需按需检查磁盘使用情况。
+
 ## 2026-10-27 下载站改版后的入口
 
 当前下载站已独立改版，实际部署源码位于 `/srv/hdd/download-station`。**不要直接应用下方历史部署补丁或覆盖现有 Dockerfile / Compose / 服务端文件**，应在当前下载站源码上合并必要改动，保留应用管理与同步功能。

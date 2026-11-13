@@ -16,6 +16,9 @@ use std::{
 };
 use tokio::sync::Mutex;
 
+#[path = "codex_market_mirror.rs"]
+mod mirror;
+
 const MARKET: &str = "aihubmix-community";
 const REPOSITORY: &str = "BigPizzaV3/CodexPlusPlusPluginCache";
 const GIT_URL: &str = "https://github.com/BigPizzaV3/CodexPlusPlusPluginCache.git";
@@ -35,7 +38,7 @@ const MAX_VERIFIED_CATALOGS: usize = 16;
 const MAX_GIT_TEMP_BYTES: u64 = 32 * 1024 * 1024;
 static MARKET_LOCK: Mutex<()> = Mutex::const_new(());
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Index {
     schema_version: u32,
@@ -926,6 +929,18 @@ fn marketplace_manifest(index: &Index, local: Option<(&str, &str)>) -> Value {
     json!({"name":MARKET, "interface":{"displayName":"AIHubMix 社区插件", "shortDescription":"社区公开插件缓存，部分插件需额外授权"}, "plugins":plugins})
 }
 
+fn mirror_marketplace_manifest(index: &Index, folder: &str) -> Value {
+    let mut manifest = marketplace_manifest(index, None);
+    for item in manifest["plugins"]
+        .as_array_mut()
+        .expect("generated plugin list")
+    {
+        let name = item["name"].as_str().expect("generated plugin name");
+        item["source"] = json!({"source":"local", "path": format!("./{folder}/{name}")});
+    }
+    manifest
+}
+
 fn reject_link_or_non_dir(path: &Path) -> Result<(), String> {
     match std::fs::symlink_metadata(path) {
         Ok(m) if m.file_type().is_symlink() || !m.is_dir() => {
@@ -972,6 +987,10 @@ fn write_marketplace_selected(
     index: &Index,
     local: Option<(&str, &str)>,
 ) -> Result<(), String> {
+    write_marketplace_value(root, &marketplace_manifest(index, local))
+}
+
+fn ensure_owned_market_root(root: &Path) -> Result<(), String> {
     let marker = root.join(".aihubmix-owned");
     let existed = root.exists();
     reject_link_or_non_dir(root)?;
@@ -987,6 +1006,11 @@ fn write_marketplace_selected(
     } else {
         std::fs::write(&marker, OWNER_MARKER).map_err(|_| "无法初始化插件市场目录".to_string())?;
     }
+    Ok(())
+}
+
+fn write_marketplace_value(root: &Path, manifest: &Value) -> Result<(), String> {
+    ensure_owned_market_root(root)?;
     let agents = root.join(".agents");
     reject_link_or_non_dir(&agents)?;
     let plugins = agents.join("plugins");
@@ -997,8 +1021,7 @@ fn write_marketplace_selected(
             return Err("插件目录文件异常，未修改".into());
         }
     }
-    let bytes = serde_json::to_vec_pretty(&marketplace_manifest(index, local))
-        .map_err(|_| "无法生成插件目录".to_string())?;
+    let bytes = serde_json::to_vec_pretty(manifest).map_err(|_| "无法生成插件目录".to_string())?;
     crate::config::atomic_write_private(&path, &bytes).map_err(|_| "无法保存插件目录".into())
 }
 
@@ -1137,7 +1160,7 @@ async fn ensure_no_foreign_registration(root: &Path) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn list_codex_market_plugins() -> Result<PublicCatalog, String> {
-    let index = fetch_index().await?;
+    let index = mirror::metadata().await?.index;
     let root = managed_root();
     let installed = if ensure_desktop_codex_home().is_ok() {
         match codex_cli(words(&["plugin", "marketplace", "list", "--json"])).await {
@@ -1176,14 +1199,56 @@ pub async fn list_codex_market_plugins() -> Result<PublicCatalog, String> {
 pub async fn enable_codex_plugin_market() -> Result<MarketSetup, String> {
     let _guard = MARKET_LOCK.lock().await;
     ensure_desktop_codex_home()?;
-    let index = fetch_index().await?;
-    verify_trees(&index).await?;
+    let snapshot = mirror::metadata().await?;
     let root = managed_root();
     ensure_no_foreign_registration(&root).await?;
-    write_marketplace(&root, &index)?;
-    register(&root).await?;
+    ensure_owned_market_root(&root)?;
+    let catalog = mirror::prepare(&root, &snapshot).await?;
+    let folder = catalog
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or("插件目录路径无效")?;
+    let manifest = mirror_marketplace_manifest(&snapshot.index, folder);
+    let manifest_path = root.join(".agents/plugins/marketplace.json");
+    let previous = std::fs::read(&manifest_path).ok();
+    let previous_catalog = previous
+        .as_ref()
+        .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        .and_then(|value| {
+            value["plugins"].as_array()?.first()?["source"]["path"]
+                .as_str()
+                .map(str::to_owned)
+        })
+        .and_then(|path| {
+            path.strip_prefix("./")?
+                .split('/')
+                .next()
+                .map(str::to_owned)
+        })
+        .filter(|name| {
+            name.starts_with("catalog-")
+                && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        })
+        .map(|name| root.join(name));
+    write_marketplace_value(&root, &manifest)?;
+    if let Err(error) = register(&root).await {
+        if let Some(bytes) = previous {
+            crate::config::atomic_write_private(&manifest_path, &bytes)
+                .map_err(|_| "插件市场注册失败，恢复旧配置也失败")?;
+        } else {
+            std::fs::remove_file(&manifest_path).map_err(|_| "插件市场注册失败，清理配置也失败")?;
+        }
+        let _ = std::fs::remove_dir_all(&catalog);
+        return Err(error);
+    }
+    crate::config::atomic_write_private(
+        &root.join("catalog-revision"),
+        snapshot.index.revision.as_bytes(),
+    )
+    .map_err(|_| "插件市场已更新，但版本记录保存失败")?;
+    mirror::prune(&root, &catalog, previous_catalog.as_deref());
     Ok(MarketSetup {
-        revision: index.revision,
+        revision: snapshot.index.revision,
         restart_required: true,
     })
 }
@@ -1220,46 +1285,41 @@ pub async fn install_codex_market_plugin(
     if !valid_slug(&plugin_id) || !valid_git_id(&revision) {
         return Err("插件标识无效".into());
     }
-    let index = fetch_index().await?;
+    let index = mirror::metadata().await?.index;
     if index.revision != revision {
         return Err("插件目录已更新，请刷新后再安装".into());
     }
     if !index.plugins.iter().any(|p| p.name == plugin_id) {
         return Err("插件不在公开目录中".into());
     }
-    verify_trees(&index).await?;
     let root = managed_root();
-    ensure_no_foreign_registration(&root).await?;
-    write_marketplace(&root, &index)?;
-    register(&root).await?;
-    let selector = format!("{plugin_id}@{MARKET}");
-    match codex_cli(words(&["plugin", "add", &selector, "--json"])).await {
-        Err(error) if error == GIT_NETWORK_ERROR => {
-            let plugin = index
-                .plugins
-                .iter()
-                .find(|p| p.name == plugin_id)
-                .ok_or("插件不在公开目录中")?;
-            let stage = download_plugin_verified(&root, &index, plugin).await?;
-            let local = format!(
-                "./{}/{}",
-                stage
-                    .path()
-                    .file_name()
-                    .and_then(|x| x.to_str())
-                    .ok_or("插件临时目录无效")?,
-                plugin_id
-            );
-            write_marketplace_selected(&root, &index, Some((&plugin_id, &local)))?;
-            let result = codex_cli(words(&["plugin", "add", &selector, "--json"])).await;
-            let restored = write_marketplace(&root, &index);
-            restored?;
-            result?;
-        }
-        result => {
-            result?;
-        }
+    let registered = codex_cli(words(&["plugin", "marketplace", "list", "--json"])).await?;
+    if !registered_to_ours(&registered, &root)? {
+        return Err("请先开启社区插件市场".into());
     }
+    if std::fs::read_to_string(root.join("catalog-revision"))
+        .ok()
+        .as_deref()
+        != Some(revision.as_str())
+    {
+        return Err("插件目录已更新，请重新开启市场".into());
+    }
+    let manifest_path = root.join(".agents/plugins/marketplace.json");
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(manifest_path).map_err(|_| "请先开启社区插件市场")?)
+            .map_err(|_| "插件目录无效")?;
+    let item = manifest["plugins"]
+        .as_array()
+        .and_then(|p| {
+            p.iter()
+                .find(|p| p["name"].as_str() == Some(plugin_id.as_str()))
+        })
+        .ok_or("插件目录已更新，请重新开启市场")?;
+    if item["source"]["source"].as_str() != Some("local") {
+        return Err("请重新开启社区插件市场以使用国内下载".into());
+    }
+    let selector = format!("{plugin_id}@{MARKET}");
+    codex_cli(words(&["plugin", "add", &selector, "--json"])).await?;
     if !installed_names().await?.contains(&plugin_id) {
         return Err("安装状态尚未确认，请刷新列表".into());
     }
@@ -1295,6 +1355,21 @@ pub async fn uninstall_codex_market_plugin(plugin_id: String) -> Result<MarketCh
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mirror_manifest_has_only_local_sources() {
+        let manifest = mirror_marketplace_manifest(&fixture(), "catalog-test");
+        let plugins = manifest["plugins"].as_array().unwrap();
+        assert!(!plugins.is_empty());
+        for plugin in plugins {
+            assert_eq!(plugin["source"]["source"], "local");
+            assert_eq!(
+                plugin["source"]["path"],
+                format!("./catalog-test/{}", plugin["name"].as_str().unwrap())
+            );
+            assert!(plugin["source"].get("url").is_none());
+        }
+    }
     fn fixture() -> Index {
         serde_json::from_value(json!({"schemaVersion":1,"repository":REPOSITORY,
         "revision":"0123456789012345678901234567890123456789", "plugins":[{"name":"hello","path":"plugins/hello",

@@ -23,6 +23,15 @@ export function codexMarketError(error: unknown, fallback: string) {
     "插件文件大小校验失败",
     "插件目录大小校验失败",
     "插件包含不受支持的文件类型",
+    "无法连接插件下载站",
+    "插件下载站暂不可用",
+    "插件包下载失败",
+    "插件包下载中断",
+    "插件包校验失败",
+    "插件内容校验失败",
+    "请先开启社区插件市场",
+    "插件目录已更新，请重新开启市场",
+    "请重新开启社区插件市场以使用国内下载",
   ]);
   return known.has(code) ? code : fallback;
 }

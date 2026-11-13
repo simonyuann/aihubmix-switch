@@ -151,7 +151,7 @@ export function CodexDesktopSettings() {
         />
         <SettingsRow
           label="社区插件市场"
-          description="开启后在 Codex 的「插件 → 个人」中查看社区插件；关闭市场不会卸载已安装的插件。部分插件连接服务时仍需单独授权。"
+          description="开启时从 AIHub 下载站准备插件库（约 375 MiB，解压后约 509 MiB），无需安装 Git。旧版用户请关闭后重新开启；关闭市场不会卸载已安装的插件，部分插件仍需单独授权。"
           control={
             <>
               <Button
