@@ -43,6 +43,34 @@ function renderSection(settings: Partial<SettingsFormState> = {}) {
 describe("GeneralSection tray style", () => {
   beforeEach(() => {
     platform.linux = false;
+    localStorage.clear();
+  });
+
+  it("only shows sidebar controls in the advanced interface without changing saved settings", () => {
+    const onAutoSave = renderSection({
+      showProfileSwitcher: true,
+      showProviderSearch: true,
+    });
+    expect(
+      screen.queryByText("settings.general.sidebarAndHeader"),
+    ).not.toBeInTheDocument();
+    expect(onAutoSave).not.toHaveBeenCalled();
+    localStorage.setItem("aihubmix:advanced-interface", "true");
+    fireEvent(window, new Event("aihubmix:interface-changed"));
+    expect(
+      screen.getByText("settings.general.sidebarAndHeader"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", {
+        name: "settings.appVisibility.showProfileSwitcher",
+      }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole("switch", {
+        name: "settings.appVisibility.showProviderSearch",
+      }),
+    ).toBeChecked();
+    expect(onAutoSave).not.toHaveBeenCalled();
   });
 
   it("keeps other providers disabled by default and saves explicit opt-in", () => {

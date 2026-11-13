@@ -143,49 +143,51 @@ export function GeneralSection({
 
       <CodexDesktopSettings />
 
-      <SettingsBlock title={t("settings.general.sidebarAndHeader")}>
-        <SettingsCard>
-          <SettingsRow
-            label={t("settings.general.visibleApps")}
-            control={
-              <Button variant="quiet" size="compact" onClick={onOpenApps}>
-                {t("settings.general.goToApps")}
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            }
-          />
-          {!dedicatedClient && (
-            <>
-              <SettingsSwitchRow
-                label={t("settings.appVisibility.showProfileSwitcher")}
-                help={{
-                  title: t("settings.appVisibility.showProfileSwitcher"),
-                  body: t(
-                    "settings.appVisibility.showProfileSwitcherDescription",
-                  ),
-                }}
-                checked={settings.showProfileSwitcher ?? false}
-                onCheckedChange={(value) =>
-                  void onAutoSave({ showProfileSwitcher: value })
-                }
-              />
-              <SettingsSwitchRow
-                label={t("settings.appVisibility.showProviderSearch")}
-                help={{
-                  title: t("settings.appVisibility.showProviderSearch"),
-                  body: t(
-                    "settings.appVisibility.showProviderSearchDescription",
-                  ),
-                }}
-                checked={settings.showProviderSearch ?? true}
-                onCheckedChange={(value) =>
-                  void onAutoSave({ showProviderSearch: value })
-                }
-              />
-            </>
-          )}
-        </SettingsCard>
-      </SettingsBlock>
+      {advancedInterface && (
+        <SettingsBlock title={t("settings.general.sidebarAndHeader")}>
+          <SettingsCard>
+            <SettingsRow
+              label={t("settings.general.visibleApps")}
+              control={
+                <Button variant="quiet" size="compact" onClick={onOpenApps}>
+                  {t("settings.general.goToApps")}
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              }
+            />
+            {!dedicatedClient && (
+              <>
+                <SettingsSwitchRow
+                  label={t("settings.appVisibility.showProfileSwitcher")}
+                  help={{
+                    title: t("settings.appVisibility.showProfileSwitcher"),
+                    body: t(
+                      "settings.appVisibility.showProfileSwitcherDescription",
+                    ),
+                  }}
+                  checked={settings.showProfileSwitcher ?? false}
+                  onCheckedChange={(value) =>
+                    void onAutoSave({ showProfileSwitcher: value })
+                  }
+                />
+                <SettingsSwitchRow
+                  label={t("settings.appVisibility.showProviderSearch")}
+                  help={{
+                    title: t("settings.appVisibility.showProviderSearch"),
+                    body: t(
+                      "settings.appVisibility.showProviderSearchDescription",
+                    ),
+                  }}
+                  checked={settings.showProviderSearch ?? true}
+                  onCheckedChange={(value) =>
+                    void onAutoSave({ showProviderSearch: value })
+                  }
+                />
+              </>
+            )}
+          </SettingsCard>
+        </SettingsBlock>
+      )}
 
       <SettingsBlock title={t("settings.general.updates")}>
         <SettingsCard>
