@@ -173,6 +173,17 @@ pub fn catalog(
             let root = config.as_table_mut().ok_or("缺少 Codex 配置")?;
             root.remove("model");
             root.remove("model_reasoning_effort");
+            let openai_group = platform == "openai";
+            if openai_group {
+                if models.iter().any(|m| m.id == "gpt-6.1-terra") {
+                    root.insert("model".into(), toml::Value::String("gpt-6.1-terra".into()));
+                    root.insert(
+                        "model_reasoning_effort".into(),
+                        toml::Value::String("medium".into()),
+                    );
+                }
+                config["model_providers"]["custom"]["name"] = toml::Value::String("OpenAI".into());
+            }
             if platform == "anthropic" {
                 config["model_providers"]["custom"]["base_url"] =
                     toml::Value::String(super::types::DEFAULT_BASE.into());
@@ -183,11 +194,53 @@ pub fn catalog(
             p.settings_config["config"] =
                 json!(toml::to_string(&config).map_err(|_| "无法生成 Codex 配置")?);
             // CC generates the agent's /model menu from this catalog, including protocol conversion routes.
-            p.settings_config["modelCatalog"] = json!({"models": models.iter().map(|m| {
-                let mut row = json!({"model":m.id,"displayName":m.name});
+            let mut menu_models: Vec<_> = models
+                .iter()
+                .filter(|m| !openai_group || m.id != "gpt-image-2")
+                .collect();
+            if menu_models.is_empty() {
+                return Err("此分组没有可用于对话的模型".into());
+            }
+            if openai_group {
+                const ORDER: [&str; 8] = [
+                    "gpt-6.1-sol",
+                    "gpt-6-astra",
+                    "gpt-6.1-terra",
+                    "gpt-6-sol",
+                    "gpt-6-luna",
+                    "gpt-5.6-sol",
+                    "gpt-5.6-terra",
+                    "gpt-5.6-luna",
+                ];
+                menu_models.sort_by_key(|m| {
+                    ORDER
+                        .iter()
+                        .position(|id| *id == m.id)
+                        .unwrap_or(ORDER.len())
+                });
+            }
+            p.settings_config["modelCatalog"] = json!({"models": menu_models.iter().map(|m| {
+                let display_name = if openai_group {
+                    match m.id.as_str() {
+                        "gpt-6.1-sol" => "GPT-6.1 Sol",
+                        "gpt-6-astra" => "GPT-6 Astra",
+                        "gpt-6.1-terra" => "GPT-6.1 Terra",
+                        "gpt-6-sol" => "GPT-6 Sol",
+                        "gpt-6-luna" => "GPT-6 Luna",
+                        "gpt-5.6-sol" => "GPT-5.6 Sol",
+                        "gpt-5.6-terra" => "GPT-5.6 Terra",
+                        "gpt-5.6-luna" => "GPT-5.6 Luna",
+                        _ => m.name.as_str(),
+                    }
+                } else { m.name.as_str() };
+                let mut row = json!({"model":m.id,"displayName":display_name});
                 if let Some(window) = m.context_window {row["contextWindow"] = json!(window);}
                 if !m.reasoning_levels.is_empty() {row["reasoningLevels"] = json!(m.reasoning_levels);}
-                if let Some(level) = &m.default_reasoning_level {row["defaultReasoningLevel"] = json!(level);}
+                if openai_group && m.id == "gpt-6.1-terra" {
+                    row["reasoningLevels"] = json!(["low", "medium", "high", "xhigh", "max", "ultra"]);
+                    row["defaultReasoningLevel"] = json!("medium");
+                }
+                else if let Some(level) = &m.default_reasoning_level {row["defaultReasoningLevel"] = json!(level);}
                 if !m.input.is_empty() {row["inputModalities"] = json!(m.input);}
                 row
             }).collect::<Vec<_>>()});
@@ -282,6 +335,90 @@ mod tests {
                 ..Default::default()
             })
             .collect()
+    }
+    #[test]
+    fn openai_codex_menu_has_requested_defaults_and_order() {
+        let ids = [
+            "gpt-image-2",
+            "gpt-5.6-luna",
+            "gpt-6-sol",
+            "gpt-6.1-terra",
+            "gpt-6-astra",
+            "gpt-5.6-terra",
+            "gpt-6.1-sol",
+            "gpt-6-luna",
+            "gpt-5.6-sol",
+            "future-model",
+        ];
+        let models: Vec<_> = ids
+            .iter()
+            .map(|id| super::super::types::Model {
+                id: (*id).into(),
+                name: (*id).into(),
+                ..Default::default()
+            })
+            .collect();
+        let p = catalog(
+            "codex",
+            "openai",
+            "fixture-key",
+            &models,
+            "aihubmix-codex-account-17-service-5",
+        )
+        .unwrap();
+        let config: toml::Value =
+            toml::from_str(p.settings_config["config"].as_str().unwrap()).unwrap();
+        assert_eq!(config["model"].as_str(), Some("gpt-6.1-terra"));
+        assert_eq!(config["model_reasoning_effort"].as_str(), Some("medium"));
+        assert_eq!(
+            config["model_providers"]["custom"]["name"].as_str(),
+            Some("OpenAI")
+        );
+        let rows = p.settings_config["modelCatalog"]["models"]
+            .as_array()
+            .unwrap();
+        let actual: Vec<_> = rows.iter().map(|m| m["model"].as_str().unwrap()).collect();
+        assert_eq!(
+            actual,
+            [
+                "gpt-6.1-sol",
+                "gpt-6-astra",
+                "gpt-6.1-terra",
+                "gpt-6-sol",
+                "gpt-6-luna",
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "future-model"
+            ]
+        );
+        assert_eq!(rows[2]["defaultReasoningLevel"], "medium");
+        assert_eq!(rows[2]["displayName"], "GPT-6.1 Terra");
+        assert!(crate::aihubmix::native_imagegen::supported(&p));
+        let other = catalog("codex", "deepseek", "fixture-key", &models, "aihubmix-test").unwrap();
+        assert_eq!(
+            other.settings_config["modelCatalog"]["models"][0]["model"],
+            "gpt-image-2"
+        );
+        let missing = catalog(
+            "codex",
+            "openai",
+            "fixture-key",
+            &models[1..2],
+            "aihubmix-test",
+        )
+        .unwrap();
+        let config: toml::Value =
+            toml::from_str(missing.settings_config["config"].as_str().unwrap()).unwrap();
+        assert!(config.get("model").is_none());
+        assert!(catalog(
+            "codex",
+            "openai",
+            "fixture-key",
+            &models[..1],
+            "aihubmix-test"
+        )
+        .is_err());
     }
     #[test]
     fn codex_openai_group_projects_to_platform_api_key_mode() {
