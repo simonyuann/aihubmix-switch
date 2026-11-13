@@ -53,9 +53,12 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 64d63ac63ea88c6b02051f6d7adfffa8deb025fb
+      - name: Verify previously checked out release source
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne '64d63ac63ea88c6b02051f6d7adfffa8deb025fb') { throw 'Release source mismatch' }
+          git diff --exit-code HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Release source has local changes' }
       - name: Prepare retained build tools and cache
         run: |
           $ErrorActionPreference = 'Stop'
