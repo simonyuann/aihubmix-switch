@@ -72,7 +72,8 @@ jobs:
           if (!(Test-Path src-tauri\target)) {
             New-Item -ItemType SymbolicLink -Path src-tauri\target -Target '\\host.lan\Data\aihubmix-build-target' | Out-Null
           }
-          if ((Get-Item src-tauri\target).Target -ne '\\host.lan\Data\aihubmix-build-target') { throw 'Unexpected build cache target' }
+          $cacheTarget = [string](Get-Item src-tauri\target).Target
+          if ($cacheTarget -notin @('\\host.lan\Data\aihubmix-build-target', 'UNC\host.lan\Data\aihubmix-build-target')) { throw 'Unexpected build cache target' }
           New-Item -ItemType Directory -Force '\\host.lan\Data\aihubmix-output-v116' | Out-Null
           git rev-parse HEAD | Out-File -Encoding ascii '\\host.lan\Data\aihubmix-output-v116\source-revision.txt'
       - run: pnpm install --frozen-lockfile
