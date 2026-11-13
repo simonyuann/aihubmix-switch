@@ -1,0 +1,67 @@
+name: Local release v1.1.16
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: [self-hosted, aihub-v116-linux]
+    env:
+      CI: 'true'
+      CARGO_BUILD_JOBS: '4'
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare retained build cache and local macOS configuration
+        run: |
+          node -e 'const fs=require("fs"); const keys=["GEMINI_OAUTH_CLIENT_ID","GEMINI_OAUTH_CLIENT_SECRET"]; for(const key of keys) if(!process.env[key]) throw new Error("Missing release configuration"); fs.writeFileSync("/output/gemini-oauth.json",JSON.stringify(Object.fromEntries(keys.map(key=>[key,process.env[key]]))),{mode:0o600}); if(require("./package.json").version!=="1.1.16") throw new Error("Release version mismatch")'
+          ln -s /build-target src-tauri/target
+          git rev-parse HEAD > /output/source-revision.txt
+      - run: pnpm install --frozen-lockfile --store-dir /opt/pnpm-store
+      - run: pnpm tauri build --target x86_64-unknown-linux-gnu --no-bundle -- --locked
+      - run: pnpm tauri bundle --target x86_64-unknown-linux-gnu --bundles deb,appimage --ci
+      - run: node scripts/check-update-format.mjs x86_64-unknown-linux-gnu
+      - run: node scripts/collect-artifacts.mjs x86_64-unknown-linux-gnu
+      - run: cp artifacts/* /output/
+
+  windows:
+    runs-on: [self-hosted, aihub-v116-windows]
+    env:
+      CI: 'true'
+      CARGO_BUILD_JOBS: '3'
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare retained build tools and cache
+        run: |
+          $ErrorActionPreference = 'Stop'
+          'C:\build\runner\_work\_tool\node\24.22.2\x64' >> $env:GITHUB_PATH
+          'C:\Windows\System32\config\systemprofile\.cargo\bin' >> $env:GITHUB_PATH
+          'C:\Program Files\7-Zip' >> $env:GITHUB_PATH
+          foreach ($key in @('GEMINI_OAUTH_CLIENT_ID', 'GEMINI_OAUTH_CLIENT_SECRET')) {
+            if (!(Test-Path "Env:$key")) { throw 'Missing release configuration' }
+          }
+          if ((Get-Content package.json -Raw | ConvertFrom-Json).version -ne '1.1.16') { throw 'Release version mismatch' }
+          New-Item -ItemType SymbolicLink -Path src-tauri\target -Target '\\host.lan\Data\aihubmix-build-target' | Out-Null
+          New-Item -ItemType Directory -Force '\\host.lan\Data\aihubmix-output-v116' | Out-Null
+          git rev-parse HEAD | Out-File -Encoding ascii '\\host.lan\Data\aihubmix-output-v116\source-revision.txt'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tauri build --target x86_64-pc-windows-msvc --config .github/local-release-windows-v1.1.16.json --no-bundle -- --locked
+      - run: node scripts/collect-portable.mjs x86_64-pc-windows-msvc
+      - run: pnpm tauri bundle --target x86_64-pc-windows-msvc --config .github/local-release-windows-v1.1.16.json --bundles nsis --ci
+      - run: node scripts/check-update-format.mjs x86_64-pc-windows-msvc
+      - run: node scripts/collect-artifacts.mjs x86_64-pc-windows-msvc
+      - run: Copy-Item artifacts\* '\\host.lan\Data\aihubmix-output-v116\'
