@@ -4,7 +4,8 @@ import { isWindows } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { CodexPluginMarketDialog } from "@/components/aihubmix/CodexPluginMarketDialog";
-import { codexMarketError, codexPluginMarket } from "@/lib/codexPluginMarket";
+import { CodexMarketProgress } from "@/components/aihubmix/CodexMarketProgress";
+import { codexMarketError, codexPluginMarket, type CodexMarketProgress as MarketProgress } from "@/lib/codexPluginMarket";
 import {
   Select,
   SelectContent,
@@ -29,6 +30,8 @@ export function CodexDesktopSettings() {
   const [error, setError] = useState("");
   const [showPlugins, setShowPlugins] = useState(false);
   const [pluginsBusy, setPluginsBusy] = useState(false);
+  const [enablingPlugins, setEnablingPlugins] = useState(false);
+  const [marketProgress, setMarketProgress] = useState<MarketProgress | null>(null);
   const [notice, setNotice] = useState("");
   const gate = useRef(false);
 
@@ -42,10 +45,12 @@ export function CodexDesktopSettings() {
     if (gate.current) return;
     gate.current = true;
     setPluginsBusy(true);
+    setEnablingPlugins(plugins);
+    setMarketProgress(null);
     setError("");
     setNotice("");
     try {
-      if (plugins) await codexPluginMarket.enable();
+      if (plugins) await codexPluginMarket.enable(setMarketProgress);
       else await codexPluginMarket.disable();
       if (!setCodexDesktopPreferences({ plugins })) {
         setError("偏好保存失败，请重试。");
@@ -66,6 +71,8 @@ export function CodexDesktopSettings() {
     } finally {
       gate.current = false;
       setPluginsBusy(false);
+      setEnablingPlugins(false);
+      setMarketProgress(null);
     }
   }
 
@@ -151,7 +158,7 @@ export function CodexDesktopSettings() {
         />
         <SettingsRow
           label="社区插件市场"
-          description="开启时从 AIHub 下载站准备插件库（约 375 MiB，解压后约 509 MiB），无需安装 Git。旧版用户请关闭后重新开启；关闭市场不会卸载已安装的插件，部分插件仍需单独授权。"
+          description="首次开启时从 AIHub 下载站准备插件库（约 375 MiB，解压后约 509 MiB），无需安装 Git。插件需单独安装，不会全部自动开启；旧版用户请关闭后重新开启，关闭市场不会卸载已安装的插件。"
           control={
             <>
               <Button
@@ -172,6 +179,7 @@ export function CodexDesktopSettings() {
           }
         />
       </SettingsCard>
+      {enablingPlugins && <CodexMarketProgress progress={marketProgress} />}
       {error && (
         <p role="alert" className="text-caption text-destructive">
           {error}

@@ -1,4 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
+
+export interface CodexMarketProgress {
+  phase: "checking" | "downloading" | "verifying" | "registering";
+  downloaded: number;
+  total: number;
+}
 
 export function codexMarketError(error: unknown, fallback: string) {
   const code =
@@ -68,7 +74,11 @@ interface CodexPluginMarketChange {
 
 export const codexPluginMarket = {
   list: () => invoke<CodexPluginCatalog>("list_codex_market_plugins"),
-  enable: () => invoke<CodexPluginMarketChange>("enable_codex_plugin_market"),
+  enable: (onProgress?: (progress: CodexMarketProgress) => void) => {
+    const progress = new Channel<CodexMarketProgress>();
+    progress.onmessage = onProgress ?? (() => {});
+    return invoke<CodexPluginMarketChange>("enable_codex_plugin_market", { progress });
+  },
   disable: () => invoke<CodexPluginMarketChange>("disable_codex_plugin_market"),
   install: (pluginId: string, revision: string) =>
     invoke<CodexPluginChange>("install_codex_market_plugin", {

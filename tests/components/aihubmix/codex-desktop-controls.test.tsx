@@ -1,8 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const backend = vi.hoisted(() => ({ invoke: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: backend.invoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: backend.invoke,
+  Channel: class { onmessage: (value: unknown) => void = () => {}; },
+}));
 
 import { CodexDesktopControls } from "@/components/aihubmix/CodexDesktopControls";
 import { CodexDesktopSettings } from "@/components/settings/CodexDesktopSettings";
@@ -18,6 +21,40 @@ beforeEach(() => {
 });
 
 describe("Codex Desktop controls", () => {
+  it("shows actual download progress and the verification phase", async () => {
+    let report: (value: unknown) => void = () => {};
+    let finish: (value: unknown) => void = () => {};
+    backend.invoke.mockImplementation((command: string, args?: { progress?: { onmessage: (value: unknown) => void } }) => {
+      if (command === "enable_codex_plugin_market") {
+        report = (value) => args?.progress?.onmessage(value);
+        return new Promise((resolve) => { finish = resolve; });
+      }
+      if (command === "codex_desktop_status") return Promise.resolve({ installed: true, running: false, platform: "macos" });
+      throw new Error("Unexpected command");
+    });
+    render(<CodexDesktopSettings />);
+    fireEvent.click(screen.getByRole("switch", { name: "社区插件市场" }));
+    expect(await screen.findByText(/正在连接插件下载站/)).toBeInTheDocument();
+    act(() => report({ phase: "downloading", downloaded: 25 * 1024 * 1024, total: 100 * 1024 * 1024 }));
+    expect(screen.getByText(/25\.0 \/ 100\.0 MiB（25%）/)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "插件库下载进度" })).toHaveValue(25 * 1024 * 1024);
+    act(() => report({ phase: "verifying", downloaded: 100, total: 100 }));
+    expect(screen.getByText(/正在解压并校验插件/)).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    await act(async () => finish({ revision: "test", restartRequired: true }));
+    expect(screen.queryByText(/正在解压并校验插件/)).not.toBeInTheDocument();
+  });
+
+  it("clears progress and reports a download failure without enabling the market", async () => {
+    backend.invoke.mockImplementation((command: string) => command === "enable_codex_plugin_market"
+      ? Promise.reject("插件包下载中断")
+      : Promise.resolve({ installed: true, running: false, platform: "macos" }));
+    render(<CodexDesktopSettings />);
+    fireEvent.click(screen.getByRole("switch", { name: "社区插件市场" }));
+    expect(await screen.findByText("插件包下载中断")).toBeInTheDocument();
+    expect(screen.queryByText(/正在连接插件下载站/)).not.toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "社区插件市场" })).toHaveAttribute("data-state", "unchecked");
+  });
   it("launches with the requested language and never claims unverified plugin support", async () => {
     setCodexDesktopPreferences({ language: "zh-CN", plugins: true, executablePath: "" });
     backend.invoke.mockImplementation((command: string) => {
@@ -71,7 +108,7 @@ describe("Codex Desktop controls", () => {
     expect(plugins).not.toBeChecked();
     fireEvent.click(plugins);
     await waitFor(() => expect(plugins).toBeChecked());
-    expect(backend.invoke).toHaveBeenCalledWith("enable_codex_plugin_market");
+    expect(backend.invoke).toHaveBeenCalledWith("enable_codex_plugin_market", expect.objectContaining({ progress: expect.anything() }));
     expect(localStorage.getItem("aihubmix:codex-desktop-preferences")).toContain('"plugins":true');
     expect(screen.getByText(/关闭市场不会卸载已安装的插件/)).toBeInTheDocument();
     expect(screen.queryByText(/插件支持已生效/)).not.toBeInTheDocument();

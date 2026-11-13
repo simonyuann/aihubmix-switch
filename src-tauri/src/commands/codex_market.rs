@@ -17,7 +17,7 @@ use std::{
 use tokio::sync::Mutex;
 
 #[path = "codex_market_mirror.rs"]
-mod mirror;
+pub mod mirror;
 
 const MARKET: &str = "aihubmix-community";
 const REPOSITORY: &str = "BigPizzaV3/CodexPlusPlusPluginCache";
@@ -1196,14 +1196,16 @@ pub async fn list_codex_market_plugins() -> Result<PublicCatalog, String> {
 }
 
 #[tauri::command]
-pub async fn enable_codex_plugin_market() -> Result<MarketSetup, String> {
+pub async fn enable_codex_plugin_market(
+    progress: tauri::ipc::Channel<mirror::Progress>,
+) -> Result<MarketSetup, String> {
     let _guard = MARKET_LOCK.lock().await;
     ensure_desktop_codex_home()?;
     let snapshot = mirror::metadata().await?;
     let root = managed_root();
     ensure_no_foreign_registration(&root).await?;
     ensure_owned_market_root(&root)?;
-    let catalog = mirror::prepare(&root, &snapshot).await?;
+    let (catalog, created) = mirror::prepare(&root, &snapshot, Some(&progress)).await?;
     let folder = catalog
         .file_name()
         .and_then(|s| s.to_str())
@@ -1230,6 +1232,7 @@ pub async fn enable_codex_plugin_market() -> Result<MarketSetup, String> {
                 && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
         })
         .map(|name| root.join(name));
+    mirror::progress(Some(&progress), "registering", 0, 0);
     write_marketplace_value(&root, &manifest)?;
     if let Err(error) = register(&root).await {
         if let Some(bytes) = previous {
@@ -1238,7 +1241,9 @@ pub async fn enable_codex_plugin_market() -> Result<MarketSetup, String> {
         } else {
             std::fs::remove_file(&manifest_path).map_err(|_| "插件市场注册失败，清理配置也失败")?;
         }
-        let _ = std::fs::remove_dir_all(&catalog);
+        if created {
+            let _ = std::fs::remove_dir_all(&catalog);
+        }
         return Err(error);
     }
     crate::config::atomic_write_private(

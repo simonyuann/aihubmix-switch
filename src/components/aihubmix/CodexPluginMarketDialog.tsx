@@ -9,11 +9,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CodexMarketProgress } from "@/components/aihubmix/CodexMarketProgress";
 import {
   codexMarketError,
   codexPluginMarket,
   type CodexPluginCatalog,
   type CodexMarketPlugin,
+  type CodexMarketProgress as MarketProgress,
 } from "@/lib/codexPluginMarket";
 import { setCodexDesktopPreferences } from "@/lib/codexDesktop";
 
@@ -39,6 +41,7 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [marketProgress, setMarketProgress] = useState<MarketProgress | null>(null);
   const gate = useRef(false);
   const mounted = useRef(true);
 
@@ -77,10 +80,13 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
     if (gate.current) return;
     gate.current = true;
     setBusy("enable");
+    setMarketProgress(null);
     setError("");
     setNotice("");
     try {
-      await codexPluginMarket.enable();
+      await codexPluginMarket.enable((progress) => {
+        if (mounted.current) setMarketProgress(progress);
+      });
       if (!mounted.current) return;
       const saved = setCodexDesktopPreferences({ plugins: true });
       await reload();
@@ -102,6 +108,7 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
     } finally {
       gate.current = false;
       if (mounted.current) setBusy(null);
+      if (mounted.current) setMarketProgress(null);
     }
   }
 
@@ -185,6 +192,7 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
               正在加载插件列表…
             </p>
           )}
+          {busy === "enable" && <CodexMarketProgress progress={marketProgress} />}
           {error && (
             <div
               role="alert"
