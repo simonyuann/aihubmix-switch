@@ -2,12 +2,18 @@ name: Local release v1.1.16
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options: [all, linux, windows]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   linux:
+    if: inputs.platform != 'windows'
     runs-on: [self-hosted, aihub-v116-linux]
     env:
       CI: 'true'
@@ -19,6 +25,8 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: 64d63ac63ea88c6b02051f6d7adfffa8deb025fb
       - name: Prepare retained build cache and local macOS configuration
         run: |
           node -e 'const fs=require("fs"); const keys=["GEMINI_OAUTH_CLIENT_ID","GEMINI_OAUTH_CLIENT_SECRET"]; for(const key of keys) if(!process.env[key]) throw new Error("Missing release configuration"); fs.writeFileSync("/output/gemini-oauth.json",JSON.stringify(Object.fromEntries(keys.map(key=>[key,process.env[key]]))),{mode:0o600}); if(require("./package.json").version!=="1.1.16") throw new Error("Release version mismatch")'
@@ -32,6 +40,7 @@ jobs:
       - run: cp artifacts/* /output/
 
   windows:
+    if: inputs.platform != 'linux'
     runs-on: [self-hosted, aihub-v116-windows]
     env:
       CI: 'true'
@@ -42,9 +51,11 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     defaults:
       run:
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: 64d63ac63ea88c6b02051f6d7adfffa8deb025fb
       - name: Prepare retained build tools and cache
         run: |
           $ErrorActionPreference = 'Stop'
