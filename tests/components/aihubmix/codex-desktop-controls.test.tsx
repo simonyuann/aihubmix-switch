@@ -55,7 +55,7 @@ describe("Codex Desktop controls", () => {
     expect(screen.queryByText(/正在安装插件库/)).not.toBeInTheDocument();
   });
 
-  it("clears progress and reports a download failure without enabling the market", async () => {
+  it("clears a failed download and allows retry before enabling the market", async () => {
     backend.invoke.mockImplementation((command: string) => command === "enable_codex_plugin_market"
       ? Promise.reject("插件包下载中断")
       : Promise.resolve({ installed: true, running: false, platform: "macos" }));
@@ -64,6 +64,13 @@ describe("Codex Desktop controls", () => {
     expect(await screen.findByText("插件包下载中断")).toBeInTheDocument();
     expect(screen.queryByText(/正在准备插件库/)).not.toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "社区插件市场" })).toHaveAttribute("data-state", "unchecked");
+    backend.invoke.mockResolvedValue({ revision: "retry", restartRequired: true });
+    fireEvent.click(screen.getByRole("switch", { name: "社区插件市场" }));
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "社区插件市场" })).toHaveAttribute("data-state", "checked"),
+    );
+    expect(screen.queryByText("插件包下载中断")).not.toBeInTheDocument();
+    expect(screen.queryByText(/正在准备插件库/)).not.toBeInTheDocument();
   });
   it("launches with the requested language and never claims unverified plugin support", async () => {
     setCodexDesktopPreferences({ language: "zh-CN", plugins: true, executablePath: "" });

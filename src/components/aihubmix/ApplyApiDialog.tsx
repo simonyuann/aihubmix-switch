@@ -59,7 +59,11 @@ export function ApplyApiDialog({
       if (!active.current) return;
       onCreated?.();
       if (result.warning) {
-        setError(`API 已申请成功。${result.warning}`);
+        const warning = friendlyError(
+          result.warning,
+          "本机凭据保存失败，请返回 API 列表查看。",
+        );
+        setError(`API 已申请成功。${warning}`);
         setUncertain(true);
       } else onClose();
     } catch (e) {

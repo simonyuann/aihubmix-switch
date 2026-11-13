@@ -394,6 +394,21 @@ mod tests {
         );
         assert_eq!(rows[2]["defaultReasoningLevel"], "medium");
         assert_eq!(rows[2]["displayName"], "GPT-6.1 Terra");
+        let native = crate::codex_config::plan_codex_model_catalog(
+            &p.settings_config,
+            p.settings_config["config"].as_str().unwrap(),
+            crate::codex_config::CodexCatalogToolProfile::NativeResponses,
+        )
+        .unwrap()
+        .catalog
+        .unwrap();
+        let native_rows = native["models"].as_array().unwrap();
+        for (index, row) in native_rows.iter().enumerate() {
+            assert_eq!(row["slug"], rows[index]["model"]);
+            assert_eq!(row["display_name"], rows[index]["displayName"]);
+            assert_eq!(row["priority"], json!(1000 + index));
+        }
+        assert_eq!(native_rows[2]["default_reasoning_level"], "medium");
         assert!(crate::aihubmix::native_imagegen::supported(&p));
         let other = catalog("codex", "deepseek", "fixture-key", &models, "aihubmix-test").unwrap();
         assert_eq!(

@@ -6,7 +6,7 @@ vi.mock("@/contexts/AccountContext", () => ({
   useOptionalAccount: () => mocks.account,
 }));
 
-import { HomeWalletBalance } from "@/components/aihubmix/BalanceDisplay";
+import { BalanceDisplay, HomeWalletBalance } from "@/components/aihubmix/BalanceDisplay";
 import { AppPageHeader, HeaderBalanceContext } from "@/components/shell/AppPageHeader";
 
 beforeEach(() => {
@@ -19,6 +19,16 @@ beforeEach(() => {
 });
 
 describe("simple home balance", () => {
+  it("keeps raw balance errors out of the header tooltip", () => {
+    mocks.account.walletError = "private server details";
+    render(<BalanceDisplay />);
+    expect(screen.getByRole("button", { name: "刷新余额" })).toHaveAttribute(
+      "title",
+      "余额刷新失败，点击重试",
+    );
+    expect(document.body.innerHTML).not.toContain("private server details");
+  });
+
   it("shows the balance, refreshes once while pending, and opens recharge", async () => {
     let finish!: () => void;
     mocks.account.refreshWallet.mockImplementation(

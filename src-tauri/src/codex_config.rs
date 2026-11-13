@@ -2192,9 +2192,19 @@ fn codex_model_catalog_from_settings(
     });
     if is_our_responses_gateway {
         if let Some(entries) = catalog.get_mut("models").and_then(Value::as_array_mut) {
-            for entry in entries {
+            for (entry, spec) in entries.iter_mut().zip(&specs) {
                 let is_terra = entry.get("slug").and_then(Value::as_str) == Some("gpt-6.1-terra");
                 if let Some(obj) = entry.as_object_mut() {
+                    // Platform defaults also apply when the base entry comes
+                    // from Codex's bundled official models.
+                    if let Some(name) = &spec.display_name {
+                        obj.insert("display_name".into(), json!(name));
+                    }
+                    let default_level = obj
+                        .get("default_reasoning_level")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    apply_codex_reasoning_level_override(obj, default_level.as_deref(), spec);
                     if is_terra {
                         let levels =
                             ["low", "medium", "high", "xhigh", "max", "ultra"].map(str::to_string);
@@ -4075,6 +4085,40 @@ experimental_bearer_token = "stale-table-key"
                 .get("availability_nux")
                 .is_some_and(|value| value.is_null()),
             "generated third-party entries should not inherit GPT-5.5 launch messaging"
+        );
+    }
+
+    #[test]
+    fn aihubmix_defaults_survive_matching_an_official_model() {
+        with_official_models(
+            vec![official_gpt_row("gpt-6.1-terra", "Terra tools")],
+            || {
+                let models = catalog_for(
+                json!([{
+                    "model": "gpt-6.1-terra",
+                    "displayName": "GPT-6.1 Terra",
+                    "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultra"],
+                    "defaultReasoningLevel": "medium"
+                }]),
+                "model_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"https://csmy.fun:23457/v1\"\n",
+                CodexCatalogToolProfile::NativeResponses,
+            );
+                let terra = &models[0];
+                assert_eq!(terra["display_name"], "GPT-6.1 Terra");
+                assert_eq!(terra["default_reasoning_level"], "medium");
+                assert_eq!(
+                    terra["supported_reasoning_levels"]
+                        .as_array()
+                        .unwrap()
+                        .len(),
+                    6
+                );
+                assert_eq!(
+                    terra["model_messages"]["instructions_template"],
+                    "Terra tools"
+                );
+                assert_eq!(terra["service_tiers"][0]["id"], "priority");
+            },
         );
     }
 

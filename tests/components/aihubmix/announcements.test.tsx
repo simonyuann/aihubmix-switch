@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -34,9 +35,76 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.settings = { data: { firstRunNoticeConfirmed: true }, isError: false };
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("platform announcements", () => {
+  it("keeps a confirmed read state when an older refresh finishes later", async () => {
+    let finishRefresh!: (items: unknown) => void;
+    let loads = 0;
+    mocks.dispatch.mockImplementation((command: string) => {
+      if (command !== "announcements") return Promise.resolve(null);
+      if (++loads === 1)
+        return Promise.resolve([{ ...notice, notifyMode: "silent" }]);
+      return new Promise((resolve) => {
+        finishRefresh = resolve;
+      });
+    });
+    render(
+      <AnnouncementProvider>
+        <AnnouncementBell />
+        <AnnouncementBanner />
+      </AnnouncementProvider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "平台公告，1 条未读" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /维护通知/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", {
+        name: "平台公告", hidden: true,
+      })).toBeInTheDocument(),
+    );
+    await act(async () => {
+      finishRefresh([{ ...notice, notifyMode: "silent" }]);
+    });
+    expect(screen.queryByRole("button", {
+      name: /1 条未读/, hidden: true,
+    })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {
+      name: /平台公告：/, hidden: true,
+    })).not.toBeInTheDocument();
+  });
+
+  it("does not reopen a manually viewed popup while its read request is pending", async () => {
+    const interval = vi.spyOn(window, "setInterval");
+    const second = { ...notice, id: 3, title: "新版说明", content: "新功能介绍" };
+    mocks.dispatch.mockImplementation(
+      (command: string, payload?: { id: number }) => {
+        if (command === "announcements") return Promise.resolve([notice, second]);
+        if (payload?.id === second.id) return new Promise(() => {});
+        return Promise.resolve(null);
+      },
+    );
+    render(
+      <AnnouncementProvider><AnnouncementBell /></AnnouncementProvider>,
+    );
+    expect(await screen.findByText(notice.content)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "返回公告列表" }));
+    fireEvent.click(screen.getByRole("button", { name: /新版说明/ }));
+    expect(screen.getByText(second.content)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭公告" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(interval).toHaveBeenCalledWith(expect.any(Function), 60_000);
+    const refresh = interval.mock.calls[0][0] as () => void;
+    await act(async () => { refresh(); });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("waits for the first-run dialog to close before opening the announcement", async () => {
     mocks.dispatch.mockImplementation((command: string) => Promise.resolve(command === "announcements" ? [notice] : null));
     function FirstRun() {

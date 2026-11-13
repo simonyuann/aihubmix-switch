@@ -85,7 +85,7 @@ export function BalanceDisplay() {
       <button
         type="button"
         aria-label="刷新余额"
-        title={account.walletError || "刷新余额"}
+        title={account.walletError ? "余额刷新失败，点击重试" : "刷新余额"}
         disabled={refreshing}
         className="-ms-1 me-2 rounded p-1 text-fg-3 hover:bg-subtle hover:text-fg-1 disabled:opacity-50"
         onClick={async () => {

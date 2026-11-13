@@ -123,7 +123,15 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
       const next = await dispatch<Announcement[]>("announcements");
       if (generation.current !== current) return;
       if (!Array.isArray(next)) throw new Error("公告数据格式异常");
-      setItems(next);
+      // A refresh may have started before a read acknowledgement arrived.
+      // Read state is monotonic within this account's session.
+      setItems((previous) => {
+        const readAt = new Map(previous.map((item) => [item.id, item.readAt]));
+        return next.map((item) => ({
+          ...item,
+          readAt: item.readAt ?? readAt.get(item.id) ?? null,
+        }));
+      });
       setError("");
     } catch (e) {
       if (generation.current === current)
@@ -137,6 +145,7 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
     setItems([]);
     setOpen(false);
     setSelectedId(null);
+    setError("");
     void refresh();
     const timer = window.setInterval(() => void refresh(), 60_000);
     return () => {
@@ -168,6 +177,7 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
 
   const view = useCallback(
     (item: Announcement, mark = true) => {
+      seenPopups.current.add(item.id);
       setSelectedId(item.id);
       setOpen(true);
       if (mark) markRead(item);
@@ -193,7 +203,6 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
         !seenPopups.current.has(item.id),
     );
     if (popup) {
-      seenPopups.current.add(popup.id);
       view(popup, false);
     }
   }, [items, open, view, settings, settingsError, anotherDialogOpen]);

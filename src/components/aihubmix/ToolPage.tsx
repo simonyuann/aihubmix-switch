@@ -166,8 +166,12 @@ export function ToolPage({
               : `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}${app === "codex" ? "请重启 Codex，使配置生效。" : `在 ${APP_DISPLAY_NAME[app]} 中选择模型。`}`
           : "API Key 已保存。",
       );
-      if (result?.warnings?.length)
-        setNotice((notice) => `${notice} ${result.warnings!.join("；")}`);
+      if (result?.warnings?.length) {
+        const messages = result.warnings.map((warning) =>
+          friendlyError(warning, "部分配置未能确认，请刷新状态后重试。"),
+        );
+        setNotice((notice) => `${notice} ${[...new Set(messages)].join(" ")}`);
+      }
       await Promise.all([
         refetch(),
         client.invalidateQueries({ queryKey: ["providers", app] }),
@@ -307,7 +311,7 @@ export function ToolPage({
           )}
           {data?.warning && (
             <p role="alert" className="text-body text-fg-3">
-              {data.warning}{" "}
+              {friendlyError(data.warning, "模型服务暂不可用，请重试。")}{" "}
               <Button variant="outline" onClick={() => void refetch()}>
                 重试
               </Button>
@@ -691,7 +695,7 @@ export function ToolPage({
               )}
               {keyQuery.error && (
                 <p role="alert" className="text-body text-destructive">
-                  {String(keyQuery.error)}{" "}
+                  {friendlyError(keyQuery.error, "加载 API 列表失败，请重试。")}{" "}
                   <Button
                     type="button"
                     variant="outline"

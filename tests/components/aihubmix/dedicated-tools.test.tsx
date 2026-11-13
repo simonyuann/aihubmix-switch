@@ -105,6 +105,31 @@ beforeEach(() => {
   );
 });
 describe("dedicated service cards", () => {
+  it("replaces raw API loading diagnostics with a concise retry message", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      command === "keys"
+        ? Promise.reject("连接失败 https://example.invalid/private?token=fixture")
+        : Promise.resolve({ cards: [service], currentProviderId: null }),
+    );
+    wrap(<ToolPage app="codex" simple />);
+    fireEvent.click(await screen.findByRole("button", {
+      name: "选择 API 并使用 AIHubMix · OpenAI",
+    }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("加载 API 列表失败，请重试。");
+    expect(screen.queryByText(/example.invalid/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
+  });
+
+  it("keeps service warnings useful without exposing raw diagnostics", async () => {
+    mocks.dispatch.mockResolvedValue({
+      cards: [service], currentProviderId: null,
+      warning: "模型服务暂不可用：https://example.invalid/private?token=fixture",
+    });
+    wrap(<ToolPage app="codex" simple />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("模型服务暂不可用，请重试。");
+    expect(screen.queryByText(/example.invalid/)).not.toBeInTheDocument();
+  });
+
   it("offers a single tool selector on the simple home", async () => {
     const onSelectApp = vi.fn();
     wrap(<ToolPage app="codex" simple onSelectApp={onSelectApp} />);
@@ -513,6 +538,23 @@ describe("dedicated service cards", () => {
     });
     expect(screen.queryByLabelText("服务地址")).not.toBeInTheDocument();
   });
+  it("reports a successful API creation without exposing local storage diagnostics", async () => {
+    mocks.dispatch.mockImplementation((command) => Promise.resolve(
+      command === "groups"
+        ? [{ id: 7, name: "平台服务", platform: "openai" }]
+        : { warning: "无法写入 /Users/example/private/vault-v2.bin：Permission denied" },
+    ));
+    wrap(<ApplyApiDialog onClose={() => {}} />);
+    await screen.findByRole("option", { name: "平台服务 · openai" });
+    fireEvent.click(screen.getByRole("button", { name: "确认申请" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "API 已申请成功。本机凭据保存失败，请返回 API 列表查看。",
+    );
+    expect(screen.queryByText(/vault-v2/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认申请" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "返回查看 Key" })).toBeEnabled();
+  });
+
   it("creates a platform Key only after explicit confirmation and stops duplicate or uncertain retries", async () => {
     let fail!: (error: unknown) => void;
     const pending = new Promise((_, reject) => {
