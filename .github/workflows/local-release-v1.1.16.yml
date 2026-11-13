@@ -69,13 +69,16 @@ jobs:
             if (!(Test-Path "Env:$key")) { throw 'Missing release configuration' }
           }
           if ((Get-Content package.json -Raw | ConvertFrom-Json).version -ne '1.1.16') { throw 'Release version mismatch' }
-          New-Item -ItemType SymbolicLink -Path src-tauri\target -Target '\\host.lan\Data\aihubmix-build-target' | Out-Null
+          if (!(Test-Path src-tauri\target)) {
+            New-Item -ItemType SymbolicLink -Path src-tauri\target -Target '\\host.lan\Data\aihubmix-build-target' | Out-Null
+          }
+          if ((Get-Item src-tauri\target).Target -ne '\\host.lan\Data\aihubmix-build-target') { throw 'Unexpected build cache target' }
           New-Item -ItemType Directory -Force '\\host.lan\Data\aihubmix-output-v116' | Out-Null
           git rev-parse HEAD | Out-File -Encoding ascii '\\host.lan\Data\aihubmix-output-v116\source-revision.txt'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm tauri build --target x86_64-pc-windows-msvc --config .github/local-release-windows-v1.1.16.json --no-bundle -- --locked
+      - run: node node_modules/@tauri-apps/cli/tauri.js build --target x86_64-pc-windows-msvc --config .github/local-release-windows-v1.1.16.json --no-bundle -- --locked
       - run: node scripts/collect-portable.mjs x86_64-pc-windows-msvc
-      - run: pnpm tauri bundle --target x86_64-pc-windows-msvc --config .github/local-release-windows-v1.1.16.json --bundles nsis --ci
+      - run: node node_modules/@tauri-apps/cli/tauri.js bundle --target x86_64-pc-windows-msvc --config .github/local-release-windows-v1.1.16.json --bundles nsis --ci
       - run: node scripts/check-update-format.mjs x86_64-pc-windows-msvc
       - run: node scripts/collect-artifacts.mjs x86_64-pc-windows-msvc
       - run: Copy-Item artifacts\* '\\host.lan\Data\aihubmix-output-v116\'
