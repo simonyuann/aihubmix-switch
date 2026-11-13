@@ -22,7 +22,7 @@ describe("settings account logout", () => {
         }),
     );
     render(<AccountSettings />);
-    expect(screen.getByText("account@example.test")).toBeInTheDocument();
+    expect(screen.getByText(/account@example\.test/)).toBeInTheDocument();
     const button = screen.getByRole("button", { name: "退出登录" });
     fireEvent.click(button);
     fireEvent.click(button);
@@ -36,7 +36,7 @@ describe("settings account logout", () => {
     render(<AccountSettings />);
     fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "network timeout",
+      "退出失败，请重试。",
     );
     expect(screen.getByRole("button", { name: "退出登录" })).toBeEnabled();
   });

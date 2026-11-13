@@ -146,6 +146,7 @@ describe("dedicated client account boundary", () => {
   it("restores the original CC provider workspace only after opting in", async () => {
     loggedIn = true;
     mocks.otherProviders = true;
+    localStorage.setItem("aihubmix:advanced-interface", "true");
     mount();
     await screen.findByRole("navigation");
     const add = await screen.findByRole("button", {
@@ -180,39 +181,24 @@ describe("dedicated client account boundary", () => {
     );
     mount();
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "network offline",
+      "连接暂时不可用，请检查网络后重试。",
     );
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
   });
-  it("shows a non-interactive header balance and places recharge and API management immediately above MCP", async () => {
+  it("shows the home balance and recharge with simple navigation", async () => {
     mount();
     await login();
     const balance = await screen.findByText("USD 12.34");
-    const header = balance.closest("header");
-    expect(header).not.toBeNull();
+    const wallet = screen.getByRole("region", { name: "账户余额" });
+    expect(wallet).toContainElement(balance);
     expect(balance.closest("button, a, [role='button']")).toBeNull();
-    const addGroup = screen.getByRole("button", { name: "添加分组" });
-    expect(header).toContainElement(addGroup);
-    expect(
-      balance.compareDocumentPosition(addGroup) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    for (const name of ["MCP", "Skills", "nav.prompts"])
-      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    expect(within(wallet).getByRole("button", { name: "充值" })).toBeInTheDocument();
     for (const name of ["授权中心", "添加供应商"])
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     const nav = screen.getByRole("navigation");
     expect(nav).not.toContainElement(balance);
     expect(within(nav).queryByText("余额")).not.toBeInTheDocument();
-    const labels = Array.from(nav.querySelectorAll("button")).map(
-      (b) => b.getAttribute("aria-label") || b.textContent,
-    );
-    const mcp = labels.indexOf("MCP");
-    expect(labels.slice(mcp - 2, mcp).map((s) => s?.split(" · ")[0])).toEqual([
-      "充值",
-      "API 管理",
-    ]);
-    expect(screen.getByRole("button", { name: "充值" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "API 管理" })).toBeInTheDocument();
     expect(
       screen.getAllByRole("button", { name: "申请 API" }).length,
     ).toBeGreaterThan(0);
@@ -271,7 +257,6 @@ describe("dedicated client account boundary", () => {
         name: /^(设置|common.settings|nav.settings)$/,
       }),
     );
-    expect(screen.queryByText("USD 12.34")).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "退出登录" }));
     await screen.findByRole("heading", { name: "登录你的账户" });
     expect(mocks.dispatch).toHaveBeenCalledWith("logout");

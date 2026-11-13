@@ -3,6 +3,7 @@ import { LogOut } from "lucide-react";
 import { useOptionalAccount } from "@/contexts/AccountContext";
 import { Button } from "@/components/ui/button";
 import { SettingsBlock, SettingsCard, SettingsRow } from "./SettingsLayout";
+import { friendlyError } from "@/components/aihubmix/friendlyError";
 
 export function AccountSettings() {
   const account = useOptionalAccount();
@@ -19,7 +20,7 @@ export function AccountSettings() {
     try {
       await account.logout();
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e, "退出失败，请重试。"));
     } finally {
       submitting.current = false;
       setBusy(false);

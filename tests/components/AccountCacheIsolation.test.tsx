@@ -164,7 +164,7 @@ describe("account cache isolation", () => {
     mocks.dispatch.mockImplementation((command) => {
       if (command === "login") {
         current = 2;
-        return Promise.resolve(null);
+        return Promise.resolve(account(current));
       }
       if (command === "session") return Promise.resolve(account(current));
       if (command === "tool-cards") return Promise.resolve(`cards-${current}`);

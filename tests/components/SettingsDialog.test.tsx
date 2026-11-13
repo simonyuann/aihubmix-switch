@@ -247,6 +247,7 @@ describe("SettingsPage", () => {
   });
 
   it("saves general switches immediately and links to the Apps page", async () => {
+    setAdvancedInterface(true);
     const { props } = renderSettingsPage();
 
     fireEvent.click(
