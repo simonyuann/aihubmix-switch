@@ -14,9 +14,12 @@ jobs:
       GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
       GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 4809f504e452566bb79d6c05bcfd57c78fb7930b
+      - name: Extract verified local source snapshot
+        shell: powershell
+        run: |
+          $snapshot='\\host.lan\Data\aihub-announcement-source.zip'
+          if ((Get-FileHash $snapshot -Algorithm SHA256).Hash -ne '6a44d8c0bbf79d3c17f1598395aca03654a9eae70a57c7a88ab372168d8dd07a') { throw 'Source snapshot checksum mismatch' }
+          Expand-Archive -Path $snapshot -DestinationPath $env:GITHUB_WORKSPACE -Force
       - uses: pnpm/action-setup@v4
         with:
           version: 10.12.3
