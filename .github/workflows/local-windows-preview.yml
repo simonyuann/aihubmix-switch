@@ -1,0 +1,74 @@
+name: Local Windows preview build
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: [self-hosted, Windows, X64, aihub-win-preview]
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: '4'
+      CI: 'true'
+      PSExecutionPolicyPreference: Bypass
+      GEMINI_OAUTH_CLIENT_ID: ${{ secrets.GEMINI_OAUTH_CLIENT_ID }}
+      GEMINI_OAUTH_CLIENT_SECRET: ${{ secrets.GEMINI_OAUTH_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: e60f2b2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Prepare test-only version and tools
+        shell: powershell
+        run: |
+          Add-Content $env:GITHUB_PATH 'C:\Program Files\Git\bin'
+          Add-Content $env:GITHUB_PATH 'C:\Program Files\Git\cmd'
+          Add-Content $env:GITHUB_PATH "$env:USERPROFILE\.cargo\bin"
+          $js = @'
+          const fs = require('fs');
+          const v = '1.1.16-test.1';
+          for (const f of ['package.json','src-tauri/tauri.conf.json']) {
+            const o = JSON.parse(fs.readFileSync(f)); o.version = v;
+            fs.writeFileSync(f, JSON.stringify(o, null, 2) + '\n');
+          }
+          for (const f of ['src-tauri/Cargo.toml','src-tauri/Cargo.lock']) {
+            const s = fs.readFileSync(f, 'utf8');
+            const re = f.endsWith('Cargo.toml') ? /^(version\s*=\s*")1\.1\.15("\s*)$/m : /(name = "cc-switch"\s+version = ")1\.1\.15("\s*)/;
+            if (!re.test(s)) throw Error('version not found in ' + f);
+            fs.writeFileSync(f, s.replace(re, '$1' + v + '$2'));
+          }
+          '@
+          $script = Join-Path $env:RUNNER_TEMP 'aihub-preview-version.cjs'
+          [IO.File]::WriteAllText($script, $js)
+          node $script
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $target='\\host.lan\Data\aihubmix-build-target'
+          if (!(Test-Path $target)) { throw 'Missing retained build cache' }
+          New-Item -ItemType SymbolicLink -Path "$env:GITHUB_WORKSPACE\src-tauri\target" -Target $target -ErrorAction Stop | Out-Null
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: ilammy/msvc-dev-cmd@v1
+      - run: pnpm install --frozen-lockfile
+      - name: Build portable Windows preview
+        shell: powershell
+        run: |
+          foreach ($name in @('GEMINI_OAUTH_CLIENT_ID','GEMINI_OAUTH_CLIENT_SECRET')) { if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) { throw "Missing $name" } }
+          node .\node_modules\@tauri-apps\cli\tauri.js build --target x86_64-pc-windows-msvc --no-bundle -- --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/collect-portable.mjs x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $dest='\\host.lan\Data\aihub-win-preview-e60'
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Copy-Item artifacts\*_windows-x64-portable.exe $dest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aihub-windows-preview-e60
+          path: artifacts/*_windows-x64-portable.exe
+          if-no-files-found: error
+          retention-days: 3
