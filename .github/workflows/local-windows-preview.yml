@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: e60f2b2
+          ref: e60f2b228e5579b81ab2256d617a3b007cee8af2
       - uses: pnpm/action-setup@v4
         with:
           version: 10.12.3
