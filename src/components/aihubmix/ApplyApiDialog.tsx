@@ -7,6 +7,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { friendlyError } from "./friendlyError";
 import { Input } from "@/components/ui/input";
 import { dispatch, type GroupInfo } from "@/lib/api/aihubmix";
 export function ApplyApiDialog({
@@ -35,7 +36,8 @@ export function ApplyApiDialog({
         }
       })
       .catch((e) => {
-        if (active.current) setError(String(e));
+        if (active.current)
+          setError(friendlyError(e, "加载分组失败，请重试。"));
       })
       .finally(() => {
         if (active.current) setLoading(false);
@@ -63,7 +65,7 @@ export function ApplyApiDialog({
     } catch (e) {
       if (active.current) {
         setError(
-          `${String(e)}。请先刷新 Key 列表确认结果，再决定是否重新申请。`,
+          `${friendlyError(e, "申请结果未能确认")}。请先刷新 Key 列表确认结果，再决定是否重新申请。`,
         );
         setUncertain(true);
       }

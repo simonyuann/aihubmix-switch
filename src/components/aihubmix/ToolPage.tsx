@@ -25,6 +25,7 @@ import { AnnouncementBanner } from "./Announcements";
 import { useWalletActions } from "./WalletPanel";
 import { HomeWalletBalance } from "./BalanceDisplay";
 import { CodexDesktopControls } from "./CodexDesktopControls";
+import { friendlyError } from "./friendlyError";
 interface ToolCard {
   provider: Provider;
   configured: boolean;
@@ -70,6 +71,7 @@ export function ToolPage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [imagegenNote, setImagegenNote] = useState("");
   const [apply, setApply] = useState(false);
   const gate = useRef(false);
   const keyQuery = useQuery({
@@ -108,13 +110,14 @@ export function ToolPage({
     setBusy(true);
     setError("");
     setNotice("");
+    setImagegenNote("");
     try {
       await dispatch("create-tool-card", { app, groupId: Number(groupId) });
       await refetch();
       setAdding(false);
       setNotice("分组已添加，请选择此分组的 API Key。");
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e, "添加分组失败，请重试。"));
     } finally {
       gate.current = false;
       setBusy(false);
@@ -126,6 +129,7 @@ export function ToolPage({
     setBusy(true);
     setError("");
     setNotice("");
+    setImagegenNote("");
     try {
       const result = await dispatch<{
         warnings?: string[];
@@ -137,19 +141,20 @@ export function ToolPage({
       });
       setEditing(null);
       setKeyId("");
-      let imagegenNote = "";
       if (start && app === "codex" && card.provider.category !== "official") {
         try {
           const setup = await invoke<{ status: string }>(
             "codex_imagegen_guide",
           );
-          imagegenNote =
+          setImagegenNote(
             setup.status === "written"
               ? "如需使用命令行生图备用方式，还需在本机安装 Python 3.11+ 和 OpenAI SDK；WSL、远程主机和容器需分别配置。"
-              : "命令行生图备用方式未能自动接入，这不代表原生生图不可用。请检查 Codex 的 shell_environment_policy 和 PYTHONPATH 设置。";
+              : "命令行生图备用方式未能自动接入，这不代表原生生图不可用。请检查 Codex 的 shell_environment_policy 和 PYTHONPATH 设置。",
+          );
         } catch {
-          imagegenNote =
-            "命令行生图备用方式的状态不可用，这不代表原生生图不可用。";
+          setImagegenNote(
+            "命令行生图备用方式的状态不可用，这不代表原生生图不可用。",
+          );
         }
       }
       setNotice(
@@ -158,7 +163,7 @@ export function ToolPage({
             ? `已切换到 ${card.provider.name}。请重启 Codex；如果官方登录已失效，请在 Codex 中重新登录。`
             : app === "dsh"
               ? `已启用 ${card.provider.name}。可以同时启用多个分组；请在 DeepSeek Harness 中选择模型。`
-              : `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}在 ${APP_DISPLAY_NAME[app]} 中通过 /model 切换模型。${app === "codex" ? "请重启 Codex，使配置生效。" : ""}${imagegenNote}`
+              : `已切换到 ${card.provider.name}。${result.selectedModel ? `默认模型：${result.selectedModel}。` : ""}${app === "codex" ? "请重启 Codex，使配置生效。" : `在 ${APP_DISPLAY_NAME[app]} 中选择模型。`}`
           : "API Key 已保存。",
       );
       if (result?.warnings?.length)
@@ -169,7 +174,7 @@ export function ToolPage({
         client.invalidateQueries({ queryKey: ["proxy"] }),
       ]);
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e, "操作失败，请检查网络后重试。"));
     } finally {
       gate.current = false;
       setBusy(false);
@@ -294,7 +299,7 @@ export function ToolPage({
           )}
           {loadError && (
             <div role="alert" className="text-body text-destructive">
-              {String(loadError)}{" "}
+              {friendlyError(loadError, "加载模型服务失败，请重试。")}{" "}
               <Button variant="outline" onClick={() => void refetch()}>
                 重试
               </Button>
@@ -508,6 +513,12 @@ export function ToolPage({
             <p role="status" className="text-body text-fg-2">
               {notice}
             </p>
+          )}
+          {imagegenNote && (
+            <details className="text-caption text-fg-3">
+              <summary className="cursor-pointer">命令行生图备用方式</summary>
+              <p className="mt-1">{imagegenNote}</p>
+            </details>
           )}
         </div>
       </main>

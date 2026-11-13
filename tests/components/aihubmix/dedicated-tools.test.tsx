@@ -233,9 +233,10 @@ describe("dedicated service cards", () => {
       );
       const notice = await screen.findByText(/请重启 Codex，使配置生效/);
       expect(notice).toHaveAttribute("role", "status");
-      expect(notice).toHaveTextContent(
-        "命令行生图备用方式未能自动接入，这不代表原生生图不可用",
-      );
+      expect(notice).not.toHaveTextContent("命令行生图备用方式");
+      expect(
+        screen.getByText("命令行生图备用方式").closest("details"),
+      ).not.toHaveAttribute("open");
     },
   );
   it.each(
@@ -365,7 +366,10 @@ describe("dedicated service cards", () => {
       }),
     );
     const notice = await screen.findByText(/请重启 Codex，使配置生效/);
-    expect(notice).toHaveTextContent("命令行生图备用方式");
+    expect(notice).not.toHaveTextContent("命令行生图备用方式");
+    expect(
+      screen.getByText("命令行生图备用方式").closest("details"),
+    ).not.toHaveAttribute("open");
     expect(notice).not.toHaveTextContent("原生生图已配置");
   });
   it("reuses CC cards with official restore, no model picker, and no arbitrary supplier actions", async () => {

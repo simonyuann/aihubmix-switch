@@ -21,6 +21,16 @@ beforeEach(() => {
 });
 
 describe("Codex Desktop controls", () => {
+  it("keeps successful launch status concise", async () => {
+    setCodexDesktopPreferences({ language: "system", plugins: true, executablePath: "" });
+    backend.invoke.mockImplementation((command: string) => command === "codex_desktop_status"
+      ? Promise.resolve({ installed: true, running: false, platform: "windows" })
+      : Promise.resolve({ status: "started", locale: "not_requested", plugins: "active" }));
+    render(<CodexDesktopControls />);
+    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    expect(await screen.findByText("Codex 已启动。")).toBeInTheDocument();
+    expect(screen.queryByText(/插件支持已生效/)).not.toBeInTheDocument();
+  });
   it("shows actual download progress and the verification phase", async () => {
     let report: (value: unknown) => void = () => {};
     let finish: (value: unknown) => void = () => {};
@@ -34,15 +44,15 @@ describe("Codex Desktop controls", () => {
     });
     render(<CodexDesktopSettings />);
     fireEvent.click(screen.getByRole("switch", { name: "社区插件市场" }));
-    expect(await screen.findByText(/正在连接插件下载站/)).toBeInTheDocument();
+    expect(await screen.findByText(/正在准备插件库/)).toBeInTheDocument();
     act(() => report({ phase: "downloading", downloaded: 25 * 1024 * 1024, total: 100 * 1024 * 1024 }));
     expect(screen.getByText(/25\.0 \/ 100\.0 MiB（25%）/)).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "插件库下载进度" })).toHaveValue(25 * 1024 * 1024);
     act(() => report({ phase: "verifying", downloaded: 100, total: 100 }));
-    expect(screen.getByText(/正在解压并校验插件/)).toBeInTheDocument();
+    expect(screen.getByText(/正在安装插件库/)).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     await act(async () => finish({ revision: "test", restartRequired: true }));
-    expect(screen.queryByText(/正在解压并校验插件/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/正在安装插件库/)).not.toBeInTheDocument();
   });
 
   it("clears progress and reports a download failure without enabling the market", async () => {
@@ -52,7 +62,7 @@ describe("Codex Desktop controls", () => {
     render(<CodexDesktopSettings />);
     fireEvent.click(screen.getByRole("switch", { name: "社区插件市场" }));
     expect(await screen.findByText("插件包下载中断")).toBeInTheDocument();
-    expect(screen.queryByText(/正在连接插件下载站/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/正在准备插件库/)).not.toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "社区插件市场" })).toHaveAttribute("data-state", "unchecked");
   });
   it("launches with the requested language and never claims unverified plugin support", async () => {

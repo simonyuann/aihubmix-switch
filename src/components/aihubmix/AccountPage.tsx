@@ -6,6 +6,7 @@ import { useAccount } from "@/contexts/AccountContext";
 import { dispatch, type KeyInfo } from "@/lib/api/aihubmix";
 import { ApplyApiDialog } from "./ApplyApiDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { friendlyError } from "./friendlyError";
 export function AccountPage() {
   const { state } = useAccount();
   const [keys, setKeys] = useState<KeyInfo[]>([]);
@@ -25,7 +26,8 @@ export function AccountPage() {
       if (rev === revision.current)
         setKeys(value.filter((k) => k.id > 0 && !k.local));
     } catch (e) {
-      if (rev === revision.current) setError(String(e));
+      if (rev === revision.current)
+        setError(friendlyError(e, "加载 API 列表失败，请重试。"));
     } finally {
       if (rev === revision.current) setBusy(false);
     }
@@ -49,7 +51,8 @@ export function AccountPage() {
       await navigator.clipboard.writeText(value);
       setNotice("API Key 已复制");
     } catch (e) {
-      if (rev === revision.current) setError(String(e));
+      if (rev === revision.current)
+        setError(friendlyError(e, "复制失败，请重试。"));
     } finally {
       operation.current = false;
       if (rev === revision.current) setBusy(false);
@@ -71,7 +74,9 @@ export function AccountPage() {
     } catch (e) {
       if (rev === revision.current) {
         setDeleting(null);
-        setError(`${String(e)}。请刷新列表确认删除结果后再重试。`);
+        setError(
+          `${friendlyError(e, "删除未能确认")}。请刷新列表确认删除结果后再重试。`,
+        );
       }
     } finally {
       operation.current = false;
@@ -174,8 +179,8 @@ export function AccountPage() {
             ))}
           </section>
           <p className="text-caption leading-6 text-fg-3">
-            在首页选择工具并添加模型分组，选择对应的 API Key
-            后启动。模型可在 Agent 中通过 /model 切换。
+            在首页选择工具并添加模型分组，选择对应的 API Key 后启动。模型可在
+            Agent 中通过 /model 切换。
           </p>
         </div>
       </main>

@@ -12,6 +12,7 @@ import { useAccount } from "@/contexts/AccountContext";
 import { dispatch, type Announcement } from "@/lib/api/aihubmix";
 import { Button } from "@/components/ui/button";
 import { useSettingsQuery } from "@/lib/query";
+import { friendlyError } from "./friendlyError";
 import { SessionMarkdown } from "@/components/sessions/reader/SessionMarkdown";
 import {
   Dialog,
@@ -96,11 +97,20 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
   const generation = useRef(0);
 
   useEffect(() => {
-    if (open || !items.some((item) => !item.readAt && item.notifyMode === "popup" && !seenPopups.current.has(item.id))) {
+    if (
+      open ||
+      !items.some(
+        (item) =>
+          !item.readAt &&
+          item.notifyMode === "popup" &&
+          !seenPopups.current.has(item.id),
+      )
+    ) {
       setAnotherDialogOpen(false);
       return;
     }
-    const check = () => setAnotherDialogOpen(!!document.querySelector('[role="dialog"]'));
+    const check = () =>
+      setAnotherDialogOpen(!!document.querySelector('[role="dialog"]'));
     check();
     const observer = new MutationObserver(check);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -116,7 +126,8 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
       setItems(next);
       setError("");
     } catch (e) {
-      if (generation.current === current) setError(String(e));
+      if (generation.current === current)
+        setError(friendlyError(e, "公告加载失败，请重试。"));
     }
   }, []);
 
@@ -149,7 +160,8 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
           );
         })
         .catch((e) => {
-          if (generation.current === current) setError(String(e));
+          if (generation.current === current)
+            setError(friendlyError(e, "公告状态保存失败，请重试。"));
         });
     }
   }, []);
@@ -166,7 +178,14 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // First-run UI has a higher layer and its own focus trap. Wait until it
     // has been dismissed and any other open dialog has actually unmounted.
-    if (open || (!settings && !settingsError) || (settings && settings.firstRunNoticeConfirmed !== true) || anotherDialogOpen || document.querySelector('[role="dialog"]')) return;
+    if (
+      open ||
+      (!settings && !settingsError) ||
+      (settings && settings.firstRunNoticeConfirmed !== true) ||
+      anotherDialogOpen ||
+      document.querySelector('[role="dialog"]')
+    )
+      return;
     const popup = items.find(
       (item) =>
         !item.readAt &&
@@ -213,7 +232,13 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <Button variant="ghost" size="icon-compact" aria-label="关闭公告" className="absolute right-4 top-4" onClick={close}>
+            <Button
+              variant="ghost"
+              size="icon-compact"
+              aria-label="关闭公告"
+              className="absolute right-4 top-4"
+              onClick={close}
+            >
               <X className="h-4 w-4" />
             </Button>
             <DialogTitle className="flex items-center gap-2 pr-10">
@@ -243,7 +268,11 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
               </p>
             )}
             {selected ? (
-              <SessionMarkdown content={selected.content} autoLoadRemoteImages className="whitespace-pre-line text-body leading-6" />
+              <SessionMarkdown
+                content={selected.content}
+                autoLoadRemoteImages
+                className="whitespace-pre-line text-body leading-6"
+              />
             ) : items.length ? (
               <div className="divide-y divide-border">
                 {items.map((item) => (

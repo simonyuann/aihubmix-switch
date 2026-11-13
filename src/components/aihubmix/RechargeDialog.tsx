@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { friendlyError } from "./friendlyError";
 import QRCode from "qrcode";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { settingsApi } from "@/lib/api/settings";
@@ -116,7 +117,7 @@ export function RechargeDialog({
       setError("");
     } catch (e) {
       if (mounted.current) {
-        setError(String(e));
+        setError(friendlyError(e, "加载充值信息失败，请重试。"));
         setOverviewFailed(true);
         setOverview((current) =>
           current ? { ...current, balance: null } : null,
@@ -169,7 +170,8 @@ export function RechargeDialog({
         if (!stopped && mounted.current && rev === revision.current)
           apply(next);
       } catch (e) {
-        if (!stopped && mounted.current) setError(String(e));
+        if (!stopped && mounted.current)
+          setError(friendlyError(e, "刷新充值状态失败，请重试。"));
       } finally {
         polling = false;
       }
@@ -220,7 +222,7 @@ export function RechargeDialog({
       }
     } catch (e) {
       if (mounted.current) {
-        setError(String(e));
+        setError(friendlyError(e, "充值操作未能确认，请刷新充值记录。"));
         if (creation) setUncertain(true);
       }
     } finally {
@@ -426,7 +428,14 @@ export function RechargeDialog({
                       onClick={() =>
                         void settingsApi
                           .openExternal(order.payUrl!)
-                          .catch((e) => setError(String(e)))
+                          .catch((e) =>
+                            setError(
+                              friendlyError(
+                                e,
+                                "操作失败，请刷新充值记录后重试。",
+                              ),
+                            ),
+                          )
                       }
                     >
                       打开支付页面

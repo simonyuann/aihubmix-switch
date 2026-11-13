@@ -13,6 +13,7 @@ import {
 import { WindowControls } from "@/components/shell/WindowControls";
 import { useSettingsQuery } from "@/lib/query";
 import logo from "@/assets/icons/aihubmix-a.png";
+import { friendlyError } from "./friendlyError";
 
 type Mode = "login" | "register" | "forgot";
 interface AuthSettings {
@@ -53,7 +54,8 @@ export function LoginPage() {
         if (current) setSettings(value);
       })
       .catch((e) => {
-        if (current) setError(String(e));
+        if (current)
+          setError(friendlyError(e, "连接平台失败，请检查网络后重试。"));
       })
       .finally(() => {
         if (current) setSettingsLoading(false);
@@ -92,7 +94,8 @@ export function LoginPage() {
         setCooldown(60);
       }
     } catch (e) {
-      if (active.current) setError(String(e));
+      if (active.current)
+        setError(friendlyError(e, "验证码发送失败，请稍后重试。"));
     } finally {
       gate.current = false;
       if (active.current) setSending(false);
@@ -124,7 +127,8 @@ export function LoginPage() {
         });
       }
     } catch (e) {
-      if (active.current) setError(String(e));
+      if (active.current)
+        setError(friendlyError(e, "操作失败，请检查网络后重试。"));
     } finally {
       gate.current = false;
       if (active.current) setBusy(false);
@@ -139,7 +143,7 @@ export function LoginPage() {
       setError("");
       setNotice(result?.revocationWarning || "已退出本机旧账号，请重新登录。");
     } catch (e) {
-      setError(String(e));
+      setError(friendlyError(e, "退出账号失败，请重试。"));
     } finally {
       gate.current = false;
       setBusy(false);

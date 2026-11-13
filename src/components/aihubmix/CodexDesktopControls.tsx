@@ -22,28 +22,20 @@ function startMessage(
   if (result.status === "unsupported")
     return "当前系统或 Codex 版本暂不支持从这里启动。";
 
-  const parts = [
-    result.status === "started"
-      ? "Codex 已启动。"
-      : "Codex 已启动，部分功能未能确认。",
-  ];
+  const parts = ["Codex 已启动。"];
+  if (preferences.language !== "system" && result.locale !== "applied")
+    parts.push("界面语言未能确认，请在 Codex 中检查。");
+  if (
+    preferences.plugins &&
+    result.plugins !== "applied" &&
+    result.plugins !== "active"
+  )
+    parts.push("插件支持未能确认，请在 Codex 的插件页面检查。");
+  if (result.status === "partial" && parts.length === 1)
+    parts.push("部分功能未能确认，请在 Codex 中检查。");
   if (preferences.language !== "system") {
     parts.push(
-      result.locale === "applied"
-        ? "界面语言已生效。"
-        : "界面语言未能确认，请在 Codex 中检查。",
-    );
-  }
-  if (preferences.plugins) {
-    parts.push(
-      result.plugins === "applied" || result.plugins === "active"
-        ? "插件支持已生效。"
-        : "插件支持未能确认；请在 Codex 的 Plugins → Personal 页面查看社区插件。",
-    );
-  }
-  if (preferences.language !== "system") {
-    parts.push(
-      "增强启动期间，本机其他进程可能访问调试接口；退出 Codex 后关闭。",
+      "增强启动期间，其他本机程序可能访问调试接口；退出 Codex 后关闭。",
     );
   }
   return parts.join("");

@@ -41,7 +41,9 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [marketProgress, setMarketProgress] = useState<MarketProgress | null>(null);
+  const [marketProgress, setMarketProgress] = useState<MarketProgress | null>(
+    null,
+  );
   const gate = useRef(false);
   const mounted = useRef(true);
 
@@ -163,8 +165,7 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>Codex 插件</DialogTitle>
           <DialogDescription>
-            来自社区公开插件缓存。插件连接第三方服务时可能需要单独登录或授权；安装后请新建会话。Codex
-            中安装失败时，可在这里重试。
+            安装后新建会话或重启 Codex；部分插件需要单独登录。
           </DialogDescription>
           <p className="text-caption text-fg-3">
             社区插件可能读取本机文件或运行代码，安装前请确认来源。
@@ -192,7 +193,9 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
               正在加载插件列表…
             </p>
           )}
-          {busy === "enable" && <CodexMarketProgress progress={marketProgress} />}
+          {busy === "enable" && (
+            <CodexMarketProgress progress={marketProgress} />
+          )}
           {error && (
             <div
               role="alert"

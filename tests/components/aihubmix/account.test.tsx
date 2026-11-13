@@ -71,7 +71,8 @@ describe("AIHubMix account integration", () => {
     expect(create).toBeDisabled();
     mocks.dispatch.mockRejectedValue(new Error("refresh failed"));
     fireEvent.click(screen.getByRole("button", { name: "刷新余额与充值记录" }));
-    await screen.findByText(/refresh failed/);
+    await screen.findByText("加载充值信息失败，请重试。");
+    expect(screen.queryByText(/refresh failed/)).not.toBeInTheDocument();
     expect(create).toBeDisabled();
     view.rerender(
       <RechargeDialog open={false} onClose={() => {}} onPaid={() => {}} />,
