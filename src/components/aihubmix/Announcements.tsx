@@ -7,10 +7,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowLeft, Bell, ChevronRight, Megaphone } from "lucide-react";
+import { ArrowLeft, Bell, ChevronRight, Megaphone, X } from "lucide-react";
 import { useAccount } from "@/contexts/AccountContext";
 import { dispatch, type Announcement } from "@/lib/api/aihubmix";
 import { Button } from "@/components/ui/button";
+import { useSettingsQuery } from "@/lib/query";
+import { SessionMarkdown } from "@/components/sessions/reader/SessionMarkdown";
 import {
   Dialog,
   DialogContent,
@@ -84,12 +86,26 @@ export function AnnouncementBell() {
 
 export function AnnouncementProvider({ children }: { children: ReactNode }) {
   const account = useAccount();
+  const { data: settings, isError: settingsError } = useSettingsQuery();
   const [items, setItems] = useState<Announcement[]>([]);
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [anotherDialogOpen, setAnotherDialogOpen] = useState(false);
   const seenPopups = useRef(new Set<number>());
   const generation = useRef(0);
+
+  useEffect(() => {
+    if (open || !items.some((item) => !item.readAt && item.notifyMode === "popup" && !seenPopups.current.has(item.id))) {
+      setAnotherDialogOpen(false);
+      return;
+    }
+    const check = () => setAnotherDialogOpen(!!document.querySelector('[role="dialog"]'));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [items, open]);
 
   const refresh = useCallback(async () => {
     const current = generation.current;
@@ -148,7 +164,9 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (open) return;
+    // First-run UI has a higher layer and its own focus trap. Wait until it
+    // has been dismissed and any other open dialog has actually unmounted.
+    if (open || (!settings && !settingsError) || (settings && settings.firstRunNoticeConfirmed !== true) || anotherDialogOpen || document.querySelector('[role="dialog"]')) return;
     const popup = items.find(
       (item) =>
         !item.readAt &&
@@ -159,7 +177,7 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
       seenPopups.current.add(popup.id);
       view(popup, false);
     }
-  }, [items, open, view]);
+  }, [items, open, view, settings, settingsError, anotherDialogOpen]);
 
   const selected = items.find((item) => item.id === selectedId);
   const close = () => {
@@ -195,7 +213,10 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <Button variant="ghost" size="icon-compact" aria-label="关闭公告" className="absolute right-4 top-4" onClick={close}>
+              <X className="h-4 w-4" />
+            </Button>
+            <DialogTitle className="flex items-center gap-2 pr-10">
               {selected && (
                 <Button
                   variant="ghost"
@@ -222,9 +243,7 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
               </p>
             )}
             {selected ? (
-              <div className="whitespace-pre-wrap break-words text-body leading-6">
-                {selected.content}
-              </div>
+              <SessionMarkdown content={selected.content} autoLoadRemoteImages className="whitespace-pre-line text-body leading-6" />
             ) : items.length ? (
               <div className="divide-y divide-border">
                 {items.map((item) => (
