@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { getCodexDesktopPreferences } from "@/lib/codexDesktop";
 
 export interface CodexMarketProgress {
   phase: "checking" | "downloading" | "verifying" | "registering";
@@ -21,6 +22,8 @@ export function codexMarketError(error: unknown, fallback: string) {
     "当前 Codex 版本不支持此插件管理方式，请更新 Codex 后重试",
     "当前 Codex 使用自定义数据目录；此平台暂无法确认桌面版会使用该目录，请先使用默认目录",
     "找不到可用的 Codex 命令行，请先安装或更新 Codex",
+    "所选 Codex 路径不可用，请在设置中重新选择程序",
+    "所选 Codex 缺少插件管理组件，请重新解压完整安装包或更新 Codex",
     "插件目录已更新，请刷新后再安装",
     "插件操作超时，请检查网络后刷新状态",
     "插件内容校验失败，请刷新目录",
@@ -73,18 +76,31 @@ interface CodexPluginMarketChange {
 }
 
 export const codexPluginMarket = {
-  list: () => invoke<CodexPluginCatalog>("list_codex_market_plugins"),
+  list: () =>
+    invoke<CodexPluginCatalog>("list_codex_market_plugins", {
+      executablePath: getCodexDesktopPreferences().executablePath,
+    }),
   enable: (onProgress?: (progress: CodexMarketProgress) => void) => {
     const progress = new Channel<CodexMarketProgress>();
     progress.onmessage = onProgress ?? (() => {});
-    return invoke<CodexPluginMarketChange>("enable_codex_plugin_market", { progress });
+    return invoke<CodexPluginMarketChange>("enable_codex_plugin_market", {
+      progress,
+      executablePath: getCodexDesktopPreferences().executablePath,
+    });
   },
-  disable: () => invoke<CodexPluginMarketChange>("disable_codex_plugin_market"),
+  disable: () =>
+    invoke<CodexPluginMarketChange>("disable_codex_plugin_market", {
+      executablePath: getCodexDesktopPreferences().executablePath,
+    }),
   install: (pluginId: string, revision: string) =>
     invoke<CodexPluginChange>("install_codex_market_plugin", {
       pluginId,
       revision,
+      executablePath: getCodexDesktopPreferences().executablePath,
     }),
   uninstall: (pluginId: string) =>
-    invoke<CodexPluginChange>("uninstall_codex_market_plugin", { pluginId }),
+    invoke<CodexPluginChange>("uninstall_codex_market_plugin", {
+      pluginId,
+      executablePath: getCodexDesktopPreferences().executablePath,
+    }),
 };

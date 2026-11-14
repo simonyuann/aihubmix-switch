@@ -1057,12 +1057,15 @@ fn classify_codex_failure(bytes: &[u8]) -> &'static str {
     "Codex 插件操作失败；请检查版本、网络和插件所需授权"
 }
 
-async fn codex_cli(args: Vec<String>) -> Result<Value, String> {
+async fn codex_cli(executable_path: Option<&str>, args: Vec<String>) -> Result<Value, String> {
     let home = crate::codex_config::get_codex_config_dir();
     let cwd = crate::config::get_app_config_dir();
+    let executable_path = executable_path.map(str::to_owned);
     let start = tokio::task::spawn_blocking(move || {
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let mut command = if let Some(cli) = crate::codex_desktop::detected_codex_cli() {
+        let mut command = if let Some(cli) =
+            crate::codex_desktop::detected_codex_cli(executable_path.as_deref())?
+        {
             let mut command = std::process::Command::new(cli);
             command.args(&refs);
             command
@@ -1099,14 +1102,11 @@ async fn codex_cli(args: Vec<String>) -> Result<Value, String> {
 fn words(args: &[&str]) -> Vec<String> {
     args.iter().map(|x| (*x).to_string()).collect()
 }
-async fn installed_names() -> Result<HashSet<String>, String> {
-    let output = codex_cli(words(&[
-        "plugin",
-        "list",
-        "--marketplace",
-        MARKET,
-        "--json",
-    ]))
+async fn installed_names(executable_path: Option<&str>) -> Result<HashSet<String>, String> {
+    let output = codex_cli(
+        executable_path,
+        words(&["plugin", "list", "--marketplace", MARKET, "--json"]),
+    )
     .await?;
     let values = output["installed"]
         .as_array()
@@ -1118,9 +1118,13 @@ async fn installed_names() -> Result<HashSet<String>, String> {
         .map(str::to_owned)
         .collect())
 }
-async fn register(root: &Path) -> Result<(), String> {
+async fn register(root: &Path, executable_path: Option<&str>) -> Result<(), String> {
     let root = root.to_str().ok_or("插件市场路径无法识别")?;
-    codex_cli(words(&["plugin", "marketplace", "add", root, "--json"])).await?;
+    codex_cli(
+        executable_path,
+        words(&["plugin", "marketplace", "add", root, "--json"]),
+    )
+    .await?;
     Ok(())
 }
 fn registered_to_ours(value: &Value, root: &Path) -> Result<bool, String> {
@@ -1150,8 +1154,15 @@ fn registered_to_ours(value: &Value, root: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-async fn ensure_no_foreign_registration(root: &Path) -> Result<(), String> {
-    let output = codex_cli(words(&["plugin", "marketplace", "list", "--json"])).await?;
+async fn ensure_no_foreign_registration(
+    root: &Path,
+    executable_path: Option<&str>,
+) -> Result<(), String> {
+    let output = codex_cli(
+        executable_path,
+        words(&["plugin", "marketplace", "list", "--json"]),
+    )
+    .await?;
     // If the name belongs to somebody else, or the root cannot be checked,
     // registered_to_ours fails closed before our local manifest is touched.
     let _ = registered_to_ours(&output, root)?;
@@ -1159,13 +1170,21 @@ async fn ensure_no_foreign_registration(root: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn list_codex_market_plugins() -> Result<PublicCatalog, String> {
+pub async fn list_codex_market_plugins(
+    executable_path: Option<String>,
+) -> Result<PublicCatalog, String> {
+    let executable_path = executable_path.as_deref();
     let index = mirror::metadata().await?.index;
     let root = managed_root();
     let installed = if ensure_desktop_codex_home().is_ok() {
-        match codex_cli(words(&["plugin", "marketplace", "list", "--json"])).await {
+        match codex_cli(
+            executable_path,
+            words(&["plugin", "marketplace", "list", "--json"]),
+        )
+        .await
+        {
             Ok(value) if registered_to_ours(&value, &root).unwrap_or(false) => {
-                installed_names().await.ok()
+                installed_names(executable_path).await.ok()
             }
             _ => None,
         }
@@ -1198,12 +1217,14 @@ pub async fn list_codex_market_plugins() -> Result<PublicCatalog, String> {
 #[tauri::command]
 pub async fn enable_codex_plugin_market(
     progress: tauri::ipc::Channel<mirror::Progress>,
+    executable_path: Option<String>,
 ) -> Result<MarketSetup, String> {
+    let executable_path = executable_path.as_deref();
     let _guard = MARKET_LOCK.lock().await;
     ensure_desktop_codex_home()?;
     let snapshot = mirror::metadata().await?;
     let root = managed_root();
-    ensure_no_foreign_registration(&root).await?;
+    ensure_no_foreign_registration(&root, executable_path).await?;
     ensure_owned_market_root(&root)?;
     let (catalog, created) = mirror::prepare(&root, &snapshot, Some(&progress)).await?;
     let folder = catalog
@@ -1234,7 +1255,7 @@ pub async fn enable_codex_plugin_market(
         .map(|name| root.join(name));
     mirror::progress(Some(&progress), "registering", 0, 0);
     write_marketplace_value(&root, &manifest)?;
-    if let Err(error) = register(&root).await {
+    if let Err(error) = register(&root, executable_path).await {
         if let Some(bytes) = previous {
             crate::config::atomic_write_private(&manifest_path, &bytes)
                 .map_err(|_| "插件市场注册失败，恢复旧配置也失败")?;
@@ -1259,19 +1280,23 @@ pub async fn enable_codex_plugin_market(
 }
 
 #[tauri::command]
-pub async fn disable_codex_plugin_market() -> Result<MarketSetup, String> {
+pub async fn disable_codex_plugin_market(
+    executable_path: Option<String>,
+) -> Result<MarketSetup, String> {
+    let executable_path = executable_path.as_deref();
     let _guard = MARKET_LOCK.lock().await;
     ensure_desktop_codex_home()?;
     let root = managed_root();
-    let output = codex_cli(words(&["plugin", "marketplace", "list", "--json"])).await?;
+    let output = codex_cli(
+        executable_path,
+        words(&["plugin", "marketplace", "list", "--json"]),
+    )
+    .await?;
     if registered_to_ours(&output, &root)? {
-        codex_cli(words(&[
-            "plugin",
-            "marketplace",
-            "remove",
-            MARKET,
-            "--json",
-        ]))
+        codex_cli(
+            executable_path,
+            words(&["plugin", "marketplace", "remove", MARKET, "--json"]),
+        )
         .await?;
     }
     Ok(MarketSetup {
@@ -1284,7 +1309,9 @@ pub async fn disable_codex_plugin_market() -> Result<MarketSetup, String> {
 pub async fn install_codex_market_plugin(
     plugin_id: String,
     revision: String,
+    executable_path: Option<String>,
 ) -> Result<MarketChange, String> {
+    let executable_path = executable_path.as_deref();
     let _guard = MARKET_LOCK.lock().await;
     ensure_desktop_codex_home()?;
     if !valid_slug(&plugin_id) || !valid_git_id(&revision) {
@@ -1298,7 +1325,11 @@ pub async fn install_codex_market_plugin(
         return Err("插件不在公开目录中".into());
     }
     let root = managed_root();
-    let registered = codex_cli(words(&["plugin", "marketplace", "list", "--json"])).await?;
+    let registered = codex_cli(
+        executable_path,
+        words(&["plugin", "marketplace", "list", "--json"]),
+    )
+    .await?;
     if !registered_to_ours(&registered, &root)? {
         return Err("请先开启社区插件市场".into());
     }
@@ -1324,8 +1355,12 @@ pub async fn install_codex_market_plugin(
         return Err("请重新开启社区插件市场以使用国内下载".into());
     }
     let selector = format!("{plugin_id}@{MARKET}");
-    codex_cli(words(&["plugin", "add", &selector, "--json"])).await?;
-    if !installed_names().await?.contains(&plugin_id) {
+    codex_cli(
+        executable_path,
+        words(&["plugin", "add", &selector, "--json"]),
+    )
+    .await?;
+    if !installed_names(executable_path).await?.contains(&plugin_id) {
         return Err("安装状态尚未确认，请刷新列表".into());
     }
     Ok(MarketChange {
@@ -1335,20 +1370,32 @@ pub async fn install_codex_market_plugin(
 }
 
 #[tauri::command]
-pub async fn uninstall_codex_market_plugin(plugin_id: String) -> Result<MarketChange, String> {
+pub async fn uninstall_codex_market_plugin(
+    plugin_id: String,
+    executable_path: Option<String>,
+) -> Result<MarketChange, String> {
+    let executable_path = executable_path.as_deref();
     let _guard = MARKET_LOCK.lock().await;
     ensure_desktop_codex_home()?;
     if !valid_slug(&plugin_id) {
         return Err("插件标识无效".into());
     }
     let root = managed_root();
-    let output = codex_cli(words(&["plugin", "marketplace", "list", "--json"])).await?;
+    let output = codex_cli(
+        executable_path,
+        words(&["plugin", "marketplace", "list", "--json"]),
+    )
+    .await?;
     if !registered_to_ours(&output, &root)? {
         return Err("本软件的插件市场未启用，未删除插件".into());
     }
     let selector = format!("{plugin_id}@{MARKET}");
-    codex_cli(words(&["plugin", "remove", &selector, "--json"])).await?;
-    if installed_names().await?.contains(&plugin_id) {
+    codex_cli(
+        executable_path,
+        words(&["plugin", "remove", &selector, "--json"]),
+    )
+    .await?;
+    if installed_names(executable_path).await?.contains(&plugin_id) {
         return Err("卸载状态尚未确认，请刷新列表".into());
     }
     Ok(MarketChange {

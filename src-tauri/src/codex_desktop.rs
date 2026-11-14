@@ -19,6 +19,7 @@ pub struct DesktopStatus {
     pub supported: bool,
     pub platform: String,
     pub message: String,
+    pub executable_path: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -153,24 +154,24 @@ fn find_install() -> Option<PathBuf> {
 
 /// Locate the CLI belonging to the same verified Desktop bundle.
 #[cfg(target_os = "macos")]
-pub(crate) fn detected_codex_cli() -> Option<PathBuf> {
-    let candidate = find_install()?.join("Contents/Resources/codex-cli/bin/codex");
-    if candidate.is_file() {
-        Some(candidate)
-    } else {
-        None
-    }
+pub(crate) fn detected_codex_cli(
+    _executable_path: Option<&str>,
+) -> Result<Option<PathBuf>, String> {
+    Ok(find_install()
+        .map(|bundle| bundle.join("Contents/Resources/codex-cli/bin/codex"))
+        .filter(|candidate| candidate.is_file()))
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn detected_codex_cli() -> Option<PathBuf> {
+pub(crate) fn detected_codex_cli(executable_path: Option<&str>) -> Result<Option<PathBuf>, String> {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        crate::codex_desktop_platform::detected_codex_cli()
+        crate::codex_desktop_platform::detected_codex_cli(executable_path)
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
-        None
+        let _ = executable_path;
+        Ok(None)
     }
 }
 
@@ -297,6 +298,7 @@ pub async fn codex_desktop_status(
         supported: false,
         platform,
         message: "当前平台的 Codex 增强启动尚未完成验证".into(),
+        executable_path: String::new(),
     });
     #[cfg(target_os = "macos")]
     {
@@ -307,6 +309,7 @@ pub async fn codex_desktop_status(
                 supported: true,
                 platform,
                 message: "未找到受信任的 Codex Desktop，请检查安装来源".into(),
+                executable_path: String::new(),
             });
         };
         let _ = bundle;
@@ -322,6 +325,7 @@ pub async fn codex_desktop_status(
             supported: true,
             platform,
             message: message.into(),
+            executable_path: bundle.to_string_lossy().into_owned(),
         })
     }
 }

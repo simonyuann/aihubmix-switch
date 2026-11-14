@@ -14,6 +14,7 @@ export interface CodexDesktopStatus {
   running: boolean;
   platform: string;
   message?: string;
+  executablePath?: string;
 }
 
 export interface CodexDesktopLaunchResult {
@@ -69,6 +70,10 @@ function decode(raw: string): CodexDesktopPreferences {
 export function useCodexDesktopPreferences(): CodexDesktopPreferences {
   const raw = useSyncExternalStore(subscribe, snapshot, () => DEFAULT);
   return useMemo(() => decode(raw), [raw]);
+}
+
+export function getCodexDesktopPreferences(): CodexDesktopPreferences {
+  return decode(snapshot());
 }
 
 export function setCodexDesktopPreferences(

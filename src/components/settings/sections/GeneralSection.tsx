@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { isLinux } from "@/lib/platform";
 import { TerminalSelect } from "@/components/settings/TerminalSettings";
 import { CodexDesktopSettings } from "@/components/settings/CodexDesktopSettings";
+import { ClaudeDesktopSettings } from "@/components/settings/ClaudeDesktopSettings";
 import {
   setAdvancedInterface,
   useAdvancedInterface,
@@ -142,6 +143,7 @@ export function GeneralSection({
       </SettingsBlock>
 
       <CodexDesktopSettings />
+      <ClaudeDesktopSettings />
 
       {advancedInterface && (
         <SettingsBlock title={t("settings.general.sidebarAndHeader")}>

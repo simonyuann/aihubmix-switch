@@ -6,6 +6,7 @@ mod app_config;
 mod app_store;
 mod auto_launch;
 mod claude_desktop_config;
+mod claude_desktop_launch;
 mod claude_mcp;
 mod claude_plugin;
 mod codex_config;
@@ -1585,6 +1586,9 @@ pub fn run() {
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
             aihubmix::aihubmix_dispatch,
             codex_desktop::codex_desktop_status,
+            claude_desktop_launch::claude_desktop_launch_status,
+            claude_desktop_launch::launch_claude_desktop,
+            claude_desktop_launch::cancel_claude_desktop_launch,
             codex_desktop::launch_codex_desktop,
             commands::codex_market::list_codex_market_plugins,
             commands::codex_market::enable_codex_plugin_market,

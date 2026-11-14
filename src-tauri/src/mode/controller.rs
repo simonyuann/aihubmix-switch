@@ -121,6 +121,19 @@ enum LiveNow {
 
 impl LiveNow {
     fn of(state: &AppState, app: &AppType, mode: &ModeState) -> Result<Self, String> {
+        if *app == AppType::ClaudeDesktop {
+            // Desktop replaces its complete managed profile. Its previous provider is
+            // never needed to merge fields, and may belong to a signed-out account.
+            // Resolve and authorize the NEW target separately in enter/change_route.
+            return Ok(if mode.attached {
+                Self::Proxy {
+                    contract: mode.contract.clone(),
+                    route: None,
+                }
+            } else {
+                Self::Direct(None)
+            });
+        }
         if mode.attached {
             // 旧版接管留下的状态没有路由记录，那时路由就是直连指针。
             let route = match route_provider(state, app, mode)? {
@@ -6724,6 +6737,96 @@ model_provider = "c"
             .join(format!("{}.json", crate::claude_desktop_config::PROFILE_ID));
         serde_json::from_slice(&std::fs::read(path).expect("read desktop profile"))
             .expect("parse desktop profile")
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn claude_desktop_replaces_another_accounts_historical_profile() {
+        // Product policy is process-global. Exercise real account enforcement in
+        // an isolated test process so other controller tests keep their fixtures.
+        const CHILD: &str = "AIHUB_TEST_DESKTOP_ACCOUNT_POLICY";
+        if std::env::var_os(CHILD).is_none() {
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "mode::controller::mode_tests::claude_desktop_replaces_another_accounts_historical_profile", "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert!(String::from_utf8_lossy(&result.stdout).contains("1 passed"));
+            return;
+        }
+        let home = Home::new();
+        let _dirs = DesktopDirs::under(&home);
+        seed_settings(USER_SETTINGS);
+        let desktop = AppType::ClaudeDesktop;
+        let mut old = crate::aihubmix::test_draft(desktop.as_str(), crate::product_policy::ORIGIN);
+        old.id = "aihubmix-claude-desktop-account-2-service-4".into();
+        let mut next = old.clone();
+        next.id = "aihubmix-claude-desktop-account-130-service-4".into();
+        next.settings_config["env"]["ANTHROPIC_AUTH_TOKEN"] = json!("fixture-new-account");
+        assert!(!crate::product_policy::own_provider_for_account(
+            &desktop, &old, 130
+        ));
+        assert!(crate::product_policy::own_provider_for_account(
+            &desktop, &next, 130
+        ));
+        let state = state_with(desktop.clone(), &[old.clone(), next.clone()], &old.id).await;
+        enter_with_route(&state, &desktop, false, Some(&old.id))
+            .await
+            .unwrap();
+        crate::product_policy::activate();
+        crate::product_policy::set_account(130);
+        crate::product_policy::set_offline_session();
+        assert!(provider(&state, &desktop, &old.id).is_err());
+
+        // Loading the old account is unnecessary for both attached and detached
+        // Desktop profiles. In production that row fails the account guard.
+        let mode = current::mode_state(&desktop);
+        assert!(matches!(
+            LiveNow::of(&state, &desktop, &mode).unwrap(),
+            LiveNow::Proxy { route: None, .. }
+        ));
+        assert!(matches!(
+            LiveNow::of(&state, &desktop, &ModeState::default()).unwrap(),
+            LiveNow::Direct(None)
+        ));
+        enter_with_route(&state, &desktop, false, Some(&next.id))
+            .await
+            .unwrap();
+        assert_eq!(
+            current::mode_state(&desktop).proxy_route.as_deref(),
+            Some(next.id.as_str())
+        );
+        let profile = desktop_profile().to_string();
+        assert!(!profile.contains("fixture-key"));
+        assert!(!profile.contains("fixture-new-account"));
+        assert_eq!(
+            state
+                .db
+                .get_provider_by_id(&old.id, desktop.as_str())
+                .unwrap()
+                .unwrap()
+                .settings_config,
+            old.settings_config
+        );
+        assert!(
+            enter_with_route(&state, &desktop, false, Some("missing-target"))
+                .await
+                .is_err()
+        );
+        assert!(enter_with_route(&state, &desktop, false, Some(&old.id))
+            .await
+            .is_err());
+        assert_eq!(
+            current::mode_state(&desktop).proxy_route.as_deref(),
+            Some(next.id.as_str())
+        );
+        state.proxy_service.stop().await.unwrap();
     }
 
     #[tokio::test]

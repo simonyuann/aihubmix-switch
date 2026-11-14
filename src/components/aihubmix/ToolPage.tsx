@@ -25,6 +25,7 @@ import { AnnouncementBanner } from "./Announcements";
 import { useWalletActions } from "./WalletPanel";
 import { HomeWalletBalance } from "./BalanceDisplay";
 import { CodexDesktopControls } from "./CodexDesktopControls";
+import { ClaudeDesktopControls } from "./ClaudeDesktopControls";
 import { friendlyError } from "./friendlyError";
 interface ToolCard {
   provider: Provider;
@@ -249,6 +250,7 @@ export function ToolPage({
               </span>
             </button>
             {app === "codex" && <CodexDesktopControls />}
+            {app === "claude-desktop" && <ClaudeDesktopControls />}
           </div>
         )}
         {simple && (

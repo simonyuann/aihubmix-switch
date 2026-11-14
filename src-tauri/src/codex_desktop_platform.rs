@@ -64,6 +64,9 @@ pub(crate) fn status(_executable_path: Option<&str>) -> Result<DesktopStatus, St
         supported: false,
         platform: "linux".into(),
         message: "Linux 桌面程序来源尚无法验证，暂不支持增强启动。".into(),
+        executable_path: exe
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default(),
     })
 }
 
@@ -217,8 +220,10 @@ mod tests {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn detected_codex_cli() -> Option<PathBuf> {
-    None
+pub(crate) fn detected_codex_cli(
+    _executable_path: Option<&str>,
+) -> Result<Option<PathBuf>, String> {
+    Ok(None)
 }
 
 #[cfg(target_os = "windows")]
@@ -301,7 +306,9 @@ if (${env:ProgramFiles(x86)}) { $candidates += Join-Path ${env:ProgramFiles(x86)
 $exe = $candidates | Where-Object { if (!(Test-Path -LiteralPath $_ -PathType Leaf)) { return $false }; $s=Get-AuthenticodeSignature -LiteralPath $_; $s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -in @('CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B','CN=OpenAI, L.L.C.','CN="OpenAI OpCo, LLC", O="OpenAI OpCo, LLC", L=San Francisco, S=California, C=US') } | Select-Object -First 1
 if ($exe) { @{exe=$exe;app_id=''} | ConvertTo-Json -Compress }
 "#;
-    let result = powershell(script, &[]).ok()?;
+    // AppX discovery and first-use signature validation can exceed five seconds
+    // on slower machines. Keep a bounded wait without rejecting a valid install.
+    let result = powershell_with_timeout(script, &[], std::time::Duration::from_secs(30)).ok()?;
     if !result.status.success() {
         return None;
     }
@@ -314,7 +321,12 @@ fn windows_selected_install(path: Option<&str>) -> Option<WindowsInstall> {
         return windows_install();
     };
     let script = r#"$p=$env:AIHUB_CODEX_EXE; if (!(Test-Path -LiteralPath $p -PathType Leaf)) { exit 1 }; $name=[IO.Path]::GetFileName($p); if ($name -notin @('ChatGPT.exe','Codex.exe')) { exit 1 }; $s=Get-AuthenticodeSignature -LiteralPath $p; if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notin @('CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B','CN=OpenAI, L.L.C.','CN="OpenAI OpCo, LLC", O="OpenAI OpCo, LLC", L=San Francisco, S=California, C=US')) { exit 1 }; @{exe=(Resolve-Path -LiteralPath $p).Path;app_id=''} | ConvertTo-Json -Compress"#;
-    let result = powershell(script, &[("AIHUB_CODEX_EXE", path.to_string())]).ok()?;
+    let result = powershell_with_timeout(
+        script,
+        &[("AIHUB_CODEX_EXE", path.to_string())],
+        std::time::Duration::from_secs(30),
+    )
+    .ok()?;
     if !result.status.success() {
         return None;
     }
@@ -385,19 +397,67 @@ pub(crate) fn status(executable_path: Option<&str>) -> Result<DesktopStatus, Str
         supported: true,
         platform: "windows".into(),
         message: String::new(),
+        executable_path: install
+            .map(|installation| installation.exe)
+            .unwrap_or_default(),
     })
 }
 
 #[cfg(target_os = "windows")]
-pub(crate) fn detected_codex_cli() -> Option<PathBuf> {
-    let install = windows_install()?;
+pub(crate) fn detected_codex_cli(executable_path: Option<&str>) -> Result<Option<PathBuf>, String> {
+    let selected = executable_path.filter(|path| !path.trim().is_empty());
+    let Some(install) = windows_selected_install(selected) else {
+        return if selected.is_some() {
+            Err("所选 Codex 路径不可用，请在设置中重新选择程序".into())
+        } else {
+            Ok(None)
+        };
+    };
     let candidate = std::path::Path::new(&install.exe)
-        .parent()?
-        .join("resources/codex.exe");
-    if candidate.is_file() {
-        Some(candidate)
-    } else {
-        None
+        .parent()
+        .map(|parent| parent.join("resources/codex.exe"))
+        .filter(|candidate| candidate.is_file());
+    if selected.is_some() && candidate.is_none() {
+        return Err("所选 Codex 缺少插件管理组件，请重新解压完整安装包或更新 Codex".into());
+    }
+    Ok(candidate)
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod plugin_cli_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_selected_program_does_not_fall_back_to_another_installation() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("ChatGPT.exe");
+        assert_eq!(
+            detected_codex_cli(missing.to_str()).unwrap_err(),
+            "所选 Codex 路径不可用，请在设置中重新选择程序"
+        );
+        std::fs::write(&missing, b"invalid executable").unwrap();
+        assert!(detected_codex_cli(missing.to_str()).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires AIHUB_TEST_CODEX_EXE pointing to an installed signed Desktop"]
+    fn portable_program_resolves_its_own_cli_and_reports_missing_resources() {
+        let original = PathBuf::from(std::env::var_os("AIHUB_TEST_CODEX_EXE").unwrap());
+        let directory = tempfile::Builder::new()
+            .prefix("AIHub 插件 测试 ")
+            .tempdir()
+            .unwrap();
+        let executable = directory.path().join("ChatGPT.exe");
+        std::fs::copy(&original, &executable).unwrap();
+        assert_eq!(
+            detected_codex_cli(executable.to_str()).unwrap_err(),
+            "所选 Codex 缺少插件管理组件，请重新解压完整安装包或更新 Codex"
+        );
+        let resources = directory.path().join("resources");
+        std::fs::create_dir(&resources).unwrap();
+        let cli = resources.join("codex.exe");
+        std::fs::copy(original.parent().unwrap().join("resources/codex.exe"), &cli).unwrap();
+        assert_eq!(detected_codex_cli(executable.to_str()).unwrap(), Some(cli));
     }
 }
 

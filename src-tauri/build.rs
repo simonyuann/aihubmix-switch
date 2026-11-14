@@ -1,4 +1,7 @@
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        embed_claude_resources().expect("Unable to embed Claude localization resources");
+    }
     tauri_build::build();
 
     // Windows: Embed Common Controls v6 manifest for test binaries
@@ -25,4 +28,36 @@ fn main() {
         println!("cargo:rustc-link-arg-bins=/MANIFEST:NO");
         println!("cargo:rerun-if-changed={}", manifest_path.display());
     }
+}
+
+fn embed_claude_resources() -> std::io::Result<()> {
+    use std::{fs, path::PathBuf};
+    let root =
+        PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("resources/claude_zh");
+    let mut files = vec![
+        PathBuf::from("LICENSE"),
+        PathBuf::from("NOTICE.md"),
+        PathBuf::from("scripts/install_windows.ps1"),
+    ];
+    for entry in fs::read_dir(root.join("resources"))? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            files.push(PathBuf::from("resources").join(entry.file_name()));
+        }
+    }
+    files.sort();
+    println!("cargo:rerun-if-changed={}", root.display());
+    let mut source = String::from("const CLAUDE_RESOURCES: &[(&str, &[u8])] = &[\n");
+    for relative in files {
+        source.push_str(&format!(
+            "({:?}, include_bytes!({:?})),\n",
+            relative.to_string_lossy().replace('\\', "/"),
+            root.join(relative).to_string_lossy(),
+        ));
+    }
+    source.push_str("];\n");
+    fs::write(
+        PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("claude_resources.rs"),
+        source,
+    )
 }

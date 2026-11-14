@@ -160,7 +160,7 @@ describe("Codex Desktop controls", () => {
     fireEvent.click(plugins);
     await waitFor(() => expect(plugins).not.toBeChecked());
     expect(await screen.findByText(/已安装的插件不会卸载或停用/)).toBeInTheDocument();
-    expect(backend.invoke).toHaveBeenCalledWith("disable_codex_plugin_market");
+    expect(backend.invoke).toHaveBeenCalledWith("disable_codex_plugin_market", { executablePath: "" });
   });
 
   it("searches and installs a community plugin without claiming account authorization", async () => {
@@ -182,7 +182,7 @@ describe("Codex Desktop controls", () => {
     expect(screen.queryByText("Notes")).not.toBeInTheDocument();
     expect(screen.getByText("Example · 可能需要授权")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "安装" }));
-    await waitFor(() => expect(backend.invoke).toHaveBeenCalledWith("install_codex_market_plugin", { pluginId: "two", revision: "fixed-revision" }));
+    await waitFor(() => expect(backend.invoke).toHaveBeenCalledWith("install_codex_market_plugin", { pluginId: "two", revision: "fixed-revision", executablePath: "" }));
     expect(await screen.findByRole("button", { name: "卸载" })).toBeInTheDocument();
     expect(screen.getByText(/请新建会话或重启 Codex/)).toBeInTheDocument();
   });
