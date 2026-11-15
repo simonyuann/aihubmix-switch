@@ -229,6 +229,9 @@ fn tools(account: Option<&Account>) -> Value {
             properties["image_url"] = json!({"type":"string","description":"可选的参考图片 HTTPS 地址。grok-imagine-video-1.5 必须提供参考图片。"});
             properties["duration"] = json!({"type":"integer","minimum":1,"maximum":15,"default":5});
             properties["resolution"] = json!({"type":"string","enum":["480p","720p"],"default":"480p"});
+        } else {
+            properties["resolution"] = json!({"type":"string","enum":["1k","2k"],"description":"用户指定的图片分辨率。"});
+            properties["quality"] = json!({"type":"string","enum":["low","medium"],"description":"图片画质，指定时使用 grok-imagine-image-2.0。"});
         }
         tools.push(json!({"name":name,"description":description,
             "inputSchema":{"type":"object","properties":properties,"required":["prompt"],"additionalProperties":false}}));
@@ -253,6 +256,8 @@ fn payload(account: &Account, name: &str, args: &Value) -> Result<Value, &'stati
         .ok_or("请输入有效的生成提示词。")?;
     let preferred = if video {
         "grok-imagine-video"
+    } else if !args["quality"].is_null() {
+        "grok-imagine-image-2.0"
     } else {
         "grok-imagine-image"
     };
@@ -295,6 +300,20 @@ fn payload(account: &Account, name: &str, args: &Value) -> Result<Value, &'stati
     } else {
         body["n"] = json!(1);
         body["response_format"] = json!("url");
+        if !args["resolution"].is_null() {
+            let resolution = args["resolution"].as_str().ok_or("图片分辨率无效。")?;
+            if !["1k", "2k"].contains(&resolution) {
+                return Err("图片分辨率无效。");
+            }
+            body["resolution"] = json!(resolution);
+        }
+        if !args["quality"].is_null() {
+            let quality = args["quality"].as_str().ok_or("图片画质无效。")?;
+            if model != "grok-imagine-image-2.0" || !["low", "medium"].contains(&quality) {
+                return Err("当前模型不支持所选图片画质。");
+            }
+            body["quality"] = json!(quality);
+        }
     }
     Ok(body)
 }
@@ -667,6 +686,40 @@ mod tests {
             &account,
             "grok_generate_video",
             &json!({"prompt":"cat","duration":1.5})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn image_quality_and_resolution_are_forwarded_and_validated() {
+        let mut account =
+            parse_account("a", &config("fixture-key", "https://csmy.fun/v1")).unwrap();
+        account.images.push("grok-imagine-image-2.0".into());
+        let image = payload(
+            &account,
+            "grok_generate_image",
+            &json!({"prompt":"cat", "quality":"medium", "resolution":"2k"}),
+        )
+        .unwrap();
+        assert_eq!(image["model"], "grok-imagine-image-2.0");
+        assert_eq!(image["quality"], "medium");
+        assert_eq!(image["resolution"], "2k");
+        assert!(payload(
+            &account,
+            "grok_generate_image",
+            &json!({"prompt":"cat", "quality":"high"})
+        )
+        .is_err());
+        assert!(payload(
+            &account,
+            "grok_generate_image",
+            &json!({"prompt":"cat", "resolution":"4k"})
+        )
+        .is_err());
+        assert!(payload(
+            &account,
+            "grok_generate_image",
+            &json!({"prompt":"cat", "model":"grok-imagine-image", "quality":"low"})
         )
         .is_err());
     }
