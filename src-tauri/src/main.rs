@@ -2,6 +2,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--grok-media-mcp") {
+        cc_switch_lib::grok_media::run();
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("--print-update-format") {
         println!("{}", cc_switch_lib::product::update_format());
         return;

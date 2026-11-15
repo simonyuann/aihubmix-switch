@@ -92,7 +92,7 @@ pub fn build(input: &Value, base: &str, key: &str) -> Result<Value> {
 /// Platform brands can speak the same wire protocol. Keep their group IDs separate in tools.rs.
 pub(super) fn protocol(platform: &str) -> &str {
     match platform {
-        "" | "anthropic" | "gemini" | "antigravity" | "openai" => platform,
+        "" | "anthropic" | "gemini" | "antigravity" | "openai" | "grok" => platform,
         "openai_responses" => "openai",
         // sub2api exposes other provider families through its OpenAI-compatible Chat API.
         // Group names/platform brands must not become a client-side whitelist.
@@ -184,6 +184,13 @@ pub fn catalog(
                 }
                 config["model_providers"]["custom"]["name"] = toml::Value::String("OpenAI".into());
             }
+            if platform == "grok" {
+                config["model_providers"]["custom"]["name"] = toml::Value::String("Grok".into());
+                p.settings_config["aihubGrokMedia"] = json!({
+                    "images": models.iter().filter(|m| m.id.starts_with("grok-imagine-image")).map(|m| &m.id).collect::<Vec<_>>(),
+                    "videos": models.iter().filter(|m| m.id.starts_with("grok-imagine-video")).map(|m| &m.id).collect::<Vec<_>>()
+                });
+            }
             if platform == "anthropic" {
                 config["model_providers"]["custom"]["base_url"] =
                     toml::Value::String(super::types::DEFAULT_BASE.into());
@@ -197,6 +204,7 @@ pub fn catalog(
             let mut menu_models: Vec<_> = models
                 .iter()
                 .filter(|m| !openai_group || m.id != "gpt-image-2")
+                .filter(|m| platform != "grok" || !m.id.starts_with("grok-imagine-"))
                 .collect();
             if menu_models.is_empty() {
                 return Err("此分组没有可用于对话的模型".into());
@@ -611,6 +619,53 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn grok_uses_responses_and_keeps_media_out_of_chat_menu() {
+        let mut available = models();
+        available[0].id = "grok-4.7".into();
+        available[1].id = "grok-imagine-image".into();
+        let mut video = available[1].clone();
+        video.id = "grok-imagine-video".into();
+        available.push(video);
+        let provider = catalog(
+            "codex",
+            "grok",
+            "fixture-key",
+            &available,
+            "aihubmix-codex-account-1-service-16",
+        )
+        .unwrap();
+        assert_ne!(
+            provider.meta.as_ref().and_then(|m| m.api_format.as_deref()),
+            Some("openai_chat")
+        );
+        let config: toml::Value =
+            toml::from_str(provider.settings_config["config"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            config["model_providers"]["custom"]["name"].as_str(),
+            Some("Grok")
+        );
+        assert_eq!(
+            config["model_providers"]["custom"]["wire_api"].as_str(),
+            Some("responses")
+        );
+        let menu = provider.settings_config["modelCatalog"]["models"]
+            .as_array()
+            .unwrap();
+        assert_eq!(menu.len(), 1);
+        assert_eq!(menu[0]["model"], "grok-4.7");
+        assert_eq!(
+            provider.settings_config["aihubGrokMedia"]["images"],
+            json!(["grok-imagine-image"])
+        );
+        assert_eq!(
+            provider.settings_config["aihubGrokMedia"]["videos"],
+            json!(["grok-imagine-video"])
+        );
+        assert!(!crate::aihubmix::native_imagegen::supported(&provider));
+        assert!(catalog("codex", "grok", "fixture-key", &available[1..], "test").is_err());
+    }
+
     #[test]
     fn brand_named_groups_use_cc_chat_completions_adapters() {
         for platform in ["deepseek", "glm", "zhipu"] {

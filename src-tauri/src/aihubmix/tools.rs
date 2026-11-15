@@ -10,6 +10,11 @@ use tokio::sync::MutexGuard;
 
 fn compatible(app: &AppType, platform: &str) -> bool {
     let platform = super::draft::protocol(platform);
+    let platform = if platform == "grok" {
+        "openai"
+    } else {
+        platform
+    };
     match app {
         AppType::Claude | AppType::ClaudeDesktop => {
             matches!(platform, "anthropic" | "openai" | "openai_chat" | "gemini")
@@ -450,6 +455,15 @@ pub(super) async fn dispatch(
                 "已保留官方登录，请重启 Codex。官方账号保持显示时，生图兼容性可能因账号类型而异。"
                     .into(),
             );
+        }
+        if app == AppType::Codex && provider.settings_config.get("aihubGrokMedia").is_some() {
+            let state = state.clone();
+            let installed =
+                tauri::async_runtime::spawn_blocking(move || crate::grok_media::install(&state.db))
+                    .await;
+            if !matches!(installed, Ok(Ok(()))) {
+                warnings.push("Grok 对话已配置，但图片和视频工具配置失败，请检查设置中的 MCP 配置后重新启用分组。".into());
+            }
         }
     }
     let selected_model = if command == "start-tool-card" && app == AppType::Claude {

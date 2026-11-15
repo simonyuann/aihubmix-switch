@@ -619,15 +619,13 @@ async fn apply_locale_inner(
     let target = wait_target(&client, port, pid, "page").await?;
     let mut cdp = CdpClient::connect(&target, port).await?;
     if language == "zh-CN" {
-        let bootstrap = if platform == "linux" {
-            format!(
-                "{}\n{}",
-                include_str!("../resources/codex_zh/linux-statsig-hook.js"),
-                include_str!("../resources/codex_zh/i18n-bootstrap.js")
-            )
-        } else {
-            include_str!("../resources/codex_zh/i18n-bootstrap.js").to_owned()
-        };
+        // All desktop platforms can read the language gate synchronously when
+        // creating the client, before the bootstrap's polling timer fires.
+        let bootstrap = format!(
+            "{}\n{}",
+            include_str!("../resources/codex_zh/linux-statsig-hook.js"),
+            include_str!("../resources/codex_zh/i18n-bootstrap.js")
+        );
         cdp.call(
             "Page.addScriptToEvaluateOnNewDocument",
             serde_json::json!({"source": bootstrap}),
