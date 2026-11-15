@@ -275,10 +275,6 @@ export function ClaudeDesktopControls({
         )}
       </div>
       {(busy || failed) && pending === null && progress}
-      <p className="text-caption text-fg-3">
-        首次汉化会关闭 Claude Desktop
-        并请求系统授权，请先保存工作。仅调整桌面界面，不改变账号和模型分组。
-      </p>
       {message && (
         <p role="status" className="text-caption text-fg-2">
           {message}

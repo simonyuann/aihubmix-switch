@@ -95,7 +95,7 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
       if (mounted.current) {
         if (saved)
           setNotice(
-            "插件目录已设置，请新建会话或重启 Codex，在「插件 → 个人」中查看社区插件。",
+            "插件市场已开启，重启 Codex 后可在「插件 → 个人」中查看。",
           );
         else setError("插件目录已设置，但偏好保存失败；请重新检查设置。");
       }

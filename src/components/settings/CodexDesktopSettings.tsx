@@ -63,8 +63,8 @@ export function CodexDesktopSettings() {
       } else {
         setNotice(
           plugins
-            ? "插件目录已设置，请新建会话或重启 Codex，然后在「插件 → 个人」中查看 AIHubMix 社区插件。"
-            : "插件市场已关闭，但已安装的插件不会卸载或停用；如需移除，请重新启用市场后逐个卸载。",
+            ? "插件市场已开启，重启 Codex 后可在「插件 → 个人」中查看。"
+            : "插件市场已关闭。",
         );
       }
     } catch (cause) {
@@ -94,7 +94,6 @@ export function CodexDesktopSettings() {
         />
         <SettingsRow
           label="Codex 界面语言"
-          description="从首页启动 Codex 时应用，不改变本软件的语言。请保持 Switch 在后台运行，以便继续应用界面增强。"
           control={
             <Select
               value={preferences.language}
@@ -118,7 +117,6 @@ export function CodexDesktopSettings() {
         />
         <SettingsRow
           label="社区插件市场"
-          description="首次开启时从 AIHub 下载站准备插件库（约 375 MiB，解压后约 509 MiB），无需安装 Git。插件需单独安装，不会全部自动开启；旧版用户请关闭后重新开启，关闭市场不会卸载已安装的插件。"
           control={
             <>
               <Button

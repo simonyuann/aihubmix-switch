@@ -33,7 +33,6 @@ export function ClaudeDesktopSettings() {
       <SettingsCard>
         <SettingsRow
           label="Claude 界面语言"
-          description="从 AIHub 启动时应用。保留原设置不会卸载已安装的中文补丁，如需移除请使用恢复原版。"
           control={
             <Select
               value={preferences.language}

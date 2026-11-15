@@ -33,11 +33,6 @@ function startMessage(
     parts.push("插件支持未能确认，请在 Codex 的插件页面检查。");
   if (result.status === "partial" && parts.length === 1)
     parts.push("部分功能未能确认，请在 Codex 中检查。");
-  if (preferences.language !== "system") {
-    parts.push(
-      "增强启动期间，其他本机程序可能访问调试接口；退出 Codex 后关闭。",
-    );
-  }
   return parts.join("");
 }
 
@@ -103,21 +98,20 @@ export function CodexDesktopControls() {
     }
   }
 
-  const idle = status?.running
-    ? "启动会先退出当前 Codex，正在运行的任务可能中断，请先保存工作。"
-    : status?.installed === false
-      ? "未检测到 Codex Desktop，可在设置中手动选择程序。"
-      : "从这里启动，可应用设置中的语言和插件支持。";
+  const idle =
+    status?.installed === false ? "未找到 Codex，请在设置中选择程序。" : "";
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-      <p
-        role="status"
-        aria-live="polite"
-        className="min-w-0 flex-1 text-caption text-fg-3"
-      >
-        {message || idle}
-      </p>
+      {(message || idle) && (
+        <p
+          role="status"
+          aria-live="polite"
+          className="min-w-0 flex-1 text-caption text-fg-3"
+        >
+          {message || idle}
+        </p>
+      )}
       <Button
         variant="outline"
         onClick={() => setShowPlugins(true)}
