@@ -203,7 +203,7 @@ pub fn catalog(
             // CC generates the agent's /model menu from this catalog, including protocol conversion routes.
             let mut menu_models: Vec<_> = models
                 .iter()
-                .filter(|m| !openai_group || m.id != "gpt-image-2")
+                .filter(|m| !openai_group || !m.id.starts_with("gpt-image-"))
                 .filter(|m| platform != "grok" || !m.id.starts_with("grok-imagine-"))
                 .collect();
             if menu_models.is_empty() {
@@ -348,6 +348,8 @@ mod tests {
     fn openai_codex_menu_has_requested_defaults_and_order() {
         let ids = [
             "gpt-image-2",
+            "gpt-image-2.5-flare",
+            "gpt-image-2.5-sunburst",
             "gpt-5.6-luna",
             "gpt-6-sol",
             "gpt-6.1-terra",
@@ -427,7 +429,7 @@ mod tests {
             "codex",
             "openai",
             "fixture-key",
-            &models[1..2],
+            &models[3..4],
             "aihubmix-test",
         )
         .unwrap();
@@ -438,7 +440,7 @@ mod tests {
             "codex",
             "openai",
             "fixture-key",
-            &models[..1],
+            &models[..3],
             "aihubmix-test"
         )
         .is_err());
