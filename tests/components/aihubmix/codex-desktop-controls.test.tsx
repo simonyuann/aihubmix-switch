@@ -127,7 +127,7 @@ describe("Codex Desktop controls", () => {
     await waitFor(() => expect(plugins).toBeChecked());
     expect(backend.invoke).toHaveBeenCalledWith("enable_codex_plugin_market", expect.objectContaining({ progress: expect.anything() }));
     expect(localStorage.getItem("aihubmix:codex-desktop-preferences")).toContain('"plugins":true');
-    expect(screen.getByText(/关闭市场不会卸载已安装的插件/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("插件市场已开启");
     expect(screen.queryByText(/插件支持已生效/)).not.toBeInTheDocument();
   });
 
@@ -149,7 +149,7 @@ describe("Codex Desktop controls", () => {
     expect(screen.queryByText(/CODEX_MARKET_RATE_LIMITED/)).not.toBeInTheDocument();
   });
 
-  it("explains that closing the market keeps installed plugins active", async () => {
+  it("turns off the market without uninstalling plugins", async () => {
     setCodexDesktopPreferences({ plugins: true });
     backend.invoke.mockImplementation((command: string) => {
       if (command === "disable_codex_plugin_market") return Promise.resolve({ restartRequired: true });
@@ -159,8 +159,10 @@ describe("Codex Desktop controls", () => {
     const plugins = screen.getByRole("switch", { name: "社区插件市场" });
     fireEvent.click(plugins);
     await waitFor(() => expect(plugins).not.toBeChecked());
-    expect(await screen.findByText(/已安装的插件不会卸载或停用/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("插件市场已关闭");
     expect(backend.invoke).toHaveBeenCalledWith("disable_codex_plugin_market", { executablePath: "" });
+    expect(backend.invoke).not.toHaveBeenCalledWith("uninstall_codex_market_plugin", expect.anything());
+    expect(localStorage.getItem("aihubmix:codex-desktop-preferences")).toContain('"plugins":false');
   });
 
   it("searches and installs a community plugin without claiming account authorization", async () => {
