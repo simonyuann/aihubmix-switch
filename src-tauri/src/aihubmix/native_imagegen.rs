@@ -26,7 +26,7 @@ fn platform_url(raw: &str) -> bool {
     url::Url::parse(raw).is_ok_and(|url| {
         url.scheme() == "https"
             && url.host_str() == Some("csmy.fun")
-            && matches!(url.port(), None | Some(23457))
+            && url.port() == Some(23457)
             && url.username().is_empty()
             && url.password().is_none()
             && url.path().trim_end_matches('/') == "/v1"
@@ -51,10 +51,7 @@ pub(crate) fn supported(provider: &Provider) -> bool {
     if account_id(&provider.id).is_none()
         || !(provider.name == "AIHubMix" || provider.name.starts_with("AIHubMix · "))
         || provider.category.as_deref() != Some("custom")
-        || !provider
-            .website_url
-            .as_deref()
-            .is_some_and(crate::product_policy::is_platform_origin)
+        || provider.website_url.as_deref() != Some(crate::product_policy::ORIGIN)
         || provider
             .meta
             .as_ref()

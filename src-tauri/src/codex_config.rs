@@ -2187,8 +2187,9 @@ fn codex_model_catalog_from_settings(
     let is_our_responses_gateway = matches!(
         profile,
         CodexCatalogToolProfile::NativeResponses | CodexCatalogToolProfile::ProxyChat
-    ) && extract_codex_base_url(config_text)
-        .is_some_and(|url| crate::product_policy::is_platform_v1_url(&url));
+    ) && extract_codex_base_url(config_text).is_some_and(|url| {
+        url.trim_end_matches('/') == format!("{}/v1", crate::aihubmix::DEFAULT_BASE)
+    });
     if is_our_responses_gateway {
         if let Some(entries) = catalog.get_mut("models").and_then(Value::as_array_mut) {
             for (entry, spec) in entries.iter_mut().zip(&specs) {
@@ -2230,18 +2231,6 @@ fn codex_model_catalog_from_settings(
                             "id": "priority", "name": "Fast", "description": "Fast mode"
                         }]),
                     );
-                }
-            }
-        }
-    }
-    if let Some(hidden) = settings
-        .pointer("/modelCatalog/hiddenModels")
-        .and_then(Value::as_array)
-    {
-        if let Some(rows) = catalog.get_mut("models").and_then(Value::as_array_mut) {
-            for row in rows {
-                if row.get("slug").is_some_and(|slug| hidden.contains(slug)) {
-                    row["visibility"] = json!("hide");
                 }
             }
         }

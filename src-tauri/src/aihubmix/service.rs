@@ -138,13 +138,8 @@ fn key_info(value: &Value) -> KeyInfo {
 }
 impl Backend {
     pub fn new(mut store: Store) -> Result<Self> {
-        if crate::product_policy::active() {
-            if normalize_platform_base(&mut store)? {
-                // Trusted platform variants are the same service. Normalize
-                // them without touching the account or stored credentials.
-            } else if store.settings.relay_base_url != DEFAULT_BASE {
-                discard_cross_origin_session(&mut store)?;
-            }
+        if crate::product_policy::active() && store.settings.relay_base_url != DEFAULT_BASE {
+            discard_cross_origin_session(&mut store)?;
         }
         Ok(Self {
             store,
@@ -846,18 +841,6 @@ impl Backend {
     }
 }
 
-fn normalize_platform_base(store: &mut Store) -> Result<bool> {
-    if !crate::product_policy::is_platform_base_url(&store.settings.relay_base_url) {
-        return Ok(false);
-    }
-    if store.settings.relay_base_url == DEFAULT_BASE {
-        return Ok(true);
-    }
-    store.settings.relay_base_url = DEFAULT_BASE.into();
-    store.save()?;
-    Ok(true)
-}
-
 fn discard_cross_origin_session(store: &mut Store) -> Result<()> {
     // Never send a stored session from another origin to the product service.
     // Retain owner for the guarded native-configuration recovery on next login.
@@ -1337,48 +1320,6 @@ mod auth_tests {
         assert_eq!(store.settings.relay_base_url, DEFAULT_BASE);
         assert!(store.secret("access").is_empty());
         assert!(store.secret("refresh").is_empty());
-    }
-
-    #[test]
-    fn platform_base_migrates_without_logout_or_secret_loss() {
-        let temp = tempfile::tempdir().unwrap();
-        let mut store = Store::for_test(temp.path().into());
-        store.settings.relay_base_url = "https://csmy.fun:23457/v1".into();
-        store.settings.account = Account {
-            logged_in: true,
-            user_id: Some(17),
-            ..Default::default()
-        };
-        store.memory_secret("access", "fixture-access");
-        store.memory_secret("refresh", "fixture-refresh");
-        store.set_secrets(&[]).unwrap();
-
-        assert!(normalize_platform_base(&mut store).unwrap());
-        assert_eq!(store.settings.relay_base_url, DEFAULT_BASE);
-        assert!(store.settings.account.logged_in);
-        assert_eq!(store.settings.account.user_id, Some(17));
-        assert_eq!(store.secret("access"), "fixture-access");
-        assert_eq!(store.secret("refresh"), "fixture-refresh");
-
-        let reopened = Store::reopen_for_test(temp.path().into());
-        assert_eq!(reopened.settings.relay_base_url, DEFAULT_BASE);
-        assert!(reopened.settings.account.logged_in);
-        assert_eq!(reopened.secret("access"), "fixture-access");
-        assert_eq!(reopened.secret("refresh"), "fixture-refresh");
-    }
-
-    #[test]
-    fn canonical_platform_v1_base_also_normalizes_without_logout() {
-        let temp = tempfile::tempdir().unwrap();
-        let mut store = Store::for_test(temp.path().into());
-        store.settings.relay_base_url = "https://csmy.fun/v1".into();
-        store.settings.account.logged_in = true;
-        store.memory_secret("access", "fixture-access");
-
-        assert!(normalize_platform_base(&mut store).unwrap());
-        assert_eq!(store.settings.relay_base_url, DEFAULT_BASE);
-        assert!(store.settings.account.logged_in);
-        assert_eq!(store.secret("access"), "fixture-access");
     }
 
     #[tokio::test]
