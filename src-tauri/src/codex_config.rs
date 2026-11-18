@@ -2234,7 +2234,10 @@ fn codex_model_catalog_from_settings(
             }
         }
     }
-    if let Some(hidden) = settings.pointer("/modelCatalog/hiddenModels").and_then(Value::as_array) {
+    if let Some(hidden) = settings
+        .pointer("/modelCatalog/hiddenModels")
+        .and_then(Value::as_array)
+    {
         if let Some(rows) = catalog.get_mut("models").and_then(Value::as_array_mut) {
             for row in rows {
                 if row.get("slug").is_some_and(|slug| hidden.contains(slug)) {

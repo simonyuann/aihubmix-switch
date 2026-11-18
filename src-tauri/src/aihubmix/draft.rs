@@ -230,7 +230,9 @@ pub fn catalog(
                     OPENAI_ORDER
                         .iter()
                         .position(|(id, _)| *id == m.id)
-                        .unwrap_or(OPENAI_ORDER.len() + usize::from(HIDDEN.contains(&m.id.as_str())))
+                        .unwrap_or(
+                            OPENAI_ORDER.len() + usize::from(HIDDEN.contains(&m.id.as_str())),
+                        )
                 });
             }
             p.settings_config["modelCatalog"] = json!({"models": menu_models.iter().map(|m| {
@@ -488,10 +490,7 @@ mod tests {
             panic!("platform provider must use bearer authentication");
         };
         assert!(crate::aihubmix::native_imagegen::mark(&mut table));
-        assert_eq!(
-            table["base_url"].as_str(),
-            Some("https://csmy.fun/v1")
-        );
+        assert_eq!(table["base_url"].as_str(), Some("https://csmy.fun/v1"));
         assert_eq!(table["wire_api"].as_str(), Some("responses"));
         assert_eq!(table["requires_openai_auth"].as_bool(), Some(false));
         assert_eq!(

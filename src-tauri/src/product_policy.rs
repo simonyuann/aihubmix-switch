@@ -60,11 +60,7 @@ pub fn require_session() -> Result<(), String> {
 }
 
 fn platform_url_parts(raw: &str) -> Option<url::Url> {
-    let authority = raw
-        .split_once("://")?
-        .1
-        .split(['/', '?', '#'])
-        .next()?;
+    let authority = raw.split_once("://")?.1.split(['/', '?', '#']).next()?;
     if !matches!(authority, "csmy.fun" | "csmy.fun:23457") {
         return None;
     }
