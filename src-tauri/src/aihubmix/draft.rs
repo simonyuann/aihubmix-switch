@@ -206,40 +206,37 @@ pub fn catalog(
                 .filter(|m| !openai_group || !m.id.starts_with("gpt-image-"))
                 .filter(|m| platform != "grok" || !m.id.starts_with("grok-imagine-"))
                 .collect();
-            if menu_models.is_empty() {
+            const OPENAI_ORDER: [(&str, &str); 10] = [
+                ("gpt-6.2-sol", "GPT-6.2 Sol"),
+                ("gpt-6.2-astra", "GPT-6.2 Astra"),
+                ("gpt-6.1-terra", "GPT-6.1 Terra"),
+                ("gpt-6.1-sol", "GPT-6.1 Sol"),
+                ("gpt-6-astra", "GPT-6 Astra"),
+                ("gpt-6-sol", "GPT-6 Sol"),
+                ("gpt-6-luna", "GPT-6 Luna"),
+                ("gpt-5.6-sol", "GPT-5.6 Sol"),
+                ("gpt-5.6-terra", "GPT-5.6 Terra"),
+                ("gpt-5.6-luna", "GPT-5.6 Luna"),
+            ];
+            const HIDDEN: [&str; 2] = ["gpt-reserve", "codex-auto-review"];
+            if !menu_models
+                .iter()
+                .any(|m| !openai_group || !HIDDEN.contains(&m.id.as_str()))
+            {
                 return Err("此分组没有可用于对话的模型".into());
             }
             if openai_group {
-                const ORDER: [&str; 8] = [
-                    "gpt-6.1-sol",
-                    "gpt-6-astra",
-                    "gpt-6.1-terra",
-                    "gpt-6-sol",
-                    "gpt-6-luna",
-                    "gpt-5.6-sol",
-                    "gpt-5.6-terra",
-                    "gpt-5.6-luna",
-                ];
                 menu_models.sort_by_key(|m| {
-                    ORDER
+                    OPENAI_ORDER
                         .iter()
-                        .position(|id| *id == m.id)
-                        .unwrap_or(ORDER.len())
+                        .position(|(id, _)| *id == m.id)
+                        .unwrap_or(OPENAI_ORDER.len() + usize::from(HIDDEN.contains(&m.id.as_str())))
                 });
             }
             p.settings_config["modelCatalog"] = json!({"models": menu_models.iter().map(|m| {
                 let display_name = if openai_group {
-                    match m.id.as_str() {
-                        "gpt-6.1-sol" => "GPT-6.1 Sol",
-                        "gpt-6-astra" => "GPT-6 Astra",
-                        "gpt-6.1-terra" => "GPT-6.1 Terra",
-                        "gpt-6-sol" => "GPT-6 Sol",
-                        "gpt-6-luna" => "GPT-6 Luna",
-                        "gpt-5.6-sol" => "GPT-5.6 Sol",
-                        "gpt-5.6-terra" => "GPT-5.6 Terra",
-                        "gpt-5.6-luna" => "GPT-5.6 Luna",
-                        _ => m.name.as_str(),
-                    }
+                    OPENAI_ORDER.iter().find_map(|(id, name)| (*id == m.id).then_some(*name))
+                        .unwrap_or(m.name.as_str())
                 } else { m.name.as_str() };
                 let mut row = json!({"model":m.id,"displayName":display_name});
                 if let Some(window) = m.context_window {row["contextWindow"] = json!(window);}
@@ -252,6 +249,9 @@ pub fn catalog(
                 if !m.input.is_empty() {row["inputModalities"] = json!(m.input);}
                 row
             }).collect::<Vec<_>>()});
+            if openai_group {
+                p.settings_config["modelCatalog"]["hiddenModels"] = json!(HIDDEN);
+            }
         }
         "claude-desktop" => {
             let meta = p.meta.get_or_insert_with(Default::default);
@@ -359,6 +359,10 @@ mod tests {
             "gpt-6-luna",
             "gpt-5.6-sol",
             "future-model",
+            "gpt-6.2-astra",
+            "gpt-6.2-sol",
+            "gpt-reserve",
+            "codex-auto-review",
         ];
         let models: Vec<_> = ids
             .iter()
@@ -391,15 +395,19 @@ mod tests {
         assert_eq!(
             actual,
             [
+                "gpt-6.2-sol",
+                "gpt-6.2-astra",
+                "gpt-6.1-terra",
                 "gpt-6.1-sol",
                 "gpt-6-astra",
-                "gpt-6.1-terra",
                 "gpt-6-sol",
                 "gpt-6-luna",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
-                "future-model"
+                "future-model",
+                "gpt-reserve",
+                "codex-auto-review",
             ]
         );
         assert_eq!(rows[2]["defaultReasoningLevel"], "medium");
@@ -417,6 +425,7 @@ mod tests {
             assert_eq!(row["slug"], rows[index]["model"]);
             assert_eq!(row["display_name"], rows[index]["displayName"]);
             assert_eq!(row["priority"], json!(1000 + index));
+            assert_eq!(row["visibility"], if index >= 11 { "hide" } else { "list" });
         }
         assert_eq!(native_rows[2]["default_reasoning_level"], "medium");
         assert!(crate::aihubmix::native_imagegen::supported(&p));
@@ -481,7 +490,7 @@ mod tests {
         assert!(crate::aihubmix::native_imagegen::mark(&mut table));
         assert_eq!(
             table["base_url"].as_str(),
-            Some("https://csmy.fun:23457/v1")
+            Some("https://csmy.fun/v1")
         );
         assert_eq!(table["wire_api"].as_str(), Some("responses"));
         assert_eq!(table["requires_openai_auth"].as_bool(), Some(false));

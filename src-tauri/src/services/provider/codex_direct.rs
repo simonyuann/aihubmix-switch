@@ -563,6 +563,7 @@ fn row_auth(provider: &Provider) -> Value {
 pub(crate) struct Planned {
     config: CodexConfigPatch,
     native_image: bool,
+    grok_media: bool,
     /// 第三方路由表的凭据来源：写入时按盘上有没有登录定 `requires_openai_auth`。
     stamp: Option<RouteAuth>,
     catalog: Option<Vec<u8>>,
@@ -729,7 +730,7 @@ pub(crate) fn plan(
             effort.as_deref(),
         ));
     }
-    let catalog = match (stack_catalog, provider, &projection) {
+    let mut catalog = match (stack_catalog, provider, &projection) {
         (Some(catalog), _, _) => {
             // 窗口类全局键会覆盖目录里的每一行，改由各家写进自己的行。
             exclusive.retain(|(key, _)| !STACK_SUNK_WINDOW_KEYS.contains(&key.as_str()));
@@ -745,6 +746,14 @@ pub(crate) fn plan(
         }
         _ => None,
     };
+    let grok_guide = if matches!(target, Target::Direct(Some(_))) && !official {
+        provider.and_then(|p| crate::grok_media::instructions(&p.settings_config))
+    } else {
+        None
+    };
+    if let (Some(catalog), Some(guide)) = (&mut catalog, &grok_guide) {
+        crate::grok_media::guide_catalog(catalog, guide);
+    }
     let catalog = catalog
         .map(|catalog| sorted_json_bytes(&catalog))
         .transpose()?;
@@ -779,6 +788,7 @@ pub(crate) fn plan(
     Ok(Planned {
         config,
         native_image,
+        grok_media: grok_guide.is_some(),
         stamp,
         catalog,
         auth,
@@ -1310,6 +1320,8 @@ pub(crate) fn run_with_edits(
         preserve_login: preserve,
     };
     config_steps.push(&auth_store);
+    let grok_media = crate::grok_media::McpPatch::new(planned.grok_media)?;
+    config_steps.push(&grok_media);
     let config_patch = TomlSteps(config_steps);
 
     let mut changes: Vec<FileChange<'_>> = Vec::new();

@@ -14,11 +14,27 @@ const CHANGED: &str = "当前分组或密钥已变化，请切回创建任务时
 
 use crate::live::patch::{toml::TomlDocPatch, KeyPath, LiveWriteError};
 
-struct McpPatch {
+pub(crate) struct McpPatch(Option<McpPaths>);
+
+struct McpPaths {
     executable: PathBuf,
     data: PathBuf,
     device: PathBuf,
 }
+impl McpPatch {
+    pub(crate) fn new(active: bool) -> Result<Self, crate::error::AppError> {
+        if !active {
+            return Ok(Self(None));
+        }
+        Ok(Self(Some(McpPaths {
+            executable: std::env::current_exe()
+                .map_err(|_| crate::error::AppError::Message("无法定位 Grok 工具程序".into()))?,
+            data: crate::config::get_app_config_dir(),
+            device: crate::config::get_home_dir().join(".aihubmix-switch"),
+        })))
+    }
+}
+
 impl TomlDocPatch for McpPatch {
     fn apply_to(
         &self,
@@ -30,28 +46,40 @@ impl TomlDocPatch for McpPatch {
             key_path: KeyPath::new(&["mcp_servers", "aihub_grok_media"]),
             expected: "AIHub 管理的 Grok 工具配置",
         };
-        if let Some(existing) = doc
+        let existing = doc
             .get("mcp_servers")
-            .and_then(|s| s.get("aihub_grok_media"))
-        {
-            if existing
+            .and_then(toml_edit::Item::as_table_like)
+            .and_then(|s| s.get("aihub_grok_media"));
+        let managed = existing.is_some_and(|entry| {
+            entry
                 .get("args")
                 .and_then(toml_edit::Item::as_array)
                 .and_then(|a| a.get(0))
                 .and_then(toml_edit::Value::as_str)
-                != Some("--grok-media-mcp")
-            {
-                return Err(conflict());
+                == Some("--grok-media-mcp")
+        });
+        let Some(paths) = &self.0 else {
+            if managed {
+                if let Some(servers) = doc
+                    .get_mut("mcp_servers")
+                    .and_then(toml_edit::Item::as_table_like_mut)
+                {
+                    servers.remove("aihub_grok_media");
+                }
             }
+            return patch_image_feature(doc, path, false);
+        };
+        if existing.is_some() && !managed {
+            return Err(conflict());
         }
         let mut args = toml_edit::Array::new();
         args.push("--grok-media-mcp");
-        args.push(self.data.to_string_lossy().as_ref());
-        args.push(self.device.to_string_lossy().as_ref());
+        args.push(paths.data.to_string_lossy().as_ref());
+        args.push(paths.device.to_string_lossy().as_ref());
         let mut entry = toml_edit::Table::new();
         entry.insert(
             "command",
-            toml_edit::value(self.executable.to_string_lossy().as_ref()),
+            toml_edit::value(paths.executable.to_string_lossy().as_ref()),
         );
         entry.insert("args", toml_edit::value(args));
         entry.insert("startup_timeout_sec", toml_edit::value(30));
@@ -67,35 +95,81 @@ impl TomlDocPatch for McpPatch {
             .and_then(toml_edit::Item::as_table_like_mut)
             .ok_or_else(conflict)?
             .insert("aihub_grok_media", toml_edit::Item::Table(entry));
-        Ok(())
+        patch_image_feature(doc, path, true)
     }
 }
 
-pub(crate) fn install(db: &crate::database::Database) -> Result<(), crate::error::AppError> {
-    use crate::live::engine::LiveFile;
-    use crate::mode::{
-        operation::{AppWrite, FileChange},
-        state::PendingTarget,
+fn patch_image_feature(
+    doc: &mut toml_edit::DocumentMut,
+    path: &Path,
+    active: bool,
+) -> Result<(), LiveWriteError> {
+    const KEY: &str = "image_generation";
+    const MISSING: &str = " # [aihub-grok-image:unset]";
+    const TRUE: &str = " [aihub-grok-image:true]";
+    const TRUE_NO_COMMENT: &str = " # [aihub-grok-image:true]";
+    let conflict = || LiveWriteError::Shape {
+        path: path.into(),
+        key_path: KeyPath::new(&["features", KEY]),
+        expected: "Codex 图片工具开关",
     };
-    let path = crate::codex_config::get_codex_config_path();
-    if !path.is_file() {
-        return Ok(());
+    if doc.get("features").is_none() {
+        if !active {
+            return Ok(());
+        }
+        doc.insert("features", toml_edit::Item::Table(toml_edit::Table::new()));
     }
-    let patch = McpPatch {
-        executable: std::env::current_exe()
-            .map_err(|_| crate::error::AppError::Message("无法定位 Grok 工具程序".into()))?,
-        data: crate::config::get_app_config_dir(),
-        device: crate::config::get_home_dir().join(".aihubmix-switch"),
+    let features = doc.get_mut("features").ok_or_else(conflict)?;
+    // Inline tables cannot carry a line comment on an individual value.
+    if let Some(inline) = features
+        .as_inline_table()
+        .filter(|t| active && t.get(KEY).and_then(toml_edit::Value::as_bool) != Some(false))
+    {
+        *features = toml_edit::Item::Table(inline.clone().into_table());
+    }
+    let Some(table) = features.as_table_like_mut() else {
+        return if active { Err(conflict()) } else { Ok(()) };
     };
-    let write = AppWrite::begin(db, "codex")?;
-    write.run(
-        "grok-media-setup",
-        &[FileChange {
-            file: LiveFile::private(path),
-            patch: &patch,
-        }],
-        PendingTarget::default(),
-    )?;
+    let item = table.get(KEY);
+    if item.is_some_and(|item| item.as_bool().is_none()) {
+        return if active { Err(conflict()) } else { Ok(()) };
+    }
+    let old = item.and_then(toml_edit::Item::as_value);
+    let enabled = old.and_then(toml_edit::Value::as_bool);
+    let suffix = old
+        .and_then(|v| v.decor().suffix())
+        .and_then(toml_edit::RawString::as_str)
+        .unwrap_or("");
+    let (enabled, suffix) = if active {
+        if enabled == Some(false) {
+            return Ok(());
+        }
+        let marker = match enabled {
+            None => MISSING,
+            Some(true) if suffix.contains('#') => TRUE,
+            _ => TRUE_NO_COMMENT,
+        };
+        (false, format!("{suffix}{marker}"))
+    } else if let Some(original) = suffix
+        .strip_suffix(TRUE_NO_COMMENT)
+        .or_else(|| suffix.strip_suffix(TRUE))
+    {
+        (true, original.into())
+    } else if let Some(comment) = suffix.strip_suffix(MISSING) {
+        if enabled == Some(false) && comment.trim().is_empty() {
+            table.remove(KEY);
+            return Ok(());
+        }
+        (true, comment.into())
+    } else {
+        return Ok(());
+    };
+    let mut value = toml_edit::Value::from(enabled);
+    if let Some(old) = old {
+        *value.decor_mut() = old.decor().clone();
+    }
+    value.decor_mut().set_suffix(suffix);
+    table.insert(KEY, toml_edit::Item::Value(value));
     Ok(())
 }
 
@@ -127,8 +201,15 @@ fn account(data: &Path, device: &Path) -> Result<Account, &'static str> {
     let state_path = device.join("live-state.json");
     let settings = read_json(&settings_path)?;
     let state = read_json(&state_path)?;
-    let codex = &state["apps"]["codex"];
-    if !codex["pending"].is_null() || codex["mode"].as_str() != Some("direct") {
+    let live: crate::mode::state::LiveState =
+        serde_json::from_value(state.clone()).map_err(|_| UNAVAILABLE)?;
+    // Direct switches do not necessarily persist an explicit mode, especially
+    // in the restricted build. Never use the direct key while attached or pending.
+    if live.apps.get("codex").is_some_and(|codex| {
+        codex.attached
+            || codex.pending.is_some()
+            || codex.mode == Some(crate::mode::state::Mode::Proxy)
+    }) {
         return Err(UNAVAILABLE);
     }
     let id = settings["currentProviderCodex"]
@@ -211,6 +292,48 @@ fn parse_account(id: &str, config: &Value) -> Result<Account, &'static str> {
         images,
         videos,
     })
+}
+
+pub(crate) fn instructions(config: &Value) -> Option<String> {
+    parse_account("", config)
+        .ok()
+        .as_ref()
+        .map(media_instructions)
+}
+
+fn media_instructions(account: &Account) -> String {
+    let image = if account.images.is_empty() {
+        "Image generation is unavailable in this group."
+    } else {
+        "For a request to generate an image, call mcp__aihub_grok_media__grok_generate_image."
+    };
+    let video = if account.videos.is_empty() {
+        "Video generation is unavailable in this group."
+    } else {
+        "For a request to generate a video, call mcp__aihub_grok_media__grok_generate_video, then use mcp__aihub_grok_media__grok_video_status to check the returned request ID."
+    };
+    format!("You are using the AIHub Grok group. {image} {video} These tools already use the active group credentials. Do not use OpenAI image generation, shell scripts, or ask for an OpenAI API key for these requests. If the needed Grok tool is missing, ask the user to re-enable the Grok group in AIHub Switch and restart Codex. Do not automatically resubmit a paid generation.")
+}
+
+pub(crate) fn guide_catalog(catalog: &mut Value, guide: &str) {
+    let Some(rows) = catalog.get_mut("models").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for row in rows {
+        let Some(obj) = row.as_object_mut() else {
+            continue;
+        };
+        let base = obj.entry("base_instructions").or_insert(Value::Null);
+        *base = json!(format!("{}\n\n{guide}", base.as_str().unwrap_or("")));
+        if let Some(template) = obj
+            .get_mut("model_messages")
+            .and_then(|m| m.get_mut("instructions_template"))
+        {
+            if let Some(text) = template.as_str() {
+                *template = json!(format!("{text}\n\n{guide}"));
+            }
+        }
+    }
 }
 
 fn tools(account: Option<&Account>) -> Value {
@@ -521,8 +644,12 @@ pub fn run() {
         };
         let result = match message["method"].as_str() {
             Some("initialize") => {
-                json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},
-                "serverInfo":{"name":"AIHub Grok Media","version":env!("CARGO_PKG_VERSION")}})
+                let mut initialized = json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},
+                    "serverInfo":{"name":"AIHub Grok Media","version":env!("CARGO_PKG_VERSION")}});
+                if let Ok(current) = account(&server.data, &server.device) {
+                    initialized["instructions"] = json!(media_instructions(&current));
+                }
+                initialized
             }
             Some("ping") => json!({}),
             Some("tools/list") => tools(account(&server.data, &server.device).ok().as_ref()),
@@ -563,13 +690,17 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    #[test]
-    fn managed_mcp_config_is_secret_free_idempotent_and_preserves_other_servers() {
-        let patch = McpPatch {
+    fn active_patch() -> McpPatch {
+        McpPatch(Some(McpPaths {
             executable: "/Applications/AIHub Switch.app/executable".into(),
             data: "/user/data".into(),
             device: "/user/device".into(),
-        };
+        }))
+    }
+
+    #[test]
+    fn managed_mcp_config_is_secret_free_idempotent_and_preserves_other_servers() {
+        let patch = active_patch();
         let mut doc = "model='grok-4.7'\n[mcp_servers.other]\ncommand='keep'\n"
             .parse::<toml_edit::DocumentMut>()
             .unwrap();
@@ -583,6 +714,16 @@ mod tests {
         );
         assert!(!first.contains("API_KEY"));
         assert!(!first.contains("base_url"));
+        assert_eq!(doc["features"]["image_generation"].as_bool(), Some(false));
+        McpPatch(None)
+            .apply_to(Path::new("config.toml"), &mut doc)
+            .unwrap();
+        assert!(doc["mcp_servers"].get("aihub_grok_media").is_none());
+        assert!(doc["features"].get("image_generation").is_none());
+        assert_eq!(
+            doc["mcp_servers"]["other"]["command"].as_str(),
+            Some("keep")
+        );
         let mut conflict = "[mcp_servers.aihub_grok_media]\ncommand='user-server'\n"
             .parse::<toml_edit::DocumentMut>()
             .unwrap();
@@ -593,6 +734,59 @@ mod tests {
             conflict["mcp_servers"]["aihub_grok_media"]["command"].as_str(),
             Some("user-server")
         );
+        McpPatch(None)
+            .apply_to(Path::new("config.toml"), &mut conflict)
+            .unwrap();
+        assert_eq!(
+            conflict["mcp_servers"]["aihub_grok_media"]["command"].as_str(),
+            Some("user-server")
+        );
+    }
+
+    #[test]
+    fn switching_away_restores_explicit_image_setting_and_preserves_other_features() {
+        for input in [
+            "[features]\nimage_generation = true # my preference\nshell_tool = true\n",
+            "[features]\nimage_generation = false\nshell_tool = true\n",
+            "features = { image_generation = true, shell_tool = true }\n",
+        ] {
+            let path = Path::new("config.toml");
+            let mut doc = input.parse::<toml_edit::DocumentMut>().unwrap();
+            let original = doc["features"]["image_generation"].as_bool();
+            active_patch().apply_to(path, &mut doc).unwrap();
+            doc = doc.to_string().parse().unwrap();
+            assert_eq!(doc["features"]["image_generation"].as_bool(), Some(false));
+            McpPatch(None).apply_to(path, &mut doc).unwrap();
+            doc = doc.to_string().parse().unwrap();
+            assert_eq!(doc["features"]["image_generation"].as_bool(), original);
+            assert_eq!(doc["features"]["shell_tool"].as_bool(), Some(true));
+            if input.contains("my preference") {
+                assert!(doc.to_string().contains("# my preference"));
+            }
+            assert!(!doc.to_string().contains("aihub-grok-image"));
+        }
+    }
+
+    #[test]
+    fn catalog_guide_lists_only_available_media_without_exposing_credentials() {
+        let mut provider = config("not-for-model", "https://csmy.fun/v1");
+        provider["aihubGrokMedia"]["videos"] = json!([]);
+        let guide = instructions(&provider).unwrap();
+        let mut catalog = json!({"models":[{"base_instructions":"original",
+            "model_messages":{"instructions_template":"template"}}]});
+        guide_catalog(&mut catalog, &guide);
+        let row = &catalog["models"][0];
+        for (path, original) in [
+            ("/base_instructions", "original"),
+            ("/model_messages/instructions_template", "template"),
+        ] {
+            let text = row.pointer(path).unwrap().as_str().unwrap();
+            assert!(text.starts_with(original));
+            assert!(text.contains("mcp__aihub_grok_media__grok_generate_image"));
+            assert!(!text.contains("grok_generate_video"));
+            assert!(!text.contains("not-for-model"));
+            assert!(!text.contains("csmy.fun"));
+        }
     }
 
     #[test]
@@ -647,11 +841,7 @@ mod tests {
             r#"{"currentProviderCodex":"grok-a"}"#,
         )
         .unwrap();
-        std::fs::write(
-            device.join("live-state.json"),
-            r#"{"apps":{"codex":{"mode":"direct"}}}"#,
-        )
-        .unwrap();
+        std::fs::write(device.join("live-state.json"), r#"{"version":1,"apps":{}}"#).unwrap();
         (tmp, data, device)
     }
 
@@ -749,6 +939,21 @@ mod tests {
             fingerprint(&second),
             fingerprint(&account(&data, &device).unwrap())
         );
+        for blocked_state in [
+            r#"{"apps":{"codex":{"mode":"proxy"}}}"#,
+            r#"{"apps":{"codex":{"attached":true}}}"#,
+            r#"{"apps":{"codex":{"mode":"direct","pending":{"op":"switch"}}}}"#,
+            r#"{"apps":{"codex":{"mode":"unknown"}}}"#,
+        ] {
+            std::fs::write(device.join("live-state.json"), blocked_state).unwrap();
+            assert!(account(&data, &device).is_err());
+        }
+        std::fs::write(
+            device.join("live-state.json"),
+            r#"{"apps":{"codex":{"mode":"direct"}}}"#,
+        )
+        .unwrap();
+        assert!(account(&data, &device).is_ok());
         db.execute(
             "UPDATE providers SET category='official' WHERE id='grok-b'",
             [],
@@ -756,12 +961,6 @@ mod tests {
         .unwrap();
         assert!(account(&data, &device).is_err());
         assert_eq!(tools(None)["tools"], json!([]));
-        std::fs::write(
-            device.join("live-state.json"),
-            r#"{"apps":{"codex":{"mode":"direct","pending":{"operation":"switch"}}}}"#,
-        )
-        .unwrap();
-        assert!(account(&data, &device).is_err());
     }
 
     #[test]
@@ -785,12 +984,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mock_endpoint_receives_matching_key_and_model_without_redirect_or_retry() {
+    async fn mock_endpoints_receive_matching_keys_and_models_without_following_redirect() {
         use std::io::Read;
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let capture = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
+        fn capture(listener: &std::net::TcpListener, reply: &str) -> (String, Value) {
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && std::time::Instant::now() < until =>
+                    {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("mock connection failed: {error}"),
+                }
+            };
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
@@ -808,34 +1017,107 @@ mod tests {
                         .strip_prefix("content-length: ")
                         .map(str::to_owned)
                 })
-                .unwrap()
+                .unwrap_or_else(|| "0".into())
                 .trim()
                 .parse()
                 .unwrap();
             let mut body = vec![0; length];
             stream.read_exact(&mut body).unwrap();
-            stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/should-not-follow\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
-            (headers, serde_json::from_slice::<Value>(&body).unwrap())
+            stream.write_all(reply.as_bytes()).unwrap();
+            (
+                headers,
+                serde_json::from_slice(&body).unwrap_or(Value::Null),
+            )
+        }
+        fn ok(body: &str) -> String {
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+        }
+        let first = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let second = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let first_address = first.local_addr().unwrap();
+        let second_address = second.local_addr().unwrap();
+        first.set_nonblocking(true).unwrap();
+        second.set_nonblocking(true).unwrap();
+        let observed = std::thread::spawn(move || {
+            let image = capture(
+                &first,
+                &ok(r#"{"data":[{"url":"https://example.com/image.png"}]}"#),
+            );
+            let redirect = capture(&first, &format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: http://{second_address}/should-not-follow\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
+            let video = capture(&second, &ok(r#"{"request_id":"job_123"}"#));
+            let status = capture(
+                &second,
+                &ok(r#"{"status":"done","video":{"url":"https://example.com/video.mp4"}}"#),
+            );
+            [image, redirect, video, status]
         });
-        let mut account =
-            parse_account("a", &config("fixture-key", "https://csmy.fun/v1")).unwrap();
-        account.base = format!("http://{address}/v1");
+        let (_tmp, data, device) = fixture();
+        let mut first = account(&data, &device).unwrap();
+        first.base = format!("http://{first_address}/v1");
         let client = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(5))
             .build()
             .unwrap();
-        let body = payload(&account, "grok_generate_image", &json!({"prompt":"test"})).unwrap();
-        let error = request(&client, &account, "/images/generations", Some(body))
+        let image = payload(&first, "grok_generate_image", &json!({"prompt":"test"})).unwrap();
+        assert!(
+            request(&client, &first, "/images/generations", Some(image.clone()))
+                .await
+                .unwrap()["data"]
+                .is_array()
+        );
+        let error = request(&client, &first, "/images/generations", Some(image))
             .await
             .unwrap_err();
-        assert!(!error.contains("fixture-key"));
-        let (headers, body) = capture.join().unwrap();
-        assert!(headers.starts_with("POST /v1/images/generations HTTP/1.1"));
-        assert!(headers
-            .to_ascii_lowercase()
-            .contains("authorization: bearer fixture-key"));
-        assert_eq!(body["model"], "grok-imagine-image");
+        assert!(!error.contains("fixture-a"));
+        std::fs::write(
+            device.join("settings.json"),
+            r#"{"currentProviderCodex":"grok-b"}"#,
+        )
+        .unwrap();
+        let mut second = account(&data, &device).unwrap();
+        second.base = format!("http://{second_address}/v1");
+        let video = payload(&second, "grok_generate_video", &json!({"prompt":"test"})).unwrap();
+        let result = request(&client, &second, "/videos/generations", Some(video))
+            .await
+            .unwrap();
+        assert_eq!(result["request_id"], "job_123");
+        let status = request(&client, &second, "/videos/job_123", None)
+            .await
+            .unwrap();
+        assert_eq!(status["status"], "done");
+        let [image, redirect, video, status] = observed.join().unwrap();
+        for ((headers, body), path, key, model) in [
+            (
+                image,
+                "POST /v1/images/generations",
+                "fixture-a",
+                Some("grok-imagine-image"),
+            ),
+            (
+                redirect,
+                "POST /v1/images/generations",
+                "fixture-a",
+                Some("grok-imagine-image"),
+            ),
+            (
+                video,
+                "POST /v1/videos/generations",
+                "fixture-b",
+                Some("grok-imagine-video"),
+            ),
+            (status, "GET /v1/videos/job_123", "fixture-b", None),
+        ] {
+            assert!(headers.starts_with(&format!("{path} HTTP/1.1")));
+            assert!(headers
+                .to_ascii_lowercase()
+                .contains(&format!("authorization: bearer {key}\r\n")));
+            assert_eq!(body["model"].as_str(), model);
+        }
     }
 
     #[tokio::test]

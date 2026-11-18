@@ -19,7 +19,8 @@ pub const AGENTS: [&str; 14] = [
     "omp",
     "agy",
 ];
-pub const DEFAULT_BASE: &str = "https://csmy.fun:23457";
+/// Canonical API origin used for newly generated configurations.
+pub const DEFAULT_BASE: &str = "https://csmy.fun";
 pub type Result<T> = std::result::Result<T, String>;
 
 #[derive(Clone, Default, Serialize, Deserialize)]

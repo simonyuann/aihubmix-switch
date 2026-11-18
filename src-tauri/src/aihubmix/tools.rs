@@ -457,13 +457,11 @@ pub(super) async fn dispatch(
             );
         }
         if app == AppType::Codex && provider.settings_config.get("aihubGrokMedia").is_some() {
-            let state = state.clone();
-            let installed =
-                tauri::async_runtime::spawn_blocking(move || crate::grok_media::install(&state.db))
-                    .await;
-            if !matches!(installed, Ok(Ok(()))) {
-                warnings.push("Grok 对话已配置，但图片和视频工具配置失败，请检查设置中的 MCP 配置后重新启用分组。".into());
-            }
+            warnings.push(if crate::grok_media::instructions(&provider.settings_config).is_some() {
+                "Grok 已配置，请重启 Codex。".into()
+            } else {
+                "当前 Grok 分组未提供图片或视频模型。".into()
+            });
         }
     }
     let selected_model = if command == "start-tool-card" && app == AppType::Claude {
