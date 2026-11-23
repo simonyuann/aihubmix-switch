@@ -45,7 +45,29 @@ pub(super) struct Snapshot {
 }
 
 pub(super) async fn metadata() -> Result<Snapshot, String> {
-    let url = format!("{BASE}latest.json");
+    read_snapshot("packages/latest.json", None).await
+}
+
+pub(super) async fn selected(
+    index: &Index,
+    plugin: &super::IndexPlugin,
+) -> Result<Snapshot, String> {
+    let prefix = format!("packages/{}/{}", index.revision, plugin.name);
+    let snapshot =
+        read_snapshot(&format!("{prefix}.json"), Some(&format!("{prefix}.tar.gz"))).await?;
+    if snapshot.index.revision != index.revision
+        || snapshot.index.plugins.len() != 1
+        || snapshot.index.plugins[0].name != plugin.name
+        || snapshot.index.plugins[0].tree != plugin.tree
+        || snapshot.index.plugins[0].bytes != plugin.bytes
+    {
+        return Err("插件目录已更新，请刷新后再安装".into());
+    }
+    Ok(snapshot)
+}
+
+async fn read_snapshot(path: &str, expected: Option<&str>) -> Result<Snapshot, String> {
+    let url = format!("{BASE}{path}");
     let mut response = crate::proxy::http_client::get_for_url(&url)
         .get(&url)
         .send()
@@ -73,7 +95,8 @@ pub(super) async fn metadata() -> Result<Snapshot, String> {
         .plugins
         .iter()
         .try_fold(0u64, |sum, plugin| sum.checked_add(plugin.bytes));
-    if snapshot.archive != format!("{}.tar.gz", snapshot.index.revision)
+    let legacy_name = format!("{}.tar.gz", snapshot.index.revision);
+    if snapshot.archive != expected.unwrap_or(&legacy_name)
         || !valid_git_id(&snapshot.index.revision)
         || snapshot.sha256.len() != 64
         || hex::decode(&snapshot.sha256).is_err()
@@ -488,33 +511,6 @@ pub(super) async fn prepare(
     let path = root.join(name);
     fs::rename(&destination, &path).map_err(|_| "无法保存插件目录")?;
     Ok((path, true))
-}
-
-pub(super) fn prune(root: &Path, current: &Path, previous: Option<&Path>) {
-    let Ok(entries) = fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path == current
-            || previous == Some(path.as_path())
-            || !entry.file_name().to_string_lossy().starts_with("catalog-")
-        {
-            continue;
-        }
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        if !kind.is_dir() || kind.is_symlink() {
-            continue;
-        }
-        let marker = path.join(".aihub-owned-catalog");
-        if fs::symlink_metadata(&marker).is_ok_and(|m| m.is_file() && !m.file_type().is_symlink())
-            && fs::read(&marker).is_ok_and(|b| b == b"AIHub verified catalog v1\n")
-        {
-            let _ = fs::remove_dir_all(path);
-        }
-    }
 }
 
 #[cfg(test)]

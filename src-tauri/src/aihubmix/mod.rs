@@ -1,5 +1,6 @@
 //! Independent account state; native configuration and activation are delegated to CC.
 pub(crate) mod claude_models;
+pub(crate) use draft::normalize_openai_chat_menu;
 mod draft;
 pub(crate) mod native_imagegen;
 mod payments;
@@ -8,6 +9,7 @@ mod store;
 mod tools;
 mod types;
 use serde_json::Value;
+pub(crate) use service::{public_settings, record_model_failure};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 pub(crate) use types::DEFAULT_BASE;
@@ -36,11 +38,69 @@ pub async fn aihubmix_dispatch(
     command: String,
     payload: Option<Value>,
 ) -> Result<Value, String> {
+    if command == "auth-proxy-enabled" {
+        return Ok(serde_json::json!(
+            crate::proxy::http_client::is_proxy_enabled()
+        ));
+    }
+    if command == "auth-reset-proxy" {
+        crate::commands::set_global_proxy_url(app_state, String::new())?;
+        return Ok(Value::Null);
+    }
     let mut guard = state.backend.lock().await;
     if guard.is_none() {
         *guard = Some(service::Backend::new(store::Store::load(
             crate::config::get_app_config_dir().join("platform"),
         )?)?);
+    }
+    let backend = guard.as_mut().ok_or("平台服务未初始化")?;
+    backend.sync_proxy()?;
+    if matches!(
+        command.as_str(),
+        "auth-settings" | "registration-diagnostics"
+    ) {
+        let base = backend.store.settings.relay_base_url.clone();
+        let owner = backend
+            .store
+            .settings
+            .account
+            .user_id
+            .filter(|_| backend.store.settings.account.logged_in);
+        // The OS proxy may have changed after a network switch. reqwest snapshots
+        // system settings when constructing a client.
+        let manual = crate::proxy::http_client::is_proxy_enabled();
+        if !manual {
+            backend.client = crate::proxy::http_client::platform_client(
+                None,
+                std::time::Duration::from_secs(30),
+            )?;
+        }
+        let client = backend.client.clone();
+        drop(guard);
+        if command == "registration-diagnostics" {
+            let route = if manual {
+                "应用指定代理"
+            } else {
+                "系统网络设置"
+            };
+            let (auth, models) = tokio::join!(
+                service::diagnostic_probe(&client, &base, "/api/v1/settings/public"),
+                service::diagnostic_probe(&client, &base, "/v1/models")
+            );
+            let mut report = format!(
+                "AIHub Switch {}\n{}\n网络设置：{route}\n账号服务 {}\n模型 API {}",
+                app.package_info().version,
+                chrono::Local::now().to_rfc3339(),
+                auth?,
+                models?
+            );
+            if let Some(failure) = service::last_model_failure(owner) {
+                report.push('\n');
+                report.push_str(&failure);
+            }
+            return Ok(serde_json::json!(report));
+        }
+        return service::public_settings(&client, &base).await;
     }
     if crate::product_policy::active()
         && !matches!(
@@ -59,11 +119,53 @@ pub async fn aihubmix_dispatch(
     }
     if matches!(
         command.as_str(),
-        "tool-cards" | "create-tool-card" | "save-tool-key" | "start-tool-card"
+        "tool-cards"
+            | "create-tool-card"
+            | "save-tool-key"
+            | "start-tool-card"
+            | "remove-tool-card"
     ) {
+        let catalog = if command == "tool-cards" {
+            let backend = guard.as_mut().ok_or("平台服务未初始化")?;
+            let owner = backend.store.settings.account.user_id;
+            let session = backend.payment_session().await;
+            if let Ok(mut session) = session {
+                drop(guard);
+                let mut result = session.catalog().await;
+                guard = state.backend.lock().await;
+                let current = guard.as_mut().ok_or("平台服务未初始化")?;
+                if !session.matches(current) {
+                    return Err("账号或登录信息已变更，请刷新".into());
+                }
+                if [&result.0, &result.1]
+                    .iter()
+                    .any(|r| r.as_ref().err().is_some_and(|e| e == "登录已过期"))
+                {
+                    session = session.after_unauthorized(current).await?;
+                    drop(guard);
+                    result = session.catalog().await;
+                    guard = state.backend.lock().await;
+                    if !session.matches(guard.as_ref().ok_or("平台服务未初始化")?)
+                        || [&result.0, &result.1]
+                            .iter()
+                            .any(|r| r.as_ref().err().is_some_and(|e| e == "登录已过期"))
+                    {
+                        return Err("登录信息已变更，请重新验证".into());
+                    }
+                }
+                Some(result)
+            } else if owner.is_some() && backend.store.settings.account.logged_in {
+                Some((Err("分组待联网验证".into()), Err("API 待联网验证".into())))
+            } else {
+                return Err("请先登录账号".into());
+            }
+        } else {
+            None
+        };
         return tools::dispatch(
             app_state.inner(),
             guard,
+            catalog,
             &command,
             payload.unwrap_or(Value::Null),
         )

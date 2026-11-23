@@ -324,7 +324,11 @@ async fn request(
     endpoint: &str,
     body: Option<Value>,
 ) -> Result<Value, &'static str> {
-    let url = format!("{}{}", account.base, endpoint);
+    let url = if crate::product_policy::is_platform_v1_url(&account.base) {
+        format!("{}/v1{endpoint}", crate::aihubmix::DEFAULT_BASE)
+    } else {
+        format!("{}{endpoint}", account.base)
+    };
     let request = match body {
         Some(body) => client.post(url).json(&body),
         None => client.get(url),
@@ -366,7 +370,6 @@ fn safe_url(value: &Value) -> Option<String> {
 struct Server {
     data: PathBuf,
     device: PathBuf,
-    client: reqwest::Client,
     jobs: HashMap<String, [u8; 32]>,
 }
 
@@ -418,7 +421,24 @@ impl Server {
         if current != account(&self.data, &self.device)? {
             return Err(CHANGED);
         }
-        let response = request(&self.client, &current, &endpoint, body).await?;
+        use rusqlite::OptionalExtension;
+        let db = Connection::open_with_flags(
+            self.data.join("cc-switch.db"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(|_| UNAVAILABLE)?;
+        let proxy: Option<String> = db
+            .query_row(
+                "SELECT value FROM settings WHERE key='global_proxy_url'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|_| UNAVAILABLE)?;
+        let client =
+            crate::proxy::http_client::platform_client(proxy.as_deref(), Duration::from_secs(120))
+                .map_err(|_| "代理配置无效")?;
+        let response = request(&client, &current, &endpoint, body).await?;
         if response.to_string().contains(&current.key) {
             return Err("生成服务返回了无效结果。");
         }
@@ -489,18 +509,9 @@ pub fn run() {
     let Ok(runtime) = tokio::runtime::Runtime::new() else {
         return;
     };
-    let Ok(client) = reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(120))
-        .build()
-    else {
-        return;
-    };
     let mut server = Server {
         data: args[0].clone().into(),
         device: args[1].clone().into(),
-        client,
         jobs: HashMap::new(),
     };
     let stdin = std::io::stdin();
@@ -602,7 +613,6 @@ mod tests {
         let server = Server {
             data,
             device,
-            client: reqwest::Client::new(),
             jobs: HashMap::new(),
         };
         let binding = serde_json::to_vec(&fingerprint(&current)).unwrap();
@@ -845,7 +855,6 @@ mod tests {
         let mut server = Server {
             data,
             device,
-            client: reqwest::Client::new(),
             jobs: HashMap::from([("job_1".into(), fingerprint(&current))]),
         };
         std::fs::write(

@@ -74,9 +74,10 @@ def prepare_feed(directory, tag):
     for target, (platform, suffix) in formats.items():
         name = f'AIHubMix-Switch_{version}_{suffix}'
         asset = manifest['platforms'][target]
-        mirror = f'{ORIGIN}{PREFIX}v{version}/{name}'
+        origin = 'https://dl.csmy.fun' if tuple(map(int, version.split('.'))) >= (1, 2, 0) else ORIGIN
+        mirror = f'{origin}{PREFIX}v{version}/{name}'
         upstream = f'https://github.com/simonyuann/aihubmix-switch/releases/download/{tag}/{name}'
-        application_mirror = f'{ORIGIN}{APPLICATION_PREFIX}v{version}/{name}'
+        application_mirror = f'{origin}{APPLICATION_PREFIX}v{version}/{name}'
         if asset.get('url') not in (mirror, application_mirror, upstream):
             raise ValueError('unexpected updater package URL')
         package = directory / platform / name

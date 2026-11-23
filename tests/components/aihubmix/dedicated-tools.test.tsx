@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  onlineManager,
+} from "@tanstack/react-query";
 import {
   act,
   fireEvent,
@@ -105,28 +109,108 @@ beforeEach(() => {
   );
 });
 describe("dedicated service cards", () => {
+  it("requires a chosen replacement before removing the current group", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      Promise.resolve(
+        command === "tool-cards"
+          ? {
+              cards: [official, { ...service, configured: true }],
+              currentProviderId: service.provider.id,
+            }
+          : {},
+      ),
+    );
+    wrap(<ToolPage app="codex" simple />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: `移除 ${service.provider.name}`,
+      }),
+    );
+    const confirm = screen.getByRole("button", { name: "切换并移除" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox", { name: "替代分组" }), {
+      target: { value: official.provider.id },
+    });
+    fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(mocks.dispatch).toHaveBeenCalledWith("remove-tool-card", {
+        app: "codex",
+        providerId: service.provider.id,
+        groupId: 7,
+        replacementId: official.provider.id,
+      }),
+    );
+  });
+  it("removes an unused group without activating another provider", async () => {
+    wrap(<ToolPage app="codex" simple />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: `移除 ${service.provider.name}`,
+      }),
+    );
+    expect(screen.queryByText("替代分组")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "确认移除" }));
+    await waitFor(() =>
+      expect(mocks.dispatch).toHaveBeenCalledWith("remove-tool-card", {
+        app: "codex",
+        providerId: service.provider.id,
+        groupId: 7,
+      }),
+    );
+  });
+  it("loads saved cards offline and refreshes them once the browser reconnects", async () => {
+    const wasOnline = onlineManager.isOnline();
+    onlineManager.setOnline(false);
+    try {
+      wrap(<ToolPage app="codex" simple />);
+      expect(await screen.findByText(service.provider.name)).toBeVisible();
+      expect(mocks.dispatch).toHaveBeenCalledWith("tool-cards", {
+        app: "codex",
+      });
+      mocks.dispatch.mockClear();
+      act(() => onlineManager.setOnline(true));
+      await waitFor(() =>
+        expect(mocks.dispatch).toHaveBeenCalledWith("tool-cards", {
+          app: "codex",
+        }),
+      );
+    } finally {
+      onlineManager.setOnline(wasOnline);
+    }
+  });
+
   it("replaces raw API loading diagnostics with a concise retry message", async () => {
     mocks.dispatch.mockImplementation((command) =>
       command === "keys"
-        ? Promise.reject("连接失败 https://example.invalid/private?token=fixture")
+        ? Promise.reject(
+            "连接失败 https://example.invalid/private?token=fixture",
+          )
         : Promise.resolve({ cards: [service], currentProviderId: null }),
     );
     wrap(<ToolPage app="codex" simple />);
-    fireEvent.click(await screen.findByRole("button", {
-      name: "选择 API 并使用 AIHubMix · OpenAI",
-    }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("加载 API 列表失败，请重试。");
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "选择 API 并使用 AIHubMix · OpenAI",
+      }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "加载 API 列表失败，请重试。",
+    );
     expect(screen.queryByText(/example.invalid/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
   });
 
   it("keeps service warnings useful without exposing raw diagnostics", async () => {
     mocks.dispatch.mockResolvedValue({
-      cards: [service], currentProviderId: null,
-      warning: "模型服务暂不可用：https://example.invalid/private?token=fixture",
+      cards: [service],
+      currentProviderId: null,
+      warning:
+        "模型服务暂不可用：https://example.invalid/private?token=fixture",
     });
     wrap(<ToolPage app="codex" simple />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("模型服务暂不可用，请重试。");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "模型服务暂不可用，请重试。",
+    );
     expect(screen.queryByText(/example.invalid/)).not.toBeInTheDocument();
   });
 
@@ -283,7 +367,14 @@ describe("dedicated service cards", () => {
         Promise.resolve(
           command === "tool-cards"
             ? {
-                cards: [{ ...service, configured: true, platform }],
+                cards: [
+                  {
+                    ...service,
+                    configured: true,
+                    platform,
+                    legacyEndpoint: true,
+                  },
+                ],
                 groups: [],
                 currentProviderId: service.provider.id,
               }
@@ -295,6 +386,7 @@ describe("dedicated service cards", () => {
       const button = screen.queryByRole("button", {
         name: "重新启用 AIHubMix · OpenAI",
       });
+      expect(screen.queryByText(/切换至标准 HTTP/)).toBeNull();
       if (expected) expect(button).toBeEnabled();
       else expect(button).not.toBeInTheDocument();
     },
@@ -539,11 +631,16 @@ describe("dedicated service cards", () => {
     expect(screen.queryByLabelText("服务地址")).not.toBeInTheDocument();
   });
   it("reports a successful API creation without exposing local storage diagnostics", async () => {
-    mocks.dispatch.mockImplementation((command) => Promise.resolve(
-      command === "groups"
-        ? [{ id: 7, name: "平台服务", platform: "openai" }]
-        : { warning: "无法写入 /Users/example/private/vault-v2.bin：Permission denied" },
-    ));
+    mocks.dispatch.mockImplementation((command) =>
+      Promise.resolve(
+        command === "groups"
+          ? [{ id: 7, name: "平台服务", platform: "openai" }]
+          : {
+              warning:
+                "无法写入 /Users/example/private/vault-v2.bin：Permission denied",
+            },
+      ),
+    );
     wrap(<ApplyApiDialog onClose={() => {}} />);
     await screen.findByRole("option", { name: "平台服务 · openai" });
     fireEvent.click(screen.getByRole("button", { name: "确认申请" }));

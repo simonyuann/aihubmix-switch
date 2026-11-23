@@ -1388,6 +1388,13 @@ impl RequestForwarder {
         *codex_upstream_format_out = None;
         // 使用适配器提取 base_url
         let mut base_url = adapter.extract_base_url(provider)?;
+        if *app_type == AppType::Codex {
+            if let Some(canonical) =
+                crate::aihubmix::native_imagegen::canonical_card_url(provider, &base_url)
+            {
+                base_url = canonical;
+            }
+        }
 
         let is_full_url = provider
             .meta
@@ -2784,6 +2791,9 @@ impl RequestForwarder {
                 tokio::time::timeout(header_timeout, send)
                     .await
                     .map_err(|_| {
+                        if !method.is_safe() {
+                            return ProxyError::DeliveryUnknown;
+                        }
                         ProxyError::Timeout(format!(
                             "流式响应首包超时: {}s（上游未返回响应头）",
                             header_timeout.as_secs()
@@ -2792,7 +2802,13 @@ impl RequestForwarder {
             } else {
                 send.await
             };
-            let reqwest_resp = send_result.map_err(map_reqwest_send_error)?;
+            let reqwest_resp = send_result.map_err(|e| {
+                if !method.is_safe() && !e.is_connect() {
+                    ProxyError::DeliveryUnknown
+                } else {
+                    map_reqwest_send_error(e)
+                }
+            })?;
             ProxyResponse::Reqwest(reqwest_resp)
         } else {
             // HTTP 代理或直连：走 hyper raw write（保持 header 大小写）
@@ -2815,11 +2831,34 @@ impl RequestForwarder {
 
         // 检查响应状态
         let status = response.status();
+        if (status.is_client_error() || status.is_server_error())
+            && crate::product_policy::own_url(&url)
+        {
+            crate::aihubmix::record_model_failure(
+                app_type,
+                provider,
+                status.as_u16(),
+                response.headers(),
+            );
+        }
 
+        // A broken body after response headers says nothing about whether
+        // the upstream already generated the result or charged the account.
+        let response_read_error = |error| match error {
+            ProxyError::ForwardFailed(_)
+            | ProxyError::Timeout(_)
+            | ProxyError::StreamIdleTimeout(_)
+                if !method.is_safe() =>
+            {
+                ProxyError::DeliveryUnknown
+            }
+            other => other,
+        };
         if status.is_success() {
             let mut response = self
                 .prepare_success_response_for_failover(response, request_is_streaming)
-                .await?;
+                .await
+                .map_err(response_read_error)?;
             // Streaming requests normally return SSE. If a compatible gateway
             // explicitly returns JSON instead, buffer and validate it inside the retry
             // loop as well so a 2xx Anthropic error envelope can still fail over. Do
@@ -2827,7 +2866,8 @@ impl RequestForwarder {
             if codex_responses_to_anthropic && (!request_is_streaming || response.is_json()) {
                 response = self
                     .validate_codex_anthropic_success_response(response)
-                    .await?;
+                    .await
+                    .map_err(response_read_error)?;
             } else if matches!(
                 resolved_claude_api_format.as_deref(),
                 Some("openai_responses")
@@ -2836,12 +2876,18 @@ impl RequestForwarder {
                     // Claude→Responses gateways can also return a semantic failure in an
                     // HTTP 2xx Response object. Validate buffered/JSON bodies inside the
                     // retry loop so an early failure can still select another provider.
-                    response = self.validate_responses_success_response(response).await?;
+                    response = self
+                        .validate_responses_success_response(response)
+                        .await
+                        .map_err(response_read_error)?;
                 } else {
                     // Delay committing the downstream stream until the upstream emits
                     // either productive output or a valid non-failure terminal event.
                     // A response.failed/error before output remains failover-safe.
-                    response = self.validate_responses_stream_start(response).await?;
+                    response = self
+                        .validate_responses_stream_start(response)
+                        .await
+                        .map_err(response_read_error)?;
                 }
             } else if matches!(app_type, AppType::Codex | AppType::GrokBuild)
                 && !codex_responses_to_chat
@@ -2853,7 +2899,8 @@ impl RequestForwarder {
             {
                 response = self
                     .hold_encrypted_agent_task_stream(response, &filtered_body)
-                    .await?;
+                    .await
+                    .map_err(response_read_error)?;
             }
             Ok((response, resolved_claude_api_format, outbound_model))
         } else {
@@ -2862,7 +2909,10 @@ impl RequestForwarder {
             // 自动解压 feature，这里拿到的是原始字节；不解压的话，压缩过的错误体会
             // 在 from_utf8 处变成非 UTF-8 而被丢弃，隐藏掉上游的限流/鉴权等详情。
             let encoding = get_content_encoding(response.headers());
-            let raw = response.bytes_with_limit(MAX_RESPONSE_BODY_BYTES).await?;
+            let raw = response
+                .bytes_with_limit(MAX_RESPONSE_BODY_BYTES)
+                .await
+                .map_err(response_read_error)?;
             let decoded = match encoding {
                 Some(encoding) => {
                     match decompress_body_with_limit(&encoding, &raw, MAX_RESPONSE_BODY_BYTES) {
@@ -7953,6 +8003,41 @@ mod tests {
             forwarder.max_attempts = max_attempts;
             forwarder.current_provider_id_at_start = provider_at_start.to_string();
             forwarder
+        }
+
+        #[tokio::test]
+        async fn interrupted_responses_stream_does_not_repeat_generation_on_another_provider() {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let received = requests.clone();
+            let app = axum::Router::new().fallback(move |body: axum::Json<Value>| {
+                let received = received.clone();
+                async move {
+                    received.lock().await.push(body.0);
+                    (
+                        [(http::header::CONTENT_TYPE, "text/event-stream")],
+                        "event: response.created\ndata: {\"type\":\"response.created\"}\n\n",
+                    )
+                }
+            });
+            let first = Upstream {
+                base_url: serve_upstream(app).await,
+                requests,
+            };
+            let next = upstream(vec![ok()]).await;
+            let mut p1 = provider("p1", &first);
+            p1.settings_config["api_format"] = json!("openai_responses");
+            let mut body = plain_body();
+            body["stream"] = json!(true);
+            let result = send(&forwarder(2, "p1"), vec![p1, provider("p2", &next)], body).await;
+            assert_eq!(first.requests.lock().await.len(), 1);
+            assert!(
+                next.requests.lock().await.is_empty(),
+                "generation POST was replayed"
+            );
+            assert!(matches!(
+                expect_err(result).error,
+                ProxyError::DeliveryUnknown
+            ));
         }
 
         async fn send(

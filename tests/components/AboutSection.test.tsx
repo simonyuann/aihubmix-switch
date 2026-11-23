@@ -33,7 +33,11 @@ describe("AboutSection", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "settings.officialWebsite" }),
     );
-    expect(open).toHaveBeenCalledWith("https://dl.csmy.fun:23457/");
+    expect(open).toHaveBeenCalledWith("https://csmy.fun/");
+    fireEvent.click(screen.getByRole("button", { name: "手动下载安装包" }));
+    expect(open).toHaveBeenCalledWith(
+      "https://github.com/simonyuann/aihubmix-switch/releases/latest",
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "settings.checkForUpdates" }),
     );

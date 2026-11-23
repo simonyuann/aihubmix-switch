@@ -929,6 +929,7 @@ fn marketplace_manifest(index: &Index, local: Option<(&str, &str)>) -> Value {
     json!({"name":MARKET, "interface":{"displayName":"AIHubMix 社区插件", "shortDescription":"社区公开插件缓存，部分插件需额外授权"}, "plugins":plugins})
 }
 
+#[cfg(test)]
 fn mirror_marketplace_manifest(index: &Index, folder: &str) -> Value {
     let mut manifest = marketplace_manifest(index, None);
     for item in manifest["plugins"]
@@ -1226,33 +1227,9 @@ pub async fn enable_codex_plugin_market(
     let root = managed_root();
     ensure_no_foreign_registration(&root, executable_path).await?;
     ensure_owned_market_root(&root)?;
-    let (catalog, created) = mirror::prepare(&root, &snapshot, Some(&progress)).await?;
-    let folder = catalog
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or("插件目录路径无效")?;
-    let manifest = mirror_marketplace_manifest(&snapshot.index, folder);
+    let manifest = marketplace_manifest(&snapshot.index, None);
     let manifest_path = root.join(".agents/plugins/marketplace.json");
     let previous = std::fs::read(&manifest_path).ok();
-    let previous_catalog = previous
-        .as_ref()
-        .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
-        .and_then(|value| {
-            value["plugins"].as_array()?.first()?["source"]["path"]
-                .as_str()
-                .map(str::to_owned)
-        })
-        .and_then(|path| {
-            path.strip_prefix("./")?
-                .split('/')
-                .next()
-                .map(str::to_owned)
-        })
-        .filter(|name| {
-            name.starts_with("catalog-")
-                && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
-        })
-        .map(|name| root.join(name));
     mirror::progress(Some(&progress), "registering", 0, 0);
     write_marketplace_value(&root, &manifest)?;
     if let Err(error) = register(&root, executable_path).await {
@@ -1262,9 +1239,6 @@ pub async fn enable_codex_plugin_market(
         } else {
             std::fs::remove_file(&manifest_path).map_err(|_| "插件市场注册失败，清理配置也失败")?;
         }
-        if created {
-            let _ = std::fs::remove_dir_all(&catalog);
-        }
         return Err(error);
     }
     crate::config::atomic_write_private(
@@ -1272,7 +1246,6 @@ pub async fn enable_codex_plugin_market(
         snapshot.index.revision.as_bytes(),
     )
     .map_err(|_| "插件市场已更新，但版本记录保存失败")?;
-    mirror::prune(&root, &catalog, previous_catalog.as_deref());
     Ok(MarketSetup {
         revision: snapshot.index.revision,
         restart_required: true,
@@ -1340,26 +1313,46 @@ pub async fn install_codex_market_plugin(
     {
         return Err("插件目录已更新，请重新开启市场".into());
     }
+    let plugin = index
+        .plugins
+        .iter()
+        .find(|p| p.name == plugin_id)
+        .ok_or("插件不在公开目录中")?;
+    let snapshot = mirror::selected(&index, plugin).await?;
+    let packages = root.join("packages");
+    reject_link_or_non_dir(&packages)?;
+    let cache = packages.join(&plugin_id);
+    reject_link_or_non_dir(&cache)?;
+    let (catalog, _) = mirror::prepare(&cache, &snapshot, None).await?;
+    let folder = catalog
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or("插件缓存路径无效")?;
+    let path = format!("./packages/{plugin_id}/{folder}/{plugin_id}");
     let manifest_path = root.join(".agents/plugins/marketplace.json");
-    let manifest: Value =
-        serde_json::from_slice(&std::fs::read(manifest_path).map_err(|_| "请先开启社区插件市场")?)
-            .map_err(|_| "插件目录无效")?;
+    let previous = std::fs::read(&manifest_path).map_err(|_| "请先开启社区插件市场")?;
+    let mut manifest: Value = serde_json::from_slice(&previous).map_err(|_| "插件目录无效")?;
     let item = manifest["plugins"]
-        .as_array()
-        .and_then(|p| {
-            p.iter()
-                .find(|p| p["name"].as_str() == Some(plugin_id.as_str()))
+        .as_array_mut()
+        .and_then(|items| {
+            items
+                .iter_mut()
+                .find(|p| p["name"].as_str() == Some(&plugin_id))
         })
         .ok_or("插件目录已更新，请重新开启市场")?;
-    if item["source"]["source"].as_str() != Some("local") {
-        return Err("请重新开启社区插件市场以使用国内下载".into());
-    }
+    item["source"] = json!({"source":"local","path":path});
+    write_marketplace_value(&root, &manifest)?;
     let selector = format!("{plugin_id}@{MARKET}");
-    codex_cli(
+    if let Err(error) = codex_cli(
         executable_path,
         words(&["plugin", "add", &selector, "--json"]),
     )
-    .await?;
+    .await
+    {
+        crate::config::atomic_write_private(&manifest_path, &previous)
+            .map_err(|_| "插件安装失败，恢复目录也失败")?;
+        return Err(error);
+    }
     if !installed_names(executable_path).await?.contains(&plugin_id) {
         return Err("安装状态尚未确认，请刷新列表".into());
     }

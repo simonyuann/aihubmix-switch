@@ -285,9 +285,11 @@ pub async fn send_request(
         proxy_url.map(super::http_client::mask_url),
     );
 
+    let proxy_cases = OriginalHeaderCases::default();
     if let Some(original_cases) = original_cases
         .as_ref()
         .filter(|cases| !cases.cases.is_empty())
+        .or_else(|| proxy_url.map(|_| &proxy_cases))
     {
         // Primary path: use raw write + hyper handshake for exact header casing
         let result = tokio::time::timeout(
@@ -295,12 +297,18 @@ pub async fn send_request(
             send_raw_request(&uri, &method, &headers, original_cases, &body, proxy_url),
         )
         .await
-        .map_err(|_| ProxyError::Timeout(format!("请求超时: {}s", timeout.as_secs())))?;
+        .map_err(|_| {
+            if method.is_safe() {
+                ProxyError::Timeout(format!("请求超时: {}s", timeout.as_secs()))
+            } else {
+                ProxyError::DeliveryUnknown
+            }
+        })?;
 
         match result {
             Ok(resp) => return Ok(resp),
             Err(e) => {
-                if proxy_url.is_some() {
+                if proxy_url.is_some() || matches!(e, ProxyError::DeliveryUnknown) {
                     // Don't bypass configured proxy with direct connect fallback
                     return Err(e);
                 }
@@ -311,6 +319,7 @@ pub async fn send_request(
     }
 
     // Fallback: hyper-util Client (title-case headers, no proxy support)
+    let read_only = method.is_safe();
     let mut req = http::Request::builder()
         .method(method)
         .uri(&uri)
@@ -323,8 +332,17 @@ pub async fn send_request(
     let client = global_hyper_client();
     let resp = tokio::time::timeout(timeout, client.request(req))
         .await
-        .map_err(|_| ProxyError::Timeout(format!("请求超时: {}s", timeout.as_secs())))?
+        .map_err(|_| {
+            if read_only {
+                ProxyError::Timeout(format!("请求超时: {}s", timeout.as_secs()))
+            } else {
+                ProxyError::DeliveryUnknown
+            }
+        })?
         .map_err(|e| {
+            if !read_only && !e.is_connect() {
+                return ProxyError::DeliveryUnknown;
+            }
             ProxyError::ForwardFailed(format!(
                 "上游请求失败: {}",
                 super::error::describe_error_chain(&e)
@@ -433,30 +451,58 @@ async fn send_raw_request(
             .await
             .map_err(|e| ProxyError::ForwardFailed(format!("TLS handshake failed: {e}")))?;
 
-        tls_stream
-            .write_all(&raw)
-            .await
-            .map_err(|e| ProxyError::ForwardFailed(format!("Write failed: {e}")))?;
-        tls_stream
-            .flush()
-            .await
-            .map_err(|e| ProxyError::ForwardFailed(format!("Flush failed: {e}")))?;
+        tls_stream.write_all(&raw).await.map_err(|e| {
+            if method.is_safe() {
+                ProxyError::ForwardFailed(format!("Write failed: {e}"))
+            } else {
+                ProxyError::DeliveryUnknown
+            }
+        })?;
+        tls_stream.flush().await.map_err(|e| {
+            if method.is_safe() {
+                ProxyError::ForwardFailed(format!("Flush failed: {e}"))
+            } else {
+                ProxyError::DeliveryUnknown
+            }
+        })?;
 
         let filtered = WriteFilter::new(tls_stream);
-        do_hyper_response(filtered, method.clone()).await
+        do_hyper_response(filtered, method.clone())
+            .await
+            .map_err(|e| {
+                if method.is_safe() {
+                    e
+                } else {
+                    ProxyError::DeliveryUnknown
+                }
+            })
     } else {
         let mut stream = stream;
-        stream
-            .write_all(&raw)
-            .await
-            .map_err(|e| ProxyError::ForwardFailed(format!("Write failed: {e}")))?;
-        stream
-            .flush()
-            .await
-            .map_err(|e| ProxyError::ForwardFailed(format!("Flush failed: {e}")))?;
+        stream.write_all(&raw).await.map_err(|e| {
+            if method.is_safe() {
+                ProxyError::ForwardFailed(format!("Write failed: {e}"))
+            } else {
+                ProxyError::DeliveryUnknown
+            }
+        })?;
+        stream.flush().await.map_err(|e| {
+            if method.is_safe() {
+                ProxyError::ForwardFailed(format!("Flush failed: {e}"))
+            } else {
+                ProxyError::DeliveryUnknown
+            }
+        })?;
 
         let filtered = WriteFilter::new(stream);
-        do_hyper_response(filtered, method.clone()).await
+        do_hyper_response(filtered, method.clone())
+            .await
+            .map_err(|e| {
+                if method.is_safe() {
+                    e
+                } else {
+                    ProxyError::DeliveryUnknown
+                }
+            })
     }
 }
 

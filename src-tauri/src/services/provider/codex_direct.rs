@@ -412,12 +412,19 @@ fn project(provider: &Provider) -> Result<CodexProjection, AppError> {
         official: is_official(provider),
         proxy_injected_oauth: provider.uses_proxy_injected_oauth(),
     })?;
-    if crate::aihubmix::native_imagegen::supported(provider) {
-        if let Route::Custom {
-            table,
-            auth: RouteAuth::Bearer,
-        } = &mut projection.route
+    if let Route::Custom {
+        table,
+        auth: RouteAuth::Bearer,
+    } = &mut projection.route
+    {
+        if let Some(canonical) = table
+            .get("base_url")
+            .and_then(Item::as_str)
+            .and_then(|url| crate::aihubmix::native_imagegen::canonical_card_url(provider, url))
         {
+            table.insert("base_url", toml_edit::value(canonical));
+        }
+        if crate::aihubmix::native_imagegen::supported(provider) {
             crate::aihubmix::native_imagegen::mark(table);
         }
     }
@@ -736,12 +743,18 @@ pub(crate) fn plan(
             Some(catalog)
         }
         (None, Some(provider), Some(projection)) => {
-            plan_codex_model_catalog(
+            let mut catalog = plan_codex_model_catalog(
                 &provider.settings_config,
                 &projection.catalog_input_text(),
                 crate::proxy::providers::resolve_codex_catalog_tool_profile(provider),
             )?
-            .catalog
+            .catalog;
+            if crate::aihubmix::native_imagegen::supported(provider) {
+                if let Some(menu) = catalog.as_mut() {
+                    crate::aihubmix::normalize_openai_chat_menu(menu);
+                }
+            }
+            catalog
         }
         _ => None,
     };
@@ -887,6 +900,7 @@ pub(crate) fn stack_subagent_choices(
         };
         let config_text = projection.catalog_input_text();
         let row = CodexCatalogRow {
+            platform_chat_menu: crate::aihubmix::native_imagegen::supported(&member.provider),
             settings: &member.provider.settings_config,
             config_text: &config_text,
             profile: crate::proxy::providers::resolve_codex_catalog_tool_profile(&member.provider),
@@ -895,6 +909,9 @@ pub(crate) fn stack_subagent_choices(
             continue;
         };
         for entry in &entries {
+            if row.platform_chat_menu && entry["visibility"] == "hide" {
+                continue;
+            }
             let Some(model) = entry.get("slug").and_then(Value::as_str) else {
                 continue;
             };
@@ -964,6 +981,7 @@ fn stack_catalog(
         }
     } else {
         CodexStackRoute::ThirdParty(CodexCatalogRow {
+            platform_chat_menu: crate::aihubmix::native_imagegen::supported(route),
             settings: &route.settings_config,
             config_text: &route_text,
             profile: crate::proxy::providers::resolve_codex_catalog_tool_profile(route),
@@ -995,6 +1013,7 @@ fn stack_catalog(
             key: &member.key,
             provider_name: &member.provider.name,
             row: CodexCatalogRow {
+                platform_chat_menu: crate::aihubmix::native_imagegen::supported(&member.provider),
                 settings: &member.provider.settings_config,
                 config_text,
                 profile: *profile,

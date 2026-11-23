@@ -192,13 +192,17 @@ describe("dedicated client account boundary", () => {
     const wallet = screen.getByRole("region", { name: "账户余额" });
     expect(wallet).toContainElement(balance);
     expect(balance.closest("button, a, [role='button']")).toBeNull();
-    expect(within(wallet).getByRole("button", { name: "充值" })).toBeInTheDocument();
+    expect(
+      within(wallet).getByRole("button", { name: "充值" }),
+    ).toBeInTheDocument();
     for (const name of ["授权中心", "添加供应商"])
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     const nav = screen.getByRole("navigation");
     expect(nav).not.toContainElement(balance);
     expect(within(nav).queryByText("余额")).not.toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: "API 管理" })).toBeInTheDocument();
+    expect(
+      within(nav).getByRole("button", { name: "API 管理" }),
+    ).toBeInTheDocument();
     expect(
       screen.getAllByRole("button", { name: "申请 API" }).length,
     ).toBeGreaterThan(0);
@@ -326,16 +330,59 @@ describe("dedicated client account boundary", () => {
     await screen.findByRole("navigation");
     expect(screen.queryByText("授权中心")).not.toBeInTheDocument();
   });
+  it("requires explicit consent for enabled platform agreements and exposes diagnostics after login fails", async () => {
+    mocks.dispatch.mockImplementation((command) => {
+      if (command === "auth-settings")
+        return Promise.resolve({
+          ...settings,
+          agreements: [{ title: "服务条款", content: "测试条款正文" }],
+        });
+      if (command === "login") return Promise.reject("连接服务超时");
+      if (command === "registration-diagnostics")
+        return Promise.resolve("注册设置接口正常");
+      if (command === "auth-proxy-enabled") return Promise.resolve(true);
+      return response(command);
+    });
+    mount();
+    await screen.findByText("服务条款");
+    fireEvent.change(screen.getByLabelText("邮箱"), {
+      target: { value: "a@example.test" },
+    });
+    fireEvent.change(screen.getByLabelText("密码", { selector: "input" }), {
+      target: { value: "secret-pass" },
+    });
+    const login = screen.getByRole("button", { name: "登录" });
+    expect(login).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "我已阅读并同意以上协议" }),
+    );
+    fireEvent.click(login);
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "网络诊断" }));
+    await screen.findByDisplayValue("注册设置接口正常");
+    fireEvent.click(
+      screen.getByRole("button", { name: "清除应用代理并使用系统设置" }),
+    );
+    await waitFor(() =>
+      expect(mocks.dispatch).toHaveBeenCalledWith("auth-reset-proxy"),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("checkbox", { name: "我已阅读并同意以上协议" }),
+      ).not.toBeChecked(),
+    );
+  });
   it("can reconnect after public account settings fail to load", async () => {
     let attempts = 0;
     mocks.dispatch.mockImplementation((command) => {
-      if (command === "auth-settings" && attempts++ < 2)
+      if (command === "auth-settings" && attempts++ === 0)
         return Promise.reject("offline");
       return response(command);
     });
     mount();
     const retry = await screen.findByRole("button", { name: "重新连接平台" });
     expect(screen.getByRole("button", { name: "登录" })).toBeDisabled();
+    expect(attempts).toBe(1);
     fireEvent.click(retry);
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "登录" })).toBeEnabled(),

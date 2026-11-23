@@ -185,6 +185,37 @@ impl Store {
         Ok(())
     }
 
+    pub(super) fn migrate_platform_credentials(&mut self) -> Result<()> {
+        const OLD: &str = "https://csmy.fun:23457";
+        let mut changes = Vec::new();
+        for (name, value) in &self.secrets {
+            if let Some(tail) = name.strip_prefix("remote:https://csmy.fun:23457:") {
+                let new = format!("remote:{}:{tail}", super::types::DEFAULT_BASE);
+                if !self.secrets.contains_key(&new) {
+                    changes.push((new, value.clone()));
+                }
+                changes.push((name.clone(), String::new()));
+            }
+        }
+        let owner = self.secret("session-owner");
+        if let Ok((origin, id)) = serde_json::from_str::<(String, i64)>(&owner) {
+            if origin == OLD && Some(id) == self.settings.account.user_id {
+                changes.push((
+                    "session-owner".into(),
+                    serde_json::json!([super::types::DEFAULT_BASE, id]).to_string(),
+                ));
+            }
+        }
+        if !changes.is_empty() {
+            let entries: Vec<_> = changes
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            self.set_secrets(&entries)?;
+        }
+        Ok(())
+    }
+
     pub fn save(&self) -> Result<()> {
         atomic_write(
             &self.dir.join("state-v2.json"),

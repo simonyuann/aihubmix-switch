@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { DiagnosticReport } from "./DiagnosticReport";
 import { CircleHelp, MessageCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
@@ -20,6 +22,14 @@ const questions = [
 ];
 
 export function HelpPage() {
+  const [notice, setNotice] = useState("");
+  const diagnostics = useQuery({
+    queryKey: ["help-network-diagnostics"],
+    queryFn: () => dispatch<string>("registration-diagnostics"),
+    enabled: false,
+    retry: false,
+    networkMode: "always",
+  });
   const contact = useQuery({
     queryKey: ["platform-support-contact"],
     queryFn: () => dispatch<{ contactInfo: string }>("support-contact"),
@@ -73,6 +83,26 @@ export function HelpPage() {
                 )}
               </div>
             </div>
+          </section>
+          <section>
+            <Button
+              variant="outline"
+              disabled={diagnostics.isFetching}
+              onClick={() => {
+                setNotice("");
+                void diagnostics.refetch();
+              }}
+            >
+              {diagnostics.isFetching ? "正在检查账号和模型接口…" : "网络诊断"}
+            </Button>
+            {diagnostics.isError && <p role="alert">诊断未完成，请重试。</p>}
+            {diagnostics.data && (
+              <DiagnosticReport
+                report={diagnostics.data}
+                onNotice={setNotice}
+              />
+            )}
+            {notice && <p role="status">{notice}</p>}
           </section>
           <section>
             <h2 className="mb-3 text-lg font-semibold">常见问题</h2>

@@ -19,7 +19,8 @@ pub const AGENTS: [&str; 14] = [
     "omp",
     "agy",
 ];
-pub const DEFAULT_BASE: &str = "https://csmy.fun:23457";
+/// Canonical API origin used for newly generated configurations.
+pub const DEFAULT_BASE: &str = "https://csmy.fun";
 pub type Result<T> = std::result::Result<T, String>;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -82,6 +83,7 @@ pub struct Settings {
     pub agent_models: BTreeMap<String, String>,
     pub tool_selections: BTreeMap<String, ToolSelection>,
     pub service_cards: BTreeSet<String>,
+    pub manually_managed_card_sets: BTreeSet<String>,
     pub service_key_ids: BTreeMap<String, i64>,
 }
 impl Default for Settings {
@@ -94,6 +96,7 @@ impl Default for Settings {
             agent_models: BTreeMap::new(),
             tool_selections: BTreeMap::new(),
             service_cards: BTreeSet::new(),
+            manually_managed_card_sets: BTreeSet::new(),
             service_key_ids: BTreeMap::new(),
         }
     }

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { verifyUpdateSignature } from './verify-update-signature.mjs'
-import { applicationUpdatePrefix, formatsForVersion, manifestName } from './generate-update-manifest.mjs'
-const origin = 'https://dl.csmy.fun:23457'
+import { applicationUpdatePrefix, formatsForVersion, manifestName, packageOrigin } from './generate-update-manifest.mjs'
+const origin = 'https://dl.csmy.fun'
 const response = await fetch(`${origin}${applicationUpdatePrefix}latest-v2.json`, {
   redirect: 'error', signal: AbortSignal.timeout(20000)
 })
@@ -24,7 +24,7 @@ if (process.argv[2]) assert.equal(manifest.version, process.argv[2])
 const key = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8')).plugins.updater.pubkey
 assert.deepEqual(Object.keys(manifest.platforms).sort(), Object.keys(formatsForVersion(manifest.version)).sort())
 for (const [target, asset] of Object.entries(manifest.platforms)) {
-  assert.equal(new URL(asset.url).origin, origin)
+  assert.equal(new URL(asset.url).origin, packageOrigin(manifest.version))
   assert.ok(new URL(asset.url).pathname.startsWith(`${applicationUpdatePrefix}v${manifest.version}/`))
   const download = await fetch(asset.url, { redirect: 'error', signal: AbortSignal.timeout(60000) })
   assert.equal(download.status, 200)

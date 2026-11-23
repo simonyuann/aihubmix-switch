@@ -29,10 +29,18 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   const [isLoadingVersion, setIsLoadingVersion] = useState(
     () => appVersionCache === null,
   );
-  const [isDownloading, setIsDownloading] = useState(false);
-  const { hasUpdate, updateInfo, checkUpdate, resetDismiss, isChecking } =
-    useUpdate();
 
+  const {
+    hasUpdate,
+    updateInfo,
+    checkUpdate,
+    resetDismiss,
+    isChecking,
+    progress,
+    installUpdate,
+  } = useUpdate();
+
+  const isDownloading = !!progress;
   useEffect(() => {
     let active = true;
     const loadAppVersion = async () => {
@@ -73,10 +81,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
         return;
       }
 
-      setIsDownloading(true);
       try {
         resetDismiss();
-        const installed = await settingsApi.installUpdateAndRestart();
+        const installed = await installUpdate();
         if (!installed) {
           toast.success(t("settings.upToDate"), { closeButton: true });
         }
@@ -94,8 +101,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
             fallbackError,
           );
         }
-      } finally {
-        setIsDownloading(false);
       }
       return;
     }
@@ -116,6 +121,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     checkUpdate,
     hasUpdate,
     isPortable,
+    installUpdate,
     resetDismiss,
     t,
     updateInfo?.availableVersion,
@@ -184,6 +190,26 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
         </Button>
       </div>
 
+      {progress && (
+        <div className="space-y-2 px-5 py-4 text-caption text-fg-2">
+          <p role="status">
+            {progress.installing
+              ? t("settings.installingUpdate", "正在安装更新…")
+              : progress.total
+                ? `${Math.min(100, Math.floor((progress.downloaded * 100) / progress.total))}% · ${(progress.downloaded / 1048576).toFixed(1)} / ${(progress.total / 1048576).toFixed(1)} MiB`
+                : t("settings.downloadedSize", {
+                    defaultValue: "已下载 {{size}} MiB",
+                    size: (progress.downloaded / 1048576).toFixed(1),
+                  })}
+          </p>
+          <progress
+            aria-label={t("settings.updateProgress", "更新下载进度")}
+            className="h-2 w-full accent-primary"
+            max={progress.total || undefined}
+            value={progress.total ? progress.downloaded : undefined}
+          />
+        </div>
+      )}
       {hasUpdate && updateInfo && (
         <div className="space-y-1 px-5 py-4 text-body">
           <p className="font-medium text-fg-1">
@@ -202,10 +228,22 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           type="button"
           variant="neutral"
           size="compact"
-          onClick={() => settingsApi.openExternal("https://dl.csmy.fun:23457/")}
+          onClick={() => settingsApi.openExternal("https://csmy.fun/")}
         >
           <Globe className="h-3.5 w-3.5" />
           {t("settings.officialWebsite")}
+        </Button>
+        <Button
+          type="button"
+          variant="neutral"
+          size="compact"
+          onClick={() =>
+            settingsApi.openExternal(
+              "https://github.com/simonyuann/aihubmix-switch/releases/latest",
+            )
+          }
+        >
+          手动下载安装包
         </Button>
       </div>
     </div>

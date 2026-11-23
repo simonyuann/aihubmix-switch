@@ -2187,9 +2187,8 @@ fn codex_model_catalog_from_settings(
     let is_our_responses_gateway = matches!(
         profile,
         CodexCatalogToolProfile::NativeResponses | CodexCatalogToolProfile::ProxyChat
-    ) && extract_codex_base_url(config_text).is_some_and(|url| {
-        url.trim_end_matches('/') == format!("{}/v1", crate::aihubmix::DEFAULT_BASE)
-    });
+    ) && extract_codex_base_url(config_text)
+        .is_some_and(|url| crate::product_policy::is_platform_v1_url(&url));
     if is_our_responses_gateway {
         if let Some(entries) = catalog.get_mut("models").and_then(Value::as_array_mut) {
             for (entry, spec) in entries.iter_mut().zip(&specs) {
@@ -2231,6 +2230,18 @@ fn codex_model_catalog_from_settings(
                             "id": "priority", "name": "Fast", "description": "Fast mode"
                         }]),
                     );
+                }
+            }
+        }
+    }
+    if let Some(hidden) = settings
+        .pointer("/modelCatalog/hiddenModels")
+        .and_then(Value::as_array)
+    {
+        if let Some(rows) = catalog.get_mut("models").and_then(Value::as_array_mut) {
+            for row in rows {
+                if row.get("slug").is_some_and(|slug| hidden.contains(slug)) {
+                    row["visibility"] = json!("hide");
                 }
             }
         }
@@ -2559,6 +2570,7 @@ pub(crate) fn codex_published_models(settings: &Value, config_text: &str) -> Vec
 
 /// 合并目录里的一家第三方供应商。
 pub(crate) struct CodexCatalogRow<'a> {
+    pub platform_chat_menu: bool,
     pub settings: &'a Value,
     /// 这一家归一化后的配置（`CodexProjection::catalog_input_text`）：地址、模型名、窗口。
     pub config_text: &'a str,
@@ -2728,7 +2740,10 @@ pub(crate) fn codex_stack_third_party_rows(
     if specs.is_empty() {
         return Ok(Vec::new());
     }
-    let catalog = codex_catalog_from_specs_for_row(&specs, row.config_text, row.profile)?;
+    let mut catalog = codex_catalog_from_specs_for_row(&specs, row.config_text, row.profile)?;
+    if row.platform_chat_menu {
+        crate::aihubmix::normalize_openai_chat_menu(&mut catalog);
+    }
     let mut entries = match catalog {
         Value::Object(mut obj) => match obj.remove("models") {
             Some(Value::Array(entries)) => entries,
@@ -3258,6 +3273,31 @@ mod tests {
     use serde_json::json;
     use serial_test::serial;
     use std::ffi::OsString;
+
+    #[test]
+    fn stacked_platform_rows_filter_image_models_without_touching_other_providers() {
+        let settings = json!({"modelCatalog":{"models":[
+            {"model":"gpt-image-2.5-sunburst"}, {"model":"gpt-reserve"}, {"model":"gpt-6.2-sol"}
+        ]}});
+        let row = CodexCatalogRow {
+            platform_chat_menu: true,
+            settings: &settings,
+            config_text: "",
+            profile: CodexCatalogToolProfile::NativeResponses,
+        };
+        let rows = codex_stack_third_party_rows(&row).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["slug"], "gpt-6.2-sol");
+        assert_eq!(rows[1]["visibility"], "hide");
+        let foreign = codex_stack_third_party_rows(&CodexCatalogRow {
+            platform_chat_menu: false,
+            ..row
+        })
+        .unwrap();
+        assert!(foreign
+            .iter()
+            .any(|m| m["slug"] == "gpt-image-2.5-sunburst"));
+    }
 
     #[test]
     fn official_proxy_route_is_recognized_by_its_address() {
@@ -5451,6 +5491,7 @@ wire_api = "responses"
 
                 let stacked = plan_codex_stack_catalog(
                     CodexStackRoute::ThirdParty(CodexCatalogRow {
+                        platform_chat_menu: false,
                         settings: &json!({}),
                         config_text: "",
                         profile,
@@ -5459,6 +5500,7 @@ wire_api = "responses"
                         key: "gemini",
                         provider_name: "Gemini",
                         row: CodexCatalogRow {
+                            platform_chat_menu: false,
                             settings: &settings,
                             config_text: "",
                             profile,
@@ -5546,6 +5588,7 @@ wire_api = "responses"
             ] } });
             let catalog = plan_codex_stack_catalog(
                 CodexStackRoute::ThirdParty(CodexCatalogRow {
+                    platform_chat_menu: false,
                     settings: &route,
                     config_text: "",
                     profile: CodexCatalogToolProfile::NativeResponses,
@@ -5554,6 +5597,7 @@ wire_api = "responses"
                     key: "relay",
                     provider_name: "Relay",
                     row: CodexCatalogRow {
+                        platform_chat_menu: false,
                         settings: &member,
                         config_text: "",
                         profile: CodexCatalogToolProfile::ProxyChat,
@@ -5649,6 +5693,7 @@ wire_api = "responses"
             let member = json!({ "modelCatalog": { "models": [{ "model": "gpt-6-sol" }] } });
             plan_codex_stack_catalog(
                 CodexStackRoute::ThirdParty(CodexCatalogRow {
+                    platform_chat_menu: false,
                     settings: &route,
                     config_text: "",
                     profile: CodexCatalogToolProfile::NativeResponses,
@@ -5657,6 +5702,7 @@ wire_api = "responses"
                     key: "relay",
                     provider_name: "Relay",
                     row: CodexCatalogRow {
+                        platform_chat_menu: false,
                         settings: &member,
                         config_text: "",
                         profile: CodexCatalogToolProfile::ProxyChat,
@@ -5835,6 +5881,7 @@ wire_api = "responses"
                 key: "ds",
                 provider_name: "DS",
                 row: CodexCatalogRow {
+                    platform_chat_menu: false,
                     settings: &stacked_settings,
                     config_text: "model = \"deepseek-v4-pro\"\n",
                     profile: CodexCatalogToolProfile::NativeResponses,
@@ -5910,6 +5957,7 @@ wire_api = "responses"
                     key: "ds",
                     provider_name: "DS",
                     row: CodexCatalogRow {
+                        platform_chat_menu: false,
                         settings: &stacked_settings,
                         config_text: "model = \"deepseek-v4-pro\"\n",
                         profile: CodexCatalogToolProfile::NativeResponses,
@@ -5971,6 +6019,7 @@ wire_api = "responses"
         let stacked_settings = json!({});
         let stacked = plan_codex_stack_catalog(
             CodexStackRoute::ThirdParty(CodexCatalogRow {
+                platform_chat_menu: false,
                 settings: &route_settings,
                 config_text: route_text,
                 profile,
@@ -5979,6 +6028,7 @@ wire_api = "responses"
                 key: "ds",
                 provider_name: "DS",
                 row: CodexCatalogRow {
+                    platform_chat_menu: false,
                     settings: &stacked_settings,
                     config_text: route_text,
                     profile,
@@ -6006,6 +6056,7 @@ wire_api = "responses"
         let ds_text = "model = \"deepseek-v4-pro\"\n";
         let profile = CodexCatalogToolProfile::NativeResponses;
         let row = |settings, config_text| CodexCatalogRow {
+            platform_chat_menu: false,
             settings,
             config_text,
             profile,
@@ -6064,6 +6115,7 @@ wire_api = "responses"
         let stacked_text = "model = \"claude-opus-5\"\nmodel_context_window = 400000\n";
         let catalog = plan_codex_stack_catalog(
             CodexStackRoute::ThirdParty(CodexCatalogRow {
+                platform_chat_menu: false,
                 settings: &route_settings,
                 config_text: route_text,
                 profile: CodexCatalogToolProfile::NativeResponses,
@@ -6072,6 +6124,7 @@ wire_api = "responses"
                 key: "anth",
                 provider_name: "Anth",
                 row: CodexCatalogRow {
+                    platform_chat_menu: false,
                     settings: &stacked_settings,
                     config_text: stacked_text,
                     profile: CodexCatalogToolProfile::Anthropic,

@@ -71,10 +71,11 @@ test('manifest binds all installation formats and every package has a valid sign
 test('production updater checks only the download station', async () => {
   const config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'))
   assert.deepEqual(config.plugins.updater.endpoints, [
-    'https://dl.csmy.fun:23457/github-updates/gh-2dfe2a292f49bc85/latest-v2.json'
+    'https://dl.csmy.fun/github-updates/gh-2dfe2a292f49bc85/latest-v2.json'
   ])
   assert.equal(config.plugins.updater.requireSignedVersion, true)
   assert.equal(config.plugins.updater.allowDowngrades, false)
+  assert.equal(packageUrl('1.2.0', 'package.exe'), `https://dl.csmy.fun${applicationUpdatePrefix}v1.2.0/package.exe`)
   assert.equal(packageUrl('1.1.1', 'package.exe'), `https://dl.csmy.fun:23457${applicationUpdatePrefix}v1.1.1/package.exe`)
   assert.equal(packageUrl('1.0.2', 'package.exe'), 'https://dl.csmy.fun:23457/updates/aihubmix-switch/v1.0.2/package.exe')
 })

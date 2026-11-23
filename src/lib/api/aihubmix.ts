@@ -41,7 +41,7 @@ export async function dispatch<T>(
   } catch (error) {
     if (
       !["login", "register", "session", "state"].includes(command) &&
-      /AUTH_REQUIRED|登录已过期|请重新登录|请先登录/.test(String(error))
+      String(error).startsWith("AUTH_REQUIRED:")
     ) {
       window.dispatchEvent(new Event("aihubmix:session-expired"));
     }

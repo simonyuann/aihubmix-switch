@@ -6,22 +6,58 @@ const TRANSIENT_SERVER: &str = "服务暂时不可用，请稍后重试";
 fn transient_session_error(error: &str) -> bool {
     matches!(
         error,
-        "连接服务超时，请检查系统代理、VPN 和防火墙；可对照浏览器能否打开官网"
-            | "等待服务响应超时，请稍后重试；登录请求不会自动重复提交"
-            | "无法建立安全连接，请检查系统代理、网络和系统受信任证书"
-            | "读取服务响应失败"
+        "域名解析失败"
+            | "TLS 安全连接失败"
+            | "无法建立连接（网络或代理）"
+            | "连接平台超时"
+            | "等待平台响应超时"
+            | "读取平台响应失败"
+            | "服务返回的数据格式异常，请检查网络后重试"
             | TRANSIENT_SERVER
     )
 }
 pub struct Backend {
     pub store: Store,
-    client: Client,
+    pub(super) client: Client,
+    pub(super) login_generation: u64,
+    proxy_url: Option<String>,
     ephemeral_keys: BTreeMap<i64, String>,
+}
+/// JWT middleware uses a string code; the refresh endpoint uses an HTTP code and reason.
+pub(super) fn confirmed_auth_rejection(status: u16, value: &Value) -> bool {
+    let reason = value["reason"].as_str().or_else(|| value["code"].as_str());
+    match status {
+        401 => matches!(
+            reason,
+            Some(
+                "TOKEN_EXPIRED"
+                    | "ACCESS_TOKEN_EXPIRED"
+                    | "INVALID_TOKEN"
+                    | "TOKEN_REVOKED"
+                    | "REFRESH_TOKEN_INVALID"
+                    | "REFRESH_TOKEN_EXPIRED"
+                    | "REFRESH_TOKEN_REUSED"
+                    | "USER_NOT_FOUND"
+                    | "USER_INACTIVE"
+            )
+        ),
+        403 => matches!(
+            reason,
+            Some(
+                "USER_NOT_ACTIVE"
+                    | "ACCOUNT_DISABLED"
+                    | "USER_DISABLED"
+                    | "ACCOUNT_BANNED"
+                    | "USER_BANNED"
+            )
+        ),
+        _ => false,
+    }
 }
 pub fn unwrap_response(status: u16, value: Value) -> Result<Value> {
     if !(200..300).contains(&status) || value.get("code").is_some_and(|v| v.as_i64() != Some(0)) {
         return Err(match status {
-            401 => "登录或 API Key 已失效，请重新登录",
+            401 => "所选 API 凭据无效，请检查或重新选择 API Key",
             403 if value.get("code").and_then(Value::as_str) == Some("INSUFFICIENT_BALANCE") => {
                 "账户余额不足，请先充值后再试"
             }
@@ -136,20 +172,266 @@ fn key_info(value: &Value) -> KeyInfo {
         local: false,
     }
 }
+pub(super) fn parse_groups(value: &Value) -> Result<Value> {
+    let groups:Vec<Value> = value.as_array().ok_or("分组列表格式异常")?.iter().map(|v| json!({"id":v["id"],"name":v["name"],"description":v["description"].as_str().unwrap_or_default(),"platform":v["platform"],"rateMultiplier":v["rate_multiplier"],"allowMessagesDispatch":v["allow_messages_dispatch"].as_bool().unwrap_or(false),"subscriptionType":v["subscription_type"]})).collect();
+    Ok(json!(groups))
+}
+pub(super) fn append_keys(keys: &mut Vec<KeyInfo>, value: &Value) -> Result<usize> {
+    let list = value
+        .as_array()
+        .or(value["items"].as_array())
+        .or(value["data"].as_array())
+        .ok_or("API 列表格式异常")?;
+    let count = list.len();
+    keys.extend(list.iter().map(key_info));
+    Ok(count)
+}
+const SETTINGS_PATH: &str = "/api/v1/settings/public";
+fn network_stage(error: &reqwest::Error) -> &'static str {
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        let detail = cause.to_string().to_ascii_lowercase();
+        if ["dns", "name resolution", "lookup address", "getaddrinfo"]
+            .iter()
+            .any(|s| detail.contains(s))
+        {
+            return "域名解析失败";
+        }
+        if ["certificate", "tls", "ssl", "cert_"]
+            .iter()
+            .any(|s| detail.contains(s))
+        {
+            return "TLS 安全连接失败";
+        }
+        source = cause.source();
+    }
+    if error.is_timeout() && error.is_connect() {
+        "连接平台超时"
+    } else if error.is_connect() {
+        "无法建立连接（网络或代理）"
+    } else if error.is_timeout() {
+        "等待平台响应超时"
+    } else {
+        "读取平台响应失败"
+    }
+}
+fn safe_request_id(headers: &http::HeaderMap) -> Option<&str> {
+    headers.get("x-request-id")?.to_str().ok().filter(|v| {
+        !v.is_empty()
+            && !v.starts_with("sk-")
+            && v.len() <= 100
+            && v.bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+    })
+}
+
+static LAST_MODEL_FAILURE: std::sync::Mutex<Option<(i64, String)>> = std::sync::Mutex::new(None);
+
+pub(crate) fn record_model_failure(
+    app: &crate::app_config::AppType,
+    provider: &crate::provider::Provider,
+    status: u16,
+    headers: &http::HeaderMap,
+) {
+    let prefix = format!("aihubmix-{}-account-", app.as_str());
+    let Some(user) = provider
+        .id
+        .strip_prefix(&prefix)
+        .and_then(|s| s.split_once("-service-"))
+        .and_then(|(id, _)| id.parse::<i64>().ok())
+    else {
+        return;
+    };
+    if !crate::product_policy::own_provider_for_account(app, provider, user) {
+        return;
+    }
+    let mut message = format!(
+        "最近一次本机代理上游错误：{}，HTTP {status}",
+        chrono::Local::now().to_rfc3339()
+    );
+    if let Some(id) = safe_request_id(headers) {
+        message.push_str(&format!("，请求 ID {id}"));
+    }
+    if let Ok(mut last) = LAST_MODEL_FAILURE.lock() {
+        *last = Some((user, message));
+    }
+}
+
+pub(super) fn last_model_failure(user: Option<i64>) -> Option<String> {
+    LAST_MODEL_FAILURE
+        .lock()
+        .ok()?
+        .as_ref()
+        .filter(|(id, _)| Some(*id) == user)
+        .map(|(_, msg)| msg.clone())
+}
+
+/// Anonymous probes: only HTTP metadata is included in the copyable report.
+pub(super) async fn diagnostic_probe(client: &Client, base: &str, path: &str) -> Result<String> {
+    let url = format!("{}{path}", normalize(base)?);
+    crate::product_policy::require_url(&url)?;
+    let started = std::time::Instant::now();
+    let result = match client
+        .get(&url)
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let mut text = format!("HTTP {status}");
+            if path == "/v1/models" && status == 401 {
+                text.push_str("（接口可达，匿名探测）");
+            }
+            if let Some(id) = safe_request_id(response.headers()) {
+                text.push_str(&format!("，探测请求 ID {id}"));
+            }
+            text
+        }
+        Err(e) => network_stage(&e).to_owned(),
+    };
+    Ok(format!(
+        "{path}  {result}  {} ms",
+        started.elapsed().as_millis()
+    ))
+}
+enum SettingsError {
+    Retry(&'static str),
+    Failed(String),
+}
+
+async fn load_public_settings(
+    client: &Client,
+    url: &str,
+) -> std::result::Result<Value, SettingsError> {
+    use std::io::Read;
+    use SettingsError::{Failed, Retry};
+    const MAX: usize = 8 * 1024 * 1024;
+    let request = client
+        .get(url)
+        .header(reqwest::header::ACCEPT_ENCODING, "gzip")
+        .timeout(Duration::from_secs(90));
+    let mut response = tokio::time::timeout(Duration::from_secs(10), request.send())
+        .await
+        .map_err(|_| Retry("等待平台响应超时"))?
+        .map_err(|e| {
+            if (e.is_connect() || e.is_timeout()) && network_stage(&e) != "TLS 安全连接失败" {
+                Retry(network_stage(&e))
+            } else {
+                Failed(network_stage(&e).into())
+            }
+        })?;
+    let status = response.status().as_u16();
+    if matches!(status, 502..=504) {
+        return Err(Retry("注册设置服务暂不可用"));
+    }
+    if !response.status().is_success() {
+        return Err(Failed(format!("注册设置接口返回 HTTP {status}")));
+    }
+    let gzip = response
+        .headers()
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("gzip"));
+    let mut bytes = Vec::new();
+    while let Some(chunk) = tokio::time::timeout(Duration::from_secs(12), response.chunk())
+        .await
+        .map_err(|_| Retry("注册设置下载超时"))?
+        .map_err(|_| Retry("注册设置下载中断"))?
+    {
+        if chunk.len() > MAX - bytes.len() {
+            return Err(Failed("注册设置响应过大".into()));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if gzip {
+        let mut decoded = Vec::new();
+        flate2::read::GzDecoder::new(&bytes[..])
+            .take((MAX + 1) as u64)
+            .read_to_end(&mut decoded)
+            .map_err(|_| Failed("注册设置压缩格式异常".into()))?;
+        if decoded.len() > MAX {
+            return Err(Failed("注册设置响应过大".into()));
+        }
+        bytes = decoded;
+    }
+    let value = serde_json::from_slice(&bytes)
+        .map_err(|_| Failed("注册设置接口返回的数据格式异常".into()))?;
+    let value = unwrap_response(status, value).map_err(Failed)?;
+    if !value["registration_enabled"].is_boolean() {
+        return Err(Failed("注册设置缺少有效的注册开关".into()));
+    }
+    let mut documents = Vec::new();
+    if value["login_agreement_enabled"].as_bool() == Some(true) {
+        let docs = value["login_agreement_documents"]
+            .as_array()
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| Failed("平台启用了登录协议，但未返回协议内容，请重新连接".into()))?;
+        for doc in docs {
+            let title = doc["title"].as_str().filter(|s| !s.trim().is_empty());
+            let content = doc["content_md"].as_str().filter(|s| !s.trim().is_empty());
+            let (Some(title), Some(content)) = (title, content) else {
+                return Err(Failed("登录协议内容不完整，请重新连接".into()));
+            };
+            documents.push(json!({"title":title,"content":content}));
+        }
+    }
+    let captcha_required = [
+        "turnstile_enabled",
+        "tencent_captcha_enabled",
+        "aliyun_captcha_enabled",
+    ]
+    .iter()
+    .any(|k| value[*k].as_bool() == Some(true));
+    Ok(
+        json!({"registrationEnabled":value["registration_enabled"],"emailVerifyEnabled":value["email_verify_enabled"].as_bool().unwrap_or(false),"passwordResetEnabled":value["password_reset_enabled"].as_bool().unwrap_or(false),"invitationCodeEnabled":value["invitation_code_enabled"].as_bool().unwrap_or(false),"captchaRequired": captcha_required, "agreements":documents}),
+    )
+}
+pub(crate) async fn public_settings(client: &Client, base: &str) -> Result<Value> {
+    let url = format!("{}{SETTINGS_PATH}", normalize(base)?);
+    crate::product_policy::require_url(&url)?;
+    for attempt in 0..2 {
+        match load_public_settings(client, &url).await {
+            Ok(settings) => return Ok(settings),
+            Err(SettingsError::Retry(_)) if attempt == 0 => continue,
+            Err(SettingsError::Retry(reason)) => return Err(reason.into()),
+            Err(SettingsError::Failed(error)) => return Err(error),
+        }
+    }
+    Err(TRANSIENT_SERVER.into())
+}
 impl Backend {
     pub fn new(mut store: Store) -> Result<Self> {
-        if crate::product_policy::active() && store.settings.relay_base_url != DEFAULT_BASE {
-            discard_cross_origin_session(&mut store)?;
+        if crate::product_policy::active() {
+            if normalize_platform_base(&mut store)? {
+                // Trusted platform variants are the same service. Normalize
+                // them without touching the account or stored credentials.
+            } else if store.settings.relay_base_url != DEFAULT_BASE {
+                discard_cross_origin_session(&mut store)?;
+            }
         }
+        let proxy_url = crate::proxy::http_client::get_current_proxy_url();
         Ok(Self {
             store,
-            client: Client::builder()
-                .timeout(Duration::from_secs(30))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .map_err(|_| "无法初始化网络服务")?,
+            client: crate::proxy::http_client::platform_client(
+                proxy_url.as_deref(),
+                Duration::from_secs(30),
+            )?,
+            proxy_url,
+            login_generation: 0,
             ephemeral_keys: BTreeMap::new(),
         })
+    }
+    pub(super) fn sync_proxy(&mut self) -> Result<()> {
+        let current = crate::proxy::http_client::get_current_proxy_url();
+        if self.proxy_url != current {
+            self.client = crate::proxy::http_client::platform_client(
+                current.as_deref(),
+                Duration::from_secs(30),
+            )?;
+            self.proxy_url = current;
+        }
+        Ok(())
     }
     pub fn state(&self) -> Result<Value> {
         let s = &self.store.settings;
@@ -195,6 +477,7 @@ impl Backend {
             return Err("请重新登录充值账号".into());
         }
         Ok(super::payments::Session {
+            login_generation: self.login_generation,
             client: self.client.clone(),
             base: normalize(&self.store.settings.relay_base_url)?,
             user_id: self
@@ -223,6 +506,7 @@ impl Backend {
             path
         );
         crate::product_policy::require_url(&url)?;
+        let empty_allowed = method == Method::DELETE || path == "/api/v1/auth/logout";
         let mut request = self.client.request(method, url);
         if path.contains("client_version=")
             || path == "/v1/usage"
@@ -239,18 +523,24 @@ impl Backend {
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let response = request.send().await.map_err(|error| {
-            if error.is_timeout() && error.is_connect() {
-                "连接服务超时，请检查系统代理、VPN 和防火墙；可对照浏览器能否打开官网"
-            } else if error.is_timeout() {
-                "等待服务响应超时，请稍后重试；登录请求不会自动重复提交"
-            } else {
-                "无法建立安全连接，请检查系统代理、网络和系统受信任证书"
-            }
-        })?;
+        let response = request
+            .send()
+            .await
+            .map_err(|error| network_stage(&error))?;
         let status = response.status().as_u16();
-        let bytes = response.bytes().await.map_err(|_| "读取服务响应失败")?;
-        let value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| network_stage(&error))?;
+        let value = match serde_json::from_slice::<Value>(&bytes) {
+            Ok(v) if !(200..300).contains(&status) || v.is_object() || v.is_array() => v,
+            _ if !(200..300).contains(&status)
+                || (empty_allowed && status == 204 && bytes.is_empty()) =>
+            {
+                Value::Null
+            }
+            _ => return Err("服务返回的数据格式异常，请检查网络后重试".into()),
+        };
         Ok((status, value))
     }
     pub async fn verify_session(&mut self) -> Result<()> {
@@ -333,11 +623,11 @@ impl Backend {
                 None,
             )
             .await?;
-        if status == 401 || status == 403 {
+        if confirmed_auth_rejection(status, &value) {
             self.invalidate_local_auth()?;
             return Err("AUTH_REQUIRED: 登录已失效，请重新登录".into());
         }
-        if status >= 500 || status == 429 {
+        if matches!(status, 401 | 403) || status >= 500 || status == 429 {
             return Err(TRANSIENT_SERVER.into());
         }
         let value = unwrap_response(status, value)?;
@@ -417,15 +707,21 @@ impl Backend {
             let (status, value) = self
                 .raw(method.clone(), path, body.clone(), Some(&token))
                 .await?;
-            if status == 401 && attempt == 0 && !self.store.secret("refresh").is_empty() {
+            let rejected = confirmed_auth_rejection(status, &value);
+            if rejected && status == 401 && attempt == 0 && !self.store.secret("refresh").is_empty()
+            {
                 self.refresh_access().await?;
                 continue;
             }
-            if status == 401 || (status == 403 && path == "/api/v1/auth/me") {
+            if rejected && (status == 401 || path == "/api/v1/auth/me") {
                 self.invalidate_local_auth()?;
                 return Err("AUTH_REQUIRED: 登录已失效，请重新登录".into());
             }
-            if status >= 500 || status == 429 {
+            if status == 401
+                || (status == 403 && path == "/api/v1/auth/me")
+                || status >= 500
+                || status == 429
+            {
                 return Err(TRANSIENT_SERVER.into());
             }
             return unwrap_response(status, value)
@@ -511,13 +807,7 @@ impl Backend {
                 Err(error) => Err(error),
             },
             "auth-settings" => {
-                let (status, value) = self
-                    .raw(Method::GET, "/api/v1/settings/public", None, None)
-                    .await?;
-                let value = unwrap_response(status, value)?;
-                Ok(
-                    json!({"registrationEnabled":value["registration_enabled"].as_bool().unwrap_or(false),"emailVerifyEnabled":value["email_verify_enabled"].as_bool().unwrap_or(false),"passwordResetEnabled":value["password_reset_enabled"].as_bool().unwrap_or(false),"invitationCodeEnabled":value["invitation_code_enabled"].as_bool().unwrap_or(false),"captchaRequired": (["turnstile_enabled", "tencent_captcha_enabled", "aliyun_captcha_enabled"].iter().any(|k|value[*k].as_bool()==Some(true)))}),
-                )
+                public_settings(&self.client, &self.store.settings.relay_base_url).await
             }
             "support-contact" => {
                 let (status, value) = self
@@ -579,10 +869,19 @@ impl Backend {
                     )
                     .await?;
                 if command == "login" && status == 401 {
-                    return Err("邮箱或密码不正确，请检查后重试".into());
+                    let reason = value["reason"].as_str().or_else(|| value["code"].as_str());
+                    return Err(if reason == Some("INVALID_CREDENTIALS") {
+                        "邮箱或密码不正确，请检查后重试"
+                    } else {
+                        "登录请求未获验证，请检查网络或代理后重试"
+                    }
+                    .into());
                 }
                 let value = unwrap_response(status, value)
                     .map_err(|error| error.replace(&password, "[已隐藏]"))?;
+                if value["requires_2fa"].as_bool() == Some(true) {
+                    return Err("此账号启用了两步验证，当前客户端暂不支持，请联系平台管理员".into());
+                }
                 let returned_owner = value["user"]["id"]
                     .as_i64()
                     .filter(|id| *id > 0)
@@ -594,6 +893,7 @@ impl Backend {
                     self.ephemeral_keys.clear();
                     self.store.settings.selected_key = None;
                 }
+                self.login_generation = self.login_generation.wrapping_add(1);
                 self.save_auth(value, Some(&email))?;
                 self.state()
             }
@@ -640,8 +940,7 @@ impl Backend {
                 let value = self
                     .request(Method::GET, "/api/v1/groups/available", None)
                     .await?;
-                let groups:Vec<Value> = value.as_array().into_iter().flatten().map(|v| json!({"id":v["id"],"name":v["name"],"description":v["description"].as_str().unwrap_or_default(),"platform":v["platform"],"rateMultiplier":v["rate_multiplier"],"allowMessagesDispatch":v["allow_messages_dispatch"].as_bool().unwrap_or(false),"subscriptionType":v["subscription_type"]})).collect();
-                Ok(json!(groups))
+                parse_groups(&value)
             }
             "keys" => {
                 let mut keys = self.store.settings.local_keys.clone();
@@ -655,14 +954,7 @@ impl Backend {
                                 None,
                             )
                             .await?;
-                        let list = value
-                            .as_array()
-                            .or(value["items"].as_array())
-                            .or(value["data"].as_array())
-                            .cloned()
-                            .unwrap_or_default();
-                        let count = list.len();
-                        keys.extend(list.iter().map(key_info));
+                        let count = append_keys(&mut keys, &value)?;
                         if count < 100
                             || page * 100 >= value["total"].as_u64().unwrap_or(u64::MAX)
                             || page >= 100
@@ -841,6 +1133,19 @@ impl Backend {
     }
 }
 
+fn normalize_platform_base(store: &mut Store) -> Result<bool> {
+    if !crate::product_policy::is_platform_base_url(&store.settings.relay_base_url) {
+        return Ok(false);
+    }
+    store.migrate_platform_credentials()?;
+    if store.settings.relay_base_url == DEFAULT_BASE {
+        return Ok(true);
+    }
+    store.settings.relay_base_url = DEFAULT_BASE.into();
+    store.save()?;
+    Ok(true)
+}
+
 fn discard_cross_origin_session(store: &mut Store) -> Result<()> {
     // Never send a stored session from another origin to the product service.
     // Retain owner for the guarded native-configuration recovery on next login.
@@ -857,6 +1162,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn logout_revokes_refresh_token_and_warns_when_remote_unavailable() {
         use axum::{routing::post, Json, Router};
         use std::sync::{
@@ -1139,12 +1445,131 @@ mod auth_tests {
     use tokio::sync::Mutex;
 
     #[tokio::test]
+    async fn settings_download_accepts_continued_progress_past_eight_seconds() {
+        use axum::{body::Body, response::Response};
+        let app = Router::new().route(SETTINGS_PATH, get(|| async {
+            let chunks = async_stream::stream! {
+                yield Ok::<_,std::io::Error>(bytes::Bytes::from_static(br#"{"code":0,"data":{"registration_enabled":true,"#));
+                tokio::time::sleep(Duration::from_millis(4500)).await;
+                yield Ok::<_,std::io::Error>(bytes::Bytes::from_static(br#""login_agreement_enabled":true,"#));
+                tokio::time::sleep(Duration::from_millis(4500)).await;
+                yield Ok::<_,std::io::Error>(bytes::Bytes::from_static(br#""login_agreement_documents":[{"title":"Terms","content_md":"Terms content"}]}}"#));
+            };
+            Response::new(Body::from_stream(chunks))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = Client::builder().no_proxy().build().unwrap();
+        let settings = public_settings(&client, &base).await.unwrap();
+        assert_eq!(
+            settings["agreements"],
+            json!([{"title":"Terms","content":"Terms content"}])
+        );
+        task.abort();
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn unrecognized_auth_errors_keep_encrypted_credentials() {
+        use axum::http::StatusCode;
+        use axum::response::IntoResponse;
+        let app = Router::new()
+            .route(
+                "/api/v1/auth/me",
+                get(|| async {
+                    (
+                        StatusCode::FORBIDDEN,
+                        axum::response::Html("network access policy"),
+                    )
+                        .into_response()
+                }),
+            )
+            .route(
+                "/api/v1/auth/refresh",
+                post(|| async {
+                    (
+                        StatusCode::UNAUTHORIZED,
+                        Json(json!({"message":"proxy authentication required"})),
+                    )
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let root = tempfile::tempdir().unwrap();
+        let mut backend = Backend::new(Store::for_test(root.path().into())).unwrap();
+        backend.client = Client::builder().no_proxy().build().unwrap();
+        backend.store.settings.relay_base_url = base;
+        backend.store.settings.account = Account {
+            logged_in: true,
+            user_id: Some(3),
+            expires_at: now() + 3600,
+            ..Default::default()
+        };
+        backend.store.memory_secret("refresh", "fixture-refresh");
+        backend.store.memory_secret("access", "fixture-access");
+        assert!(backend.verify_session().await.is_err());
+        assert!(backend.refresh_access().await.is_err());
+        assert!(backend.store.settings.account.logged_in);
+        assert_eq!(backend.store.secret("refresh"), "fixture-refresh");
+        assert_eq!(backend.store.secret("access"), "fixture-access");
+        assert!(!confirmed_auth_rejection(401, &json!({})));
+        assert!(confirmed_auth_rejection(
+            403,
+            &json!({"code":403,"reason":"USER_NOT_ACTIVE"})
+        ));
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn registration_settings_retries_503_once_and_requires_json() {
+        use axum::response::IntoResponse;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let app = Router::new().route(
+            SETTINGS_PATH,
+            get({
+                let calls = calls.clone();
+                move || {
+                    let n = calls.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        match n {
+                            0 => axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                            1 => Json(json!({"code":0,"data":{"registration_enabled":true}}))
+                                .into_response(),
+                            _ => axum::response::Html("login page").into_response(),
+                        }
+                    }
+                }
+            }),
+        );
+        let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", socket.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(socket, app).await.unwrap();
+        });
+        let client = Client::builder().no_proxy().build().unwrap();
+        assert_eq!(
+            public_settings(&client, &base).await.unwrap()["registrationEnabled"],
+            true
+        );
+        assert!(public_settings(&client, &base).await.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        task.abort();
+    }
+
+    #[tokio::test]
     #[serial_test::serial]
     async fn login_recovers_same_owner_without_replacing_another_account() {
         use axum::http::StatusCode;
         let app = Router::new().route("/api/v1/auth/login", post(|Json(body): Json<Value>| async move {
             if body["password"] != "correct" {
-                return (StatusCode::UNAUTHORIZED, Json(json!({"message":"secret should not appear"})));
+                return (StatusCode::UNAUTHORIZED, Json(json!({"code":401,"reason":"INVALID_CREDENTIALS","message":"secret should not appear"})));
             }
             let id = if body["email"] == "other@example.test" { 9 } else { 8 };
             (StatusCode::OK, Json(json!({"code":0,"data":{"access_token":format!("new-token-{id}"),"refresh_token":format!("new-refresh-{id}"),"expires_in":3600,"user":{"id":id}}})))
@@ -1262,7 +1687,7 @@ mod auth_tests {
                             "Bearer fixture-access"
                         );
                         if flag.load(Ordering::SeqCst) {
-                            (StatusCode::UNAUTHORIZED, Json(json!({})))
+                            (StatusCode::UNAUTHORIZED, Json(json!({"code":"TOKEN_REVOKED"})))
                         } else {
                             (StatusCode::OK, Json(json!({"code":0,"data":{"id":8}})))
                         }
@@ -1274,7 +1699,7 @@ mod auth_tests {
                 async move {
                     assert_eq!(body["refresh_token"], "fixture-refresh");
                     if flag.load(Ordering::SeqCst) {
-                        (StatusCode::UNAUTHORIZED, Json(json!({})))
+                        (StatusCode::UNAUTHORIZED, Json(json!({"code":"TOKEN_REVOKED"})))
                     } else {
                         (StatusCode::OK, Json(json!({"code":0,"data":{"access_token":"fixture-access","refresh_token":"fixture-refresh","expires_in":3600,"user":{"id":8}}})))
                     }
@@ -1322,6 +1747,64 @@ mod auth_tests {
         assert!(store.secret("refresh").is_empty());
     }
 
+    #[test]
+    fn platform_base_migrates_without_logout_or_secret_loss() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::for_test(temp.path().into());
+        store.settings.relay_base_url = "https://csmy.fun:23457/v1".into();
+        store.settings.account = Account {
+            logged_in: true,
+            user_id: Some(17),
+            ..Default::default()
+        };
+        store.memory_secret("access", "fixture-access");
+        store.memory_secret("refresh", "fixture-refresh");
+        store.memory_secret("session-owner", r#"["https://csmy.fun:23457",17]"#);
+        store.memory_secret(
+            "remote:https://csmy.fun:23457:17:user:key:42",
+            "example-key",
+        );
+        store.set_secrets(&[]).unwrap();
+
+        assert!(normalize_platform_base(&mut store).unwrap());
+        assert_eq!(store.settings.relay_base_url, DEFAULT_BASE);
+        assert!(store.settings.account.logged_in);
+        assert_eq!(store.settings.account.user_id, Some(17));
+        assert_eq!(store.secret("access"), "fixture-access");
+        assert_eq!(store.secret("refresh"), "fixture-refresh");
+
+        let reopened = Store::reopen_for_test(temp.path().into());
+        assert_eq!(
+            reopened.secret("session-owner"),
+            r#"["https://csmy.fun",17]"#
+        );
+        assert_eq!(
+            reopened.secret("remote:https://csmy.fun:17:user:key:42"),
+            "example-key"
+        );
+        assert!(reopened
+            .secret("remote:https://csmy.fun:23457:17:user:key:42")
+            .is_empty());
+        assert_eq!(reopened.settings.relay_base_url, DEFAULT_BASE);
+        assert!(reopened.settings.account.logged_in);
+        assert_eq!(reopened.secret("access"), "fixture-access");
+        assert_eq!(reopened.secret("refresh"), "fixture-refresh");
+    }
+
+    #[test]
+    fn canonical_platform_v1_base_also_normalizes_without_logout() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut store = Store::for_test(temp.path().into());
+        store.settings.relay_base_url = "https://csmy.fun/v1".into();
+        store.settings.account.logged_in = true;
+        store.memory_secret("access", "fixture-access");
+
+        assert!(normalize_platform_base(&mut store).unwrap());
+        assert_eq!(store.settings.relay_base_url, DEFAULT_BASE);
+        assert!(store.settings.account.logged_in);
+        assert_eq!(store.secret("access"), "fixture-access");
+    }
+
     #[tokio::test]
     #[serial_test::serial]
     async fn identity_mismatch_and_auth_failures_retain_old_owner_for_recovery() {
@@ -1331,9 +1814,9 @@ mod auth_tests {
             .route("/api/v1/auth/refresh", post(|Json(body): Json<Value>| async move {
                 if body["refresh_token"] == "fixture-refresh-success" {
                     (StatusCode::OK, Json(json!({"code":0,"data":{"access_token":"wrong-account-secret","user":{"id":2}}})))
-                } else { (StatusCode::UNAUTHORIZED, Json(json!({"message":"fixture-refresh-secret"}))) }
+                } else { (StatusCode::UNAUTHORIZED, Json(json!({"code":401,"reason":"REFRESH_TOKEN_INVALID","message":"fixture-refresh-secret"}))) }
             }))
-            .route("/api/v1/denied", get(|| async { (StatusCode::UNAUTHORIZED, Json(json!({"message":"fixture-access-secret"}))) }));
+            .route("/api/v1/denied", get(|| async { (StatusCode::UNAUTHORIZED, Json(json!({"code":"INVALID_TOKEN","message":"fixture-access-secret"}))) }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -1401,6 +1884,7 @@ mod auth_tests {
         crate::product_policy::set_session(0);
     }
     #[tokio::test]
+    #[serial_test::serial]
     async fn auth_reuses_verified_mail_protocol_and_never_trusts_local_login_alone() {
         let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
         let app = Router::new()

@@ -1,13 +1,14 @@
 import {
   createContext,
   useContext,
+  useMemo,
   useState,
   type ReactNode,
   type ComponentType,
 } from "react";
 import { CreditCard, KeyRound } from "lucide-react";
 import { useOptionalAccount } from "@/contexts/AccountContext";
-import { RechargeDialog } from "./RechargeDialog";
+import { RechargeDialog, type PaymentLinks } from "./RechargeDialog";
 
 const WalletActions = createContext<{
   recharge: () => void;
@@ -21,6 +22,11 @@ export function useWalletActions() {
 export function WalletActionsProvider({ children }: { children: ReactNode }) {
   const account = useOptionalAccount();
   const [recharge, setRecharge] = useState(false);
+  const owner = JSON.stringify([
+    account?.state?.relayBaseUrl,
+    account?.state?.account.userId,
+  ]);
+  const paymentLinks = useMemo<PaymentLinks>(() => new Map(), [owner]);
   return (
     <WalletActions.Provider
       value={{
@@ -30,7 +36,8 @@ export function WalletActionsProvider({ children }: { children: ReactNode }) {
       {children}
       {recharge && (
         <RechargeDialog
-          key={String(account?.state?.account.userId ?? "")}
+          key={owner}
+          paymentLinks={paymentLinks}
           open
           onClose={() => setRecharge(false)}
           onPaid={() => void account?.refreshWallet()}

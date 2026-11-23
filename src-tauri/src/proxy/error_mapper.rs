@@ -29,7 +29,8 @@ pub fn map_proxy_error_to_status(error: &ProxyError) -> u16 {
         ProxyError::Timeout(_) | ProxyError::StreamIdleTimeout(_) => 504,
 
         // 转发失败/连接失败：502 Bad Gateway
-        ProxyError::ForwardFailed(_) => 502,
+        ProxyError::DeliveryUnknown | ProxyError::ForwardFailed(_) => 502,
+        ProxyError::RequestBodyTooLarge => 413,
 
         // 无可用 Provider：503 Service Unavailable
         ProxyError::NoAvailableProvider => 503,
