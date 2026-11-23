@@ -78,7 +78,7 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
     );
   }, [catalog, query]);
 
-  async function enableMarket() {
+  async function enableMarket(prepareLocal = false) {
     if (gate.current) return;
     gate.current = true;
     setBusy("enable");
@@ -88,14 +88,16 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
     try {
       await codexPluginMarket.enable((progress) => {
         if (mounted.current) setMarketProgress(progress);
-      });
+      }, prepareLocal);
       if (!mounted.current) return;
       const saved = setCodexDesktopPreferences({ plugins: true });
       await reload();
       if (mounted.current) {
         if (saved)
           setNotice(
-            "插件市场已开启，重启 Codex 后可在「插件 → 个人」中查看。",
+            prepareLocal
+              ? "本机插件库已就绪。重新打开 Codex 后即可在社区插件页安装。"
+              : "插件目录已启用，可以选择插件安装。",
           );
         else setError("插件目录已设置，但偏好保存失败；请重新检查设置。");
       }
@@ -225,6 +227,22 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
                   ? `，已显示 ${visibleCount} 个`
                   : ""}
               </p>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-caption text-fg-2">
+                <span>
+                  要在 Codex 里直接安装，可先下载插件库
+                  {catalog.downloadBytes > 0 &&
+                    `（约 ${Math.ceil(catalog.downloadBytes / 1048576)} MiB）`}
+                  。
+                </span>
+                <Button
+                  variant="outline"
+                  size="compact"
+                  disabled={!!busy}
+                  onClick={() => void enableMarket(true)}
+                >
+                  准备 Codex 插件库
+                </Button>
+              </div>
               {catalog.plugins.some((plugin) => plugin.installed === null) && (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-control bg-subtle px-3 py-2 text-caption text-fg-2">
                   <span>插件状态暂不可用；启用目录后可查看和管理。</span>

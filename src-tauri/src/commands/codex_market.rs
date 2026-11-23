@@ -92,6 +92,7 @@ pub struct PublicPlugin {
 #[serde(rename_all = "camelCase")]
 pub struct PublicCatalog {
     source: &'static str,
+    download_bytes: u64,
     revision: String,
     plugins: Vec<PublicPlugin>,
 }
@@ -929,7 +930,6 @@ fn marketplace_manifest(index: &Index, local: Option<(&str, &str)>) -> Value {
     json!({"name":MARKET, "interface":{"displayName":"AIHubMix 社区插件", "shortDescription":"社区公开插件缓存，部分插件需额外授权"}, "plugins":plugins})
 }
 
-#[cfg(test)]
 fn mirror_marketplace_manifest(index: &Index, folder: &str) -> Value {
     let mut manifest = marketplace_manifest(index, None);
     for item in manifest["plugins"]
@@ -1175,7 +1175,8 @@ pub async fn list_codex_market_plugins(
     executable_path: Option<String>,
 ) -> Result<PublicCatalog, String> {
     let executable_path = executable_path.as_deref();
-    let index = mirror::metadata().await?.index;
+    let snapshot = mirror::metadata().await?;
+    let index = snapshot.index;
     let root = managed_root();
     let installed = if ensure_desktop_codex_home().is_ok() {
         match codex_cli(
@@ -1193,6 +1194,7 @@ pub async fn list_codex_market_plugins(
         None
     };
     Ok(PublicCatalog {
+        download_bytes: snapshot.size,
         source: "社区公开插件缓存（非 OpenAI 官方市场）",
         revision: index.revision,
         plugins: index
@@ -1217,6 +1219,7 @@ pub async fn list_codex_market_plugins(
 
 #[tauri::command]
 pub async fn enable_codex_plugin_market(
+    prepare_local: Option<bool>,
     progress: tauri::ipc::Channel<mirror::Progress>,
     executable_path: Option<String>,
 ) -> Result<MarketSetup, String> {
@@ -1227,11 +1230,28 @@ pub async fn enable_codex_plugin_market(
     let root = managed_root();
     ensure_no_foreign_registration(&root, executable_path).await?;
     ensure_owned_market_root(&root)?;
-    let manifest = marketplace_manifest(&snapshot.index, None);
     let manifest_path = root.join(".agents/plugins/marketplace.json");
     let previous = std::fs::read(&manifest_path).ok();
+    let same_revision = std::fs::read_to_string(root.join("catalog-revision"))
+        .ok()
+        .as_deref()
+        == Some(snapshot.index.revision.as_str());
+    if prepare_local.unwrap_or(false) {
+        let (catalog, _) = mirror::prepare(&root, &snapshot, Some(&progress)).await?;
+        let folder = catalog
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or("插件缓存路径无效")?;
+        write_marketplace_value(&root, &mirror_marketplace_manifest(&snapshot.index, folder))?;
+    } else if !same_revision
+        || previous
+            .as_ref()
+            .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+            .is_none_or(|v| v["name"] != MARKET || !v["plugins"].is_array())
+    {
+        write_marketplace_value(&root, &marketplace_manifest(&snapshot.index, None))?;
+    }
     mirror::progress(Some(&progress), "registering", 0, 0);
-    write_marketplace_value(&root, &manifest)?;
     if let Err(error) = register(&root, executable_path).await {
         if let Some(bytes) = previous {
             crate::config::atomic_write_private(&manifest_path, &bytes)

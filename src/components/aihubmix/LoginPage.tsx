@@ -12,8 +12,6 @@ import {
 } from "@/lib/platform";
 import { WindowControls } from "@/components/shell/WindowControls";
 import { useSettingsQuery } from "@/lib/query";
-import { DiagnosticReport } from "./DiagnosticReport";
-import { settingsApi } from "@/lib/api/settings";
 import logo from "@/assets/icons/aihubmix-a.png";
 import { friendlyError } from "./friendlyError";
 
@@ -49,42 +47,47 @@ export function LoginPage() {
   const [cooldown, setCooldown] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [report, setReport] = useState("");
-  const [diagnosing, setDiagnosing] = useState(false);
   const [accepted, setAccepted] = useState(false);
-  const [manualProxy, setManualProxy] = useState(false);
   const agreements = settings?.agreements ?? [];
-  const needsAgreement = mode !== "forgot" && agreements.length > 0;
+  const needsAgreement = mode === "register" && agreements.length > 0;
+  const [remember, setRemember] = useState(false);
+  const [savedEmail, setSavedEmail] = useState("");
+  const [forgetting, setForgetting] = useState(false);
+  const formEdited = useRef(false);
+  const savedPasswordAvailable =
+    mode === "login" && remember && !!savedEmail && savedEmail === email.trim();
   useEffect(() => {
-    let mounted = true;
-    void dispatch<boolean>("auth-proxy-enabled")
-      .then((value) => {
-        if (mounted) setManualProxy(value === true);
+    let current = true;
+    void dispatch<string | null>("remembered-login")
+      .then((saved) => {
+        if (current && typeof saved === "string" && saved) {
+          setSavedEmail(saved);
+          if (!formEdited.current) {
+            setEmail(saved);
+            setRemember(true);
+          }
+        }
       })
       .catch(() => {});
     return () => {
-      mounted = false;
+      current = false;
     };
   }, []);
-  async function restoreSystemNetwork() {
-    try {
-      await dispatch("auth-reset-proxy");
-      setManualProxy(false);
-      setReport("");
-      setSettingsAttempt((value) => value + 1);
-    } catch {
-      setError("无法恢复系统网络设置，请重试。");
+  async function changeRemember(checked: boolean) {
+    formEdited.current = true;
+    if (!checked && savedEmail) {
+      setForgetting(true);
+      try {
+        await dispatch("forget-remembered-login");
+        setSavedEmail("");
+      } catch {
+        setError("未能清除保存的密码，请重试。");
+        return;
+      } finally {
+        setForgetting(false);
+      }
     }
-  }
-  async function diagnose() {
-    setDiagnosing(true);
-    try {
-      setReport(await dispatch<string>("registration-diagnostics"));
-    } catch {
-      setReport("网络诊断未完成，请重试。");
-    } finally {
-      setDiagnosing(false);
-    }
+    setRemember(checked);
   }
   const gate = useRef(false);
   const active = useRef(true);
@@ -126,6 +129,7 @@ export function LoginPage() {
     return () => clearTimeout(timer);
   }, [cooldown]);
   function changeMode(next: Mode) {
+    formEdited.current = true;
     setMode(next);
     setError("");
     setNotice("");
@@ -156,6 +160,7 @@ export function LoginPage() {
   async function submit() {
     if (
       gate.current ||
+      forgetting ||
       !settings ||
       settings.captchaRequired ||
       (mode === "register" && !settings.registrationEnabled) ||
@@ -182,13 +187,22 @@ export function LoginPage() {
         await session.authenticate(mode, {
           email: email.trim(),
           password,
+          ...(mode === "login" && remember
+            ? {
+                remember: true,
+                useSavedPassword: savedPasswordAvailable && !password,
+              }
+            : {}),
           emailCode: code.trim(),
           invitationCode: invitation.trim(),
         });
       }
     } catch (e) {
-      if (active.current)
-        setError(friendlyError(e, "操作失败，请检查网络后重试。"));
+      if (active.current) {
+        const message = friendlyError(e, "操作失败，请检查网络后重试。");
+        if (message === "请重新输入密码") setSavedEmail("");
+        setError(message);
+      }
     } finally {
       gate.current = false;
       if (active.current) setBusy(false);
@@ -279,6 +293,7 @@ export function LoginPage() {
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => {
+                    formEdited.current = true;
                     setEmail(e.target.value);
                     setCode("");
                   }}
@@ -297,8 +312,14 @@ export function LoginPage() {
                     }
                     minLength={mode === "register" ? 8 : undefined}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
+                    onChange={(e) => {
+                      formEdited.current = true;
+                      setPassword(e.target.value);
+                    }}
+                    placeholder={
+                      savedPasswordAvailable ? "已记住密码" : undefined
+                    }
+                    required={!savedPasswordAvailable}
                     disabled={busy}
                   />
                 </label>
@@ -360,7 +381,16 @@ export function LoginPage() {
                 </>
               )}
               {mode === "login" && (
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-caption text-fg-2">
+                    <input
+                      type="checkbox"
+                      checked={remember}
+                      disabled={busy || forgetting}
+                      onChange={(e) => void changeRemember(e.target.checked)}
+                    />
+                    记住我
+                  </label>
                   <button
                     type="button"
                     disabled={busy || !settings?.passwordResetEnabled}
@@ -402,6 +432,7 @@ export function LoginPage() {
                 disabled={
                   busy ||
                   sending ||
+                  forgetting ||
                   !settings ||
                   (needsAgreement && !accepted) ||
                   (mode === "register" && !settings.registrationEnabled) ||
@@ -420,52 +451,15 @@ export function LoginPage() {
               </Button>
             </form>
           )}
-          {(!settings || error) && (
+          {!settings && !settingsLoading && (
             <Button
               variant="ghost"
               className="mt-4 w-full"
-              disabled={settingsLoading || busy || sending || diagnosing}
+              disabled={settingsLoading || busy || sending}
               onClick={() => setSettingsAttempt((value) => value + 1)}
             >
-              {settingsLoading ? "正在连接平台…" : "重新连接平台"}
+              重新连接平台
             </Button>
-          )}
-          {(!settings || error || session.error || report) && (
-            <div className="space-y-2 text-center text-body">
-              <Button
-                variant="ghost"
-                disabled={diagnosing}
-                onClick={() => void diagnose()}
-              >
-                {diagnosing ? "正在检查账号和模型接口…" : "网络诊断"}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  void settingsApi
-                    .checkUpdates()
-                    .catch(() =>
-                      setNotice(
-                        "请用浏览器打开 github.com/simonyuann/aihubmix-switch/releases/latest",
-                      ),
-                    )
-                }
-              >
-                手动下载安装包
-              </Button>
-              {manualProxy && (
-                <Button
-                  variant="ghost"
-                  disabled={busy || sending || diagnosing}
-                  onClick={() => void restoreSystemNetwork()}
-                >
-                  清除应用代理并使用系统设置
-                </Button>
-              )}
-              {report && (
-                <DiagnosticReport report={report} onNotice={setNotice} />
-              )}
-            </div>
           )}
           {(error || session.error) && (
             <p role="alert" className="mt-4 text-body text-destructive">

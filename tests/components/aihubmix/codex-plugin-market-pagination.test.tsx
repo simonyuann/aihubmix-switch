@@ -7,6 +7,7 @@ vi.mock("@/lib/codexPluginMarket", () => ({
     list: vi.fn().mockResolvedValue({
       source: "community",
       revision: "fixture",
+      downloadBytes: 393081888,
       plugins: Array.from({ length: 165 }, (_, index) => ({
         id: `plugin-${index}`,
         name: `plugin-${index}`,
@@ -24,9 +25,21 @@ vi.mock("@/lib/codexPluginMarket", () => ({
   },
 }));
 
+import { codexPluginMarket } from "@/lib/codexPluginMarket";
 import { CodexPluginMarketDialog } from "@/components/aihubmix/CodexPluginMarketDialog";
 
 describe("Codex plugin catalog pagination", () => {
+  it("prepares the full library only on request", async () => {
+    render(<CodexPluginMarketDialog onClose={() => {}} />);
+    await screen.findByText(/375 MiB/);
+    expect(codexPluginMarket.enable).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "准备 Codex 插件库" }));
+    expect(codexPluginMarket.enable).toHaveBeenCalledWith(
+      expect.any(Function),
+      true,
+    );
+    await screen.findByText(/本机插件库已就绪/);
+  });
   it("lets users browse past the first 80 and searches the entire catalog", async () => {
     render(<CodexPluginMarketDialog onClose={() => {}} />);
     expect(

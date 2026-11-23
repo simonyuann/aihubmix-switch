@@ -60,6 +60,7 @@ export interface CodexMarketPlugin {
 }
 
 export interface CodexPluginCatalog {
+  downloadBytes: number;
   source: string;
   revision: string;
   plugins: CodexMarketPlugin[];
@@ -80,11 +81,15 @@ export const codexPluginMarket = {
     invoke<CodexPluginCatalog>("list_codex_market_plugins", {
       executablePath: getCodexDesktopPreferences().executablePath,
     }),
-  enable: (onProgress?: (progress: CodexMarketProgress) => void) => {
+  enable: (
+    onProgress?: (progress: CodexMarketProgress) => void,
+    prepareLocal = false,
+  ) => {
     const progress = new Channel<CodexMarketProgress>();
     progress.onmessage = onProgress ?? (() => {});
     return invoke<CodexPluginMarketChange>("enable_codex_plugin_market", {
       progress,
+      prepareLocal,
       executablePath: getCodexDesktopPreferences().executablePath,
     });
   },

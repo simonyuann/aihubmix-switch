@@ -107,6 +107,8 @@ pub async fn aihubmix_dispatch(
             command.as_str(),
             "state"
                 | "session"
+                | "remembered-login"
+                | "forget-remembered-login"
                 | "login"
                 | "register"
                 | "logout"

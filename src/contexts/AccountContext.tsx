@@ -101,7 +101,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         client.clear();
         setError(
           /登录已失效|登录信息已变更|登录已过期/.test(message)
-            ? "登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。"
+            ? "登录已失效，请重新登录。"
             : "",
         );
       } else {
@@ -138,9 +138,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       setState(null);
       setWallet(null);
       setChecking(false);
-      setError(
-        "登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。",
-      );
+      setError("登录已失效，请重新登录。");
       activeAccount.current = null;
       client.clear();
     };
@@ -206,9 +204,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     setState(null);
     setWallet(null);
     setWalletError("");
-    setError(
-      `${revocationWarning ? `${revocationWarning} ` : ""}请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据。为保护自定义配置，DSH 凭据文件可能保留旧引用。`,
-    );
+    setError(revocationWarning);
     setChecking(false);
     activeAccount.current = null;
     client.clear();

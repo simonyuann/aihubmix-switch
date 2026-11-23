@@ -41,7 +41,7 @@ pub(super) struct Snapshot {
     pub index: Index,
     archive: String,
     sha256: String,
-    size: u64,
+    pub(super) size: u64,
 }
 
 pub(super) async fn metadata() -> Result<Snapshot, String> {

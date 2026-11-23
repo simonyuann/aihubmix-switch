@@ -16,6 +16,13 @@ fn transient_session_error(error: &str) -> bool {
             | TRANSIENT_SERVER
     )
 }
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RememberedLogin {
+    origin: String,
+    email: String,
+    password: String,
+}
+
 pub struct Backend {
     pub store: Store,
     pub(super) client: Client,
@@ -361,21 +368,24 @@ async fn load_public_settings(
     if !value["registration_enabled"].is_boolean() {
         return Err(Failed("注册设置缺少有效的注册开关".into()));
     }
-    let mut documents = Vec::new();
-    if value["login_agreement_enabled"].as_bool() == Some(true) {
-        let docs = value["login_agreement_documents"]
+    let documents = if value["login_agreement_enabled"].as_bool() == Some(true) {
+        value["login_agreement_documents"]
             .as_array()
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| Failed("平台启用了登录协议，但未返回协议内容，请重新连接".into()))?;
-        for doc in docs {
-            let title = doc["title"].as_str().filter(|s| !s.trim().is_empty());
-            let content = doc["content_md"].as_str().filter(|s| !s.trim().is_empty());
-            let (Some(title), Some(content)) = (title, content) else {
-                return Err(Failed("登录协议内容不完整，请重新连接".into()));
-            };
-            documents.push(json!({"title":title,"content":content}));
-        }
-    }
+            .filter(|docs| !docs.is_empty())
+            .and_then(|docs| {
+                docs.iter()
+                    .map(|doc| {
+                        let title = doc["title"].as_str().filter(|s| !s.trim().is_empty())?;
+                        let content = doc["content_md"]
+                            .as_str()
+                            .filter(|s| !s.trim().is_empty())?;
+                        Some(json!({"title":title,"content":content}))
+                    })
+                    .collect::<Option<Vec<_>>>()
+            })
+    } else {
+        Some(Vec::new())
+    };
     let captcha_required = [
         "turnstile_enabled",
         "tencent_captcha_enabled",
@@ -384,7 +394,7 @@ async fn load_public_settings(
     .iter()
     .any(|k| value[*k].as_bool() == Some(true));
     Ok(
-        json!({"registrationEnabled":value["registration_enabled"],"emailVerifyEnabled":value["email_verify_enabled"].as_bool().unwrap_or(false),"passwordResetEnabled":value["password_reset_enabled"].as_bool().unwrap_or(false),"invitationCodeEnabled":value["invitation_code_enabled"].as_bool().unwrap_or(false),"captchaRequired": captcha_required, "agreements":documents}),
+        json!({"registrationEnabled":value["registration_enabled"] == true && documents.is_some(),"emailVerifyEnabled":value["email_verify_enabled"].as_bool().unwrap_or(false),"passwordResetEnabled":value["password_reset_enabled"].as_bool().unwrap_or(false),"invitationCodeEnabled":value["invitation_code_enabled"].as_bool().unwrap_or(false),"captchaRequired": captcha_required, "agreements":documents.unwrap_or_default()}),
     )
 }
 pub(crate) async fn public_settings(client: &Client, base: &str) -> Result<Value> {
@@ -638,7 +648,7 @@ impl Backend {
             self.invalidate_local_auth()?;
             return Err("AUTH_REQUIRED: 登录信息已变更，请重新登录".into());
         }
-        self.save_auth(value, None)
+        self.save_auth(value, None, None)
     }
     /// Retain the old owner ID until native configuration has been safely
     /// detached. Empty credentials alone are never proof that cleanup happened.
@@ -663,7 +673,18 @@ impl Backend {
         crate::product_policy::set_account(0);
         Ok(())
     }
-    fn save_auth(&mut self, value: Value, email: Option<&str>) -> Result<()> {
+    fn remembered_login(&self) -> Option<RememberedLogin> {
+        let saved: RememberedLogin =
+            serde_json::from_str(&self.store.secret("remembered-login")).ok()?;
+        (saved.origin == self.store.settings.relay_base_url && !saved.password.is_empty())
+            .then_some(saved)
+    }
+    fn save_auth(
+        &mut self,
+        value: Value,
+        email: Option<&str>,
+        remembered: Option<&str>,
+    ) -> Result<()> {
         if value["requires_2fa"].as_bool() == Some(true) {
             return Err("此账号启用了两步验证，当前客户端暂不支持，请联系平台管理员".into());
         }
@@ -675,8 +696,11 @@ impl Backend {
             .as_str()
             .map(str::to_string)
             .unwrap_or_else(|| self.store.secret("refresh"));
-        self.store
-            .set_secrets(&[("access", &access), ("refresh", &refresh)])?;
+        let mut entries = vec![("access", access.as_str()), ("refresh", refresh.as_str())];
+        if let Some(saved) = remembered {
+            entries.push(("remembered-login", saved));
+        }
+        self.store.set_secrets(&entries)?;
         let old = self.store.settings.account.clone();
         self.store.settings.account = Account {
             logged_in: true,
@@ -806,6 +830,11 @@ impl Backend {
                 }
                 Err(error) => Err(error),
             },
+            "remembered-login" => Ok(json!(self.remembered_login().map(|saved| saved.email))),
+            "forget-remembered-login" => {
+                self.store.set_secrets(&[("remembered-login", "")])?;
+                Ok(Value::Null)
+            }
             "auth-settings" => {
                 public_settings(&self.client, &self.store.settings.relay_base_url).await
             }
@@ -855,7 +884,17 @@ impl Backend {
                     }
                 }
                 let email = string(&input, "email").trim().to_string();
-                let password = string(&input, "password");
+                let reuse = command == "login"
+                    && input["useSavedPassword"] == true
+                    && input["remember"] == true;
+                let password = if reuse {
+                    self.remembered_login()
+                        .filter(|saved| saved.email == email)
+                        .ok_or("请重新输入密码")?
+                        .password
+                } else {
+                    string(&input, "password")
+                };
                 if email.is_empty() || password.is_empty() {
                     return Err("请填写邮箱和密码".into());
                 }
@@ -870,6 +909,10 @@ impl Backend {
                     .await?;
                 if command == "login" && status == 401 {
                     let reason = value["reason"].as_str().or_else(|| value["code"].as_str());
+                    if reuse && reason == Some("INVALID_CREDENTIALS") {
+                        self.store.set_secrets(&[("remembered-login", "")])?;
+                        return Err("请重新输入密码".into());
+                    }
                     return Err(if reason == Some("INVALID_CREDENTIALS") {
                         "邮箱或密码不正确，请检查后重试"
                     } else {
@@ -894,7 +937,21 @@ impl Backend {
                     self.store.settings.selected_key = None;
                 }
                 self.login_generation = self.login_generation.wrapping_add(1);
-                self.save_auth(value, Some(&email))?;
+                let remembered = if command == "login" && input["remember"] == true {
+                    Some(
+                        serde_json::to_string(&RememberedLogin {
+                            origin: self.store.settings.relay_base_url.clone(),
+                            email: email.clone(),
+                            password,
+                        })
+                        .map_err(|_| "无法保存登录信息")?,
+                    )
+                } else if command == "login" {
+                    Some(String::new())
+                } else {
+                    None
+                };
+                self.save_auth(value, Some(&email), remembered.as_deref())?;
                 self.state()
             }
             "logout" => {
@@ -1642,6 +1699,47 @@ mod auth_tests {
             Some("group-key")
         );
         assert!(!result.to_string().contains("new-token"));
+        assert!(backend
+            .dispatch("remembered-login", Value::Null)
+            .await
+            .unwrap()
+            .is_null());
+        let email = "owner@example.test";
+        let login = json!({"email": email, "password":"correct","remember":true});
+        backend.dispatch("login", login).await.unwrap();
+        backend.dispatch("logout", Value::Null).await.unwrap();
+        backend.store = Store::reopen_for_test(dir.path().into());
+        for file in ["state-v2.json", "vault-v2.bin"] {
+            let contents = std::fs::read(dir.path().join(file)).unwrap();
+            assert!(!contents.windows(b"correct".len()).any(|w| w == b"correct"));
+        }
+        assert_eq!(
+            backend
+                .dispatch("remembered-login", Value::Null)
+                .await
+                .unwrap(),
+            email
+        );
+        let origin = backend.store.settings.relay_base_url.clone();
+        backend.store.settings.relay_base_url = "https://different.example".into();
+        assert!(backend.remembered_login().is_none());
+        backend.store.settings.relay_base_url = origin;
+        let mut saved =
+            json!({"email":"other@example.test", "remember":true,"useSavedPassword":true});
+        assert_eq!(
+            backend.dispatch("login", saved.clone()).await.unwrap_err(),
+            "请重新输入密码"
+        );
+        saved["email"] = json!(email);
+        assert_eq!(
+            backend.dispatch("login", saved.clone()).await.unwrap()["account"]["userId"],
+            8
+        );
+        backend
+            .dispatch("forget-remembered-login", Value::Null)
+            .await
+            .unwrap();
+        assert!(backend.dispatch("login", saved).await.is_err());
         task.abort();
         crate::product_policy::set_session(0);
     }

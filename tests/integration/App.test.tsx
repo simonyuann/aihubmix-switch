@@ -264,6 +264,7 @@ describe("dedicated client account boundary", () => {
     fireEvent.click(await screen.findByRole("button", { name: "退出登录" }));
     await screen.findByRole("heading", { name: "登录你的账户" });
     expect(mocks.dispatch).toHaveBeenCalledWith("logout");
+    expect(screen.queryByText(/请关闭并重新打开/)).not.toBeInTheDocument();
   });
   it("sends a reset email explicitly and remains outside the application", async () => {
     mount();
@@ -330,47 +331,77 @@ describe("dedicated client account boundary", () => {
     await screen.findByRole("navigation");
     expect(screen.queryByText("授权中心")).not.toBeInTheDocument();
   });
-  it("requires explicit consent for enabled platform agreements and exposes diagnostics after login fails", async () => {
+  it("keeps the login form compact even with agreements configured and a failed request", async () => {
     mocks.dispatch.mockImplementation((command) => {
       if (command === "auth-settings")
         return Promise.resolve({
           ...settings,
-          agreements: [{ title: "服务条款", content: "测试条款正文" }],
+          agreements: [{ title: "服务条款", content: "测试" }],
         });
       if (command === "login") return Promise.reject("连接服务超时");
-      if (command === "registration-diagnostics")
-        return Promise.resolve("注册设置接口正常");
-      if (command === "auth-proxy-enabled") return Promise.resolve(true);
       return response(command);
     });
     mount();
-    await screen.findByText("服务条款");
+    await screen.findByRole("heading", { name: "登录你的账户" });
+    expect(screen.getByLabelText("记住我")).not.toBeChecked();
     fireEvent.change(screen.getByLabelText("邮箱"), {
       target: { value: "a@example.test" },
     });
-    fireEvent.change(screen.getByLabelText("密码", { selector: "input" }), {
-      target: { value: "secret-pass" },
+    fireEvent.change(screen.getByLabelText("密码"), {
+      target: { value: "test-password" },
     });
-    const login = screen.getByRole("button", { name: "登录" });
-    expect(login).toBeDisabled();
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: "我已阅读并同意以上协议" }),
+    const submit = screen.getByRole("button", { name: "登录" });
+    await waitFor(() => expect(submit).toBeEnabled());
+    fireEvent.click(submit);
+    expect(await screen.findByRole("alert")).toHaveTextContent("连接服务超时");
+    for (const label of ["服务条款", "网络诊断", "手动下载安装包"])
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "立即注册" }));
+    expect(await screen.findByText("服务条款")).toBeInTheDocument();
+  });
+  it("uses the saved password only for its email and only after clicking login", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      command === "remembered-login"
+        ? Promise.resolve("a@example.test")
+        : response(command),
     );
-    fireEvent.click(login);
-    await screen.findByRole("alert");
-    fireEvent.click(screen.getByRole("button", { name: "网络诊断" }));
-    await screen.findByDisplayValue("注册设置接口正常");
-    fireEvent.click(
-      screen.getByRole("button", { name: "清除应用代理并使用系统设置" }),
+    mount();
+    const email = await screen.findByDisplayValue("a@example.test");
+    const pwd = screen.getByLabelText("密码");
+    expect(pwd).toHaveValue("");
+    expect(screen.getByLabelText("记住我")).toBeChecked();
+    fireEvent.change(email, { target: { value: "b@example.test" } });
+    expect(pwd).toBeRequired();
+    fireEvent.change(email, { target: { value: "a@example.test" } });
+    expect(pwd).not.toBeRequired();
+    expect(mocks.dispatch.mock.calls.some(([cmd]) => cmd === "login")).toBe(
+      false,
     );
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    await screen.findByRole("navigation");
+    expect(mocks.dispatch).toHaveBeenCalledWith(
+      "login",
+      expect.objectContaining({
+        password: "",
+        remember: true,
+        useSavedPassword: true,
+      }),
+    );
+  });
+  it("forgets saved credentials immediately when unchecked", async () => {
+    mocks.dispatch.mockImplementation((command) =>
+      command === "remembered-login"
+        ? Promise.resolve("a@example.test")
+        : response(command),
+    );
+    mount();
+    await screen.findByDisplayValue("a@example.test");
+    fireEvent.click(screen.getByLabelText("记住我"));
     await waitFor(() =>
-      expect(mocks.dispatch).toHaveBeenCalledWith("auth-reset-proxy"),
+      expect(screen.getByLabelText("记住我")).not.toBeChecked(),
     );
-    await waitFor(() =>
-      expect(
-        screen.getByRole("checkbox", { name: "我已阅读并同意以上协议" }),
-      ).not.toBeChecked(),
-    );
+    expect(mocks.dispatch).toHaveBeenCalledWith("forget-remembered-login");
+    expect(screen.getByLabelText("密码")).toBeRequired();
   });
   it("can reconnect after public account settings fail to load", async () => {
     let attempts = 0;
