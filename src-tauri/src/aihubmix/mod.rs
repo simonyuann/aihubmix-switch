@@ -480,6 +480,28 @@ mod wallet_tests {
             user_id: Some(1),
             ..Default::default()
         };
+        // The expired account still owns a high-port card while the on-disk
+        // Codex config has already migrated to the standard HTTPS port.
+        let mut card = draft::catalog(
+            "codex",
+            "openai",
+            "fixture-key",
+            &[types::Model {
+                id: "test-model".into(),
+                ..Default::default()
+            }],
+            "aihubmix-codex-account-1-service-7",
+        )
+        .unwrap();
+        let config = "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun/v1'\nexperimental_bearer_token = 'fixture-key'\n";
+        card.settings_config["config"] =
+            serde_json::json!(config.replace("csmy.fun/v1", "csmy.fun:23457/v1"));
+        state.db.save_provider("codex", &card).unwrap();
+        state.db.set_current_provider("codex", &card.id).unwrap();
+        let live = temp.path().join(".codex/config.toml");
+        assert_eq!(crate::codex_config::get_codex_config_path(), live);
+        std::fs::create_dir_all(live.parent().unwrap()).unwrap();
+        std::fs::write(&live, config).unwrap();
         let error = prepare_account_exit(&state, 1).await.unwrap_err();
         assert!(!error.contains("fixture-secret"));
         assert_eq!(backend.store.settings.account.user_id, Some(1));
@@ -487,7 +509,11 @@ mod wallet_tests {
             .unwrap()
             .contains("fixture-secret"));
         std::fs::remove_file(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&live).unwrap(), config);
         prepare_account_exit(&state, 1).await.unwrap();
+        assert!(!std::fs::read_to_string(&live)
+            .unwrap()
+            .contains("fixture-key"));
         backend.finish_account_recovery().unwrap();
         assert_eq!(backend.store.settings.account.user_id, None);
         match old_dsh {
