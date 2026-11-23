@@ -12,9 +12,14 @@ export const formats = {
   'linux-x86_64-deb': 'linux-x64.deb'
 }
 export const applicationUpdatePrefix = '/github-updates/gh-2dfe2a292f49bc85/'
+export function packageOrigin(version) {
+  manifestName(version)
+  const [major, minor] = version.split('.').map(Number)
+  return major > 1 || (major === 1 && minor >= 2) ? 'https://dl.csmy.fun' : 'https://dl.csmy.fun:23457'
+}
 export function packageUrl(version, name) {
   const prefix = manifestName(version) === 'latest-v2.json' ? applicationUpdatePrefix : '/updates/aihubmix-switch/'
-  return `https://dl.csmy.fun:23457${prefix}v${version}/${name}`
+  return `${packageOrigin(version)}${prefix}v${version}/${name}`
 }
 // The CC rebuild starts at 1.1.0 and requires macOS 12+.
 // Keep the existing isolated feed path and leave 1.0.x clients on latest.json.

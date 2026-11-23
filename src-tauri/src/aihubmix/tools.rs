@@ -111,9 +111,96 @@ fn seed_for(app: &AppType) -> Option<&'static str> {
         .map(|s| s.id)
 }
 
+fn live_dsh_card(id: &str) -> Result<bool> {
+    crate::dsh_config::live_provider_ids()
+        .map_err(|e| e.to_string())?
+        .get(id)
+        .copied()
+        .unwrap_or(Some(false))
+        .ok_or_else(|| "DeepSeek Harness 配置不一致，请先检查启用状态".into())
+}
+
+async fn remove_local_card(
+    state: &AppState,
+    backend: &mut Backend,
+    app: &AppType,
+    user: i64,
+    id: &str,
+    replacement: Option<&str>,
+) -> Result<()> {
+    if app == &AppType::Dsh {
+        if live_dsh_card(id)? && !replacement.map(live_dsh_card).transpose()?.unwrap_or(false) {
+            return Err("请选择并启用替代分组".into());
+        }
+    } else if !app.is_additive_mode() && app != &AppType::Agy {
+        let _switch = crate::mode::controller::lock_settled(state, app)
+            .await
+            .map_err(|e| e.to_string())?;
+        use crate::mode::current::{provider_for, Purpose};
+        let current = provider_for(&state.db, app, Purpose::InUse).map_err(|e| e.to_string())?;
+        if current.as_deref() == Some(id) {
+            return Err("原分组仍在使用，请先切换到其他分组".into());
+        }
+        if provider_for(&state.db, app, Purpose::Direct)
+            .map_err(|e| e.to_string())?
+            .as_deref()
+            == Some(id)
+        {
+            // A routed replacement may keep the old direct fallback. The native
+            // official seed is also the controller's fallback after leaving routing.
+            let fallback = seed_for(app).ok_or("请先选择一个可直连的备用配置")?;
+            let official = state
+                .db
+                .get_provider_by_id(fallback, app.as_str())
+                .map_err(|e| e.to_string())?;
+            if !crate::mode::current::is_proxy(app)
+                || !official.is_some_and(|p| crate::product_policy::official_provider(app, &p))
+            {
+                return Err("未找到可用的直连备用配置".into());
+            }
+            crate::settings::set_current_provider(app, Some(fallback))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    let provider = state
+        .db
+        .get_provider_by_id(id, app.as_str())
+        .map_err(|e| e.to_string())?;
+
+    let previous = backend.store.settings.clone();
+    let settings = &mut backend.store.settings;
+    settings.service_cards.remove(id);
+    settings.service_key_ids.remove(id);
+    settings
+        .manually_managed_card_sets
+        .insert(crate::product_policy::provider_id(app.as_str(), user));
+    if let Err(e) = backend.store.save() {
+        backend.store.settings = previous;
+        return Err(e);
+    }
+    // The saved provider still makes the card visible until native deletion succeeds.
+    if provider.is_some() {
+        let state = state.clone();
+        let app = app.clone();
+        let id = id.to_owned();
+        let result =
+            tauri::async_runtime::spawn_blocking(move || ProviderService::delete(&state, app, &id))
+                .await
+                .map_err(|_| "分组移除任务中断".to_owned())
+                .and_then(|r| r.map_err(|e| e.to_string()));
+        if let Err(error) = result {
+            backend.store.settings = previous;
+            backend.store.save()?;
+            return Err(error.to_string());
+        }
+    }
+    Ok(())
+}
+
 pub(super) async fn dispatch(
     state: &AppState,
     mut guard: MutexGuard<'_, Option<Backend>>,
+    catalog: Option<(Result<Value>, Result<Value>)>,
     command: &str,
     input: Value,
 ) -> Result<Value> {
@@ -133,7 +220,12 @@ pub(super) async fn dispatch(
             .map_err(|e| e.to_string())?;
     }
     if matches!(command, "tool-cards" | "create-tool-card") {
-        let (groups, mut warning) = match backend.dispatch("groups", Value::Null).await {
+        let (group_result, key_result) = match catalog {
+            Some((groups, keys)) => (groups, Some(keys)),
+            None => (backend.dispatch("groups", Value::Null).await, None),
+        };
+        let groups_unavailable = group_result.is_err();
+        let (groups, mut warning) = match group_result {
             Ok(groups) => (groups, None),
             Err(error) => {
                 crate::product_policy::require_session()?;
@@ -150,14 +242,19 @@ pub(super) async fn dispatch(
             })
             .cloned()
             .collect();
+        let mut keys_unavailable = groups_unavailable;
         let keys = if groups.is_empty() {
             json!([])
         } else {
-            match backend.dispatch("keys", Value::Null).await {
+            match match key_result {
+                Some(result) => result,
+                None => backend.dispatch("keys", Value::Null).await,
+            } {
                 Ok(keys) => keys,
                 Err(error) => {
                     crate::product_policy::require_session()?;
-                    warning = Some(format!("API 列表暂不可用：{error}"));
+                    keys_unavailable = true;
+                    warning = Some(format!("已保留本机配置，API 绑定待联网验证：{error}"));
                     json!([])
                 }
             }
@@ -221,7 +318,13 @@ pub(super) async fn dispatch(
                 .values()
                 .any(|p| p.id.starts_with(&prefix) && crate::product_policy::own_provider(&app, p));
         // Keep the existing first service as the default. Additional groups are added by the user.
-        if !has_cards {
+        if !has_cards
+            && !backend
+                .store
+                .settings
+                .manually_managed_card_sets
+                .contains(&crate::product_policy::provider_id(&app_name, user))
+        {
             if let Some(group) = available_groups.first() {
                 let id = service_id(&app_name, user, group["id"].as_i64().unwrap());
                 backend.store.settings.service_cards.insert(id.clone());
@@ -240,6 +343,38 @@ pub(super) async fn dispatch(
                 .filter(|p| crate::product_policy::official_provider(&app, p))
             {
                 cards.push(public_card(&app, &p));
+            }
+        }
+        if groups_unavailable {
+            let mut ids = backend.store.settings.service_cards.clone();
+            ids.extend(
+                saved_providers
+                    .values()
+                    .filter(|p| crate::product_policy::own_provider(&app, p))
+                    .map(|p| p.id.clone()),
+            );
+            for id in ids {
+                let Some(group) = id
+                    .strip_prefix(&prefix)
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .filter(|g| *g > 0)
+                else {
+                    continue;
+                };
+                let provider = saved_providers
+                    .get(&id)
+                    .filter(|p| crate::product_policy::own_provider(&app, p));
+                let fallback = Provider::with_id(
+                    id.clone(),
+                    format!("AIHubMix · 分组 {group}"),
+                    json!({}),
+                    Some(DEFAULT_BASE.into()),
+                );
+                let mut card = public_card(&app, provider.unwrap_or(&fallback));
+                card["groupId"] = json!(group);
+                card["selectedKeyId"] = json!(backend.store.settings.service_key_ids.get(&id));
+                card["verificationPending"] = json!(true);
+                cards.push(card);
             }
         }
         for group in &groups {
@@ -290,11 +425,14 @@ pub(super) async fn dispatch(
                 .service_key_ids
                 .get(&p.id)
                 .filter(|id| {
-                    keys.as_array()
-                        .into_iter()
-                        .flatten()
-                        .any(|key| eligible_key(key, group_id, **id))
+                    keys_unavailable
+                        || keys
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .any(|key| eligible_key(key, group_id, **id))
                 });
+            card["verificationPending"] = json!(keys_unavailable);
             card["selectedKeyId"] = json!(key_id);
             card["configured"] = json!(key_id.is_some() && !key_of(&app, &p).is_empty());
             card["groupId"] = json!(group_id);
@@ -316,7 +454,54 @@ pub(super) async fn dispatch(
             json!({"cards":cards,"groups":available_groups,"currentProviderId":current,"warning":warning}),
         );
     }
-    let id = string(&input, "providerId");
+    let requested_id = string(&input, "providerId");
+    let mut id = requested_id.clone();
+    let mut command = command;
+    let removing = command == "remove-tool-card";
+    if removing {
+        let group = input["groupId"]
+            .as_i64()
+            .filter(|g| *g > 0)
+            .ok_or("请选择本机模型分组")?;
+        if requested_id != service_id(&app_name, user, group) {
+            return Err("只能移除当前账号添加的模型分组".into());
+        }
+        let saved = state
+            .db
+            .get_provider_by_id(&requested_id, &app_name)
+            .map_err(|e| e.to_string())?;
+        if saved
+            .as_ref()
+            .is_some_and(|p| !crate::product_policy::own_provider_for_account(&app, p, user))
+        {
+            return Err("只能移除当前账号添加的模型分组".into());
+        }
+        if saved.is_none() && !backend.store.settings.service_cards.contains(&requested_id) {
+            return Ok(json!({"removed":true}));
+        }
+        let replacement = input["replacementId"].as_str().filter(|v| !v.is_empty());
+        if let Some(next) = replacement {
+            let saved = state
+                .db
+                .get_provider_by_id(next, &app_name)
+                .map_err(|e| e.to_string())?
+                .ok_or("替代分组尚未配置")?;
+            if next == requested_id
+                || !(crate::product_policy::official_provider(&app, &saved)
+                    || (next.starts_with(&format!(
+                        "{}-service-",
+                        crate::product_policy::provider_id(&app_name, user)
+                    )) && crate::product_policy::own_provider(&app, &saved)))
+            {
+                return Err("请选择此工具下其他可用分组".into());
+            }
+            id = next.to_string();
+            command = "start-tool-card";
+        } else {
+            remove_local_card(state, backend, &app, user, &requested_id, None).await?;
+            return Ok(json!({"removed":true}));
+        }
+    }
     let mut existing = state
         .db
         .get_provider_by_id(&id, &app_name)
@@ -471,12 +656,107 @@ pub(super) async fn dispatch(
     } else {
         None
     };
+    if removing {
+        let backend = _account_guard.as_mut().ok_or("平台服务未初始化")?;
+        remove_local_card(state, backend, &app, user, &requested_id, Some(&id)).await?;
+    }
     Ok(json!({"providerId":id,"saved":true,"warnings":warnings,"selectedModel":selected_model}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn removed_last_group_stays_removed_and_can_be_added_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(std::sync::Arc::new(
+            crate::database::Database::memory().unwrap(),
+        ));
+        let dir = tmp.path().join("platform");
+        let mut b = Backend::new(super::super::store::Store::for_test(dir.clone())).unwrap();
+        b.store.settings.account.user_id = Some(12345);
+        let backend = tokio::sync::Mutex::new(Some(b));
+        let catalog = || {
+            Some((
+                Ok(json!([{"id":7,"platform":"openai","name":"QA"}])),
+                Ok(json!([{"id":1,"groupId":7,"local":false,"status":"active"}])),
+            ))
+        };
+        let input = json!({"app":"codex","groupId":7,"providerId":service_id("codex",12345,7)});
+        let list = dispatch(
+            &state,
+            backend.lock().await,
+            catalog(),
+            "tool-cards",
+            input.clone(),
+        )
+        .await
+        .unwrap();
+        assert!(list["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["groupId"] == 7));
+        let mut foreign = input.clone();
+        foreign["providerId"] = json!(service_id("codex", 999, 7));
+        assert!(dispatch(
+            &state,
+            backend.lock().await,
+            None,
+            "remove-tool-card",
+            foreign
+        )
+        .await
+        .is_err());
+        dispatch(
+            &state,
+            backend.lock().await,
+            None,
+            "remove-tool-card",
+            input.clone(),
+        )
+        .await
+        .unwrap();
+        let persisted = super::super::store::Store::load(dir).unwrap();
+        assert!(persisted
+            .settings
+            .manually_managed_card_sets
+            .contains(&crate::product_policy::provider_id("codex", 12345)));
+        let backend = tokio::sync::Mutex::new(Some(Backend::new(persisted).unwrap()));
+        let list = dispatch(
+            &state,
+            backend.lock().await,
+            catalog(),
+            "tool-cards",
+            input.clone(),
+        )
+        .await
+        .unwrap();
+        assert!(!list["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["groupId"] == 7));
+        dispatch(
+            &state,
+            backend.lock().await,
+            catalog(),
+            "create-tool-card",
+            input.clone(),
+        )
+        .await
+        .unwrap();
+        let list = dispatch(&state, backend.lock().await, catalog(), "tool-cards", input)
+            .await
+            .unwrap();
+        assert!(list["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["groupId"] == 7));
+    }
 
     #[test]
     fn unchanged_key_binding_needs_no_write_and_failed_changes_roll_back() {

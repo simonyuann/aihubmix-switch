@@ -8,6 +8,7 @@ use tauri_plugin_updater::UpdaterExt;
 struct UpdateDownloadProgress {
     downloaded: u64,
     total: Option<u64>,
+    installing: bool,
 }
 
 fn merge_settings_for_save(
@@ -287,6 +288,8 @@ pub async fn restart_app(app: AppHandle) -> Result<bool, String> {
 /// 这里把退出清理、安装和重启串在同一个后端流程中，避免依赖旧前端继续执行。
 #[tauri::command]
 pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> {
+    static INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = INSTALL_LOCK.try_lock().map_err(|_| "更新正在进行中")?;
     let builder = app
         .updater_builder()
         .target(crate::product::automatic_update_target()?);
@@ -321,6 +324,7 @@ pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> 
                     UpdateDownloadProgress {
                         downloaded,
                         total: content_len,
+                        installing: false,
                     },
                 );
             },
@@ -329,6 +333,15 @@ pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> 
         .await
         .map_err(|e| format!("下载更新失败: {e}"))?;
 
+    let size = bytes.len() as u64;
+    let _ = app.emit(
+        "update-download-progress",
+        UpdateDownloadProgress {
+            downloaded: size,
+            total: Some(size),
+            installing: true,
+        },
+    );
     log::info!("开始安装应用更新: {}", update.version);
 
     #[cfg(target_os = "windows")]

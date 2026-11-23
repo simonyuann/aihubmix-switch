@@ -20,18 +20,21 @@ pub struct Session {
     pub base: String,
     pub user_id: i64,
     pub token: String,
+    pub(super) login_generation: u64,
 }
 
 #[derive(Debug)]
 pub struct Failure {
     pub message: String,
     unauthorized: bool,
+    confirmed_order: Option<OrderRead>,
 }
 impl From<String> for Failure {
     fn from(message: String) -> Self {
         Self {
             message,
             unauthorized: false,
+            confirmed_order: None,
         }
     }
 }
@@ -70,8 +73,12 @@ pub async fn dispatch(
         .ok_or("平台服务未初始化")?
         .payment_session()
         .await?;
+    let mut confirmed_order: Option<OrderRead> = None;
     for attempt in 0..2 {
-        let result = session.run(command, &input).await;
+        let result = match confirmed_order.take() {
+            Some(order) => order.fetch(&session).await,
+            None => session.run(command, &input).await,
+        };
         let mut guard = backend.lock().await;
         let state = guard.as_mut().ok_or("平台服务未初始化")?;
         if !session.matches(state) {
@@ -83,7 +90,8 @@ pub async fn dispatch(
             .into());
         }
         if attempt == 0 && result.as_ref().err().is_some_and(|e| e.unauthorized) {
-            let refreshed = state.refresh_payment_session().await?;
+            confirmed_order = result.err().and_then(|failure| failure.confirmed_order);
+            let refreshed = session.after_unauthorized(state).await?;
             if refreshed.user_id != session.user_id || refreshed.base != session.base {
                 return Err(if command.starts_with("announcement") {
                     "账号已切换，请重新查看公告"
@@ -100,17 +108,60 @@ pub async fn dispatch(
     Err("登录已过期，请重新登录".into())
 }
 
+/// A successful write is final. If its follow-up GET needs a new token,
+/// continue from this receipt without sending the authenticated write again.
+#[derive(Debug)]
+struct OrderRead {
+    id: i64,
+    links: Option<(String, String)>,
+}
+
+impl OrderRead {
+    async fn fetch(self, session: &Session) -> Result<Value> {
+        match session.order(self.id).await {
+            Ok(order) => {
+                let mut result = sanitize_order(&order);
+                if let Some((qr, url)) = self.links {
+                    result["qrCode"] = json!(qr);
+                    result["payUrl"] = json!(url);
+                }
+                Ok(result)
+            }
+            Err(mut failure) => {
+                if failure.unauthorized {
+                    failure.confirmed_order = Some(self);
+                }
+                Err(failure)
+            }
+        }
+    }
+}
+
 impl Session {
     pub fn matches(&self, backend: &Backend) -> bool {
         backend.store.settings.account.logged_in
-            && backend.store.secret("access") == self.token
+            && self.login_generation == backend.login_generation
             && backend.store.settings.account.user_id == Some(self.user_id)
             && normalize(&backend.store.settings.relay_base_url)
                 .ok()
                 .as_deref()
                 == Some(self.base.as_str())
     }
+    pub(super) async fn after_unauthorized(
+        &self,
+        backend: &mut Backend,
+    ) -> std::result::Result<Self, String> {
+        if !self.matches(backend) {
+            return Err("账号或登录信息已变更，请刷新".into());
+        }
+        if backend.store.secret("access") == self.token {
+            backend.refresh_payment_session().await
+        } else {
+            backend.payment_session().await
+        }
+    }
     async fn request(&self, method: Method, path: &str, body: Option<Value>) -> Result<Value> {
+        let can_retry = method.is_safe();
         let is_announcement = path.starts_with("/api/v1/announcements");
         let mut request = self
             .client
@@ -131,7 +182,8 @@ impl Session {
         if status == 401 {
             return Err(Failure {
                 message: "登录已过期，请重新登录".into(),
-                unauthorized: true,
+                unauthorized: can_retry,
+                confirmed_order: None,
             });
         }
         let bytes = response.bytes().await.map_err(|_| {
@@ -159,6 +211,54 @@ impl Session {
                 _ => "充值操作未完成，请刷新充值记录确认状态，或联系管理员",
             })
         })
+    }
+    pub(super) async fn catalog(
+        &self,
+    ) -> (
+        std::result::Result<Value, String>,
+        std::result::Result<Value, String>,
+    ) {
+        let groups = async {
+            let value = self
+                .request(Method::GET, "/api/v1/groups/available", None)
+                .await
+                .map_err(|e| {
+                    if e.unauthorized {
+                        "登录已过期"
+                    } else {
+                        "暂时无法读取分组"
+                    }
+                    .to_owned()
+                })?;
+            super::service::parse_groups(&value)
+        };
+        let keys = async {
+            let mut keys = Vec::new();
+            for page in 1..=100 {
+                let value = self
+                    .request(
+                        Method::GET,
+                        &format!("/api/v1/keys?page={page}&page_size=100"),
+                        None,
+                    )
+                    .await
+                    .map_err(|e| {
+                        if e.unauthorized {
+                            "登录已过期"
+                        } else {
+                            "暂时无法读取 API 列表"
+                        }
+                        .to_owned()
+                    })?;
+                if super::service::append_keys(&mut keys, &value)? < 100
+                    || page * 100 >= value["total"].as_u64().unwrap_or(u64::MAX)
+                {
+                    break;
+                }
+            }
+            Ok(json!(keys))
+        };
+        tokio::join!(groups, keys)
     }
     async fn configuration(&self) -> Result<(Value, Value)> {
         let (config, checkout) = tokio::join!(
@@ -299,16 +399,18 @@ impl Session {
                 if currency != "CNY" {
                     return Err("订单币种异常，请到网页核对该订单，勿重复下单".into());
                 }
-                let order = self.order(id).await?;
-                let mut result = sanitize_order(&order);
-                result["qrCode"] = json!(created["qr_code"]
+                let qr = created["qr_code"]
                     .as_str()
                     .filter(|v| v.len() <= 8192)
-                    .unwrap_or_default());
-                result["payUrl"] = json!(safe_pay_url(
-                    created["pay_url"].as_str().unwrap_or_default()
-                ));
-                Ok(result)
+                    .unwrap_or_default()
+                    .to_owned();
+                let url = safe_pay_url(created["pay_url"].as_str().unwrap_or_default());
+                OrderRead {
+                    id,
+                    links: Some((qr, url)),
+                }
+                .fetch(self)
+                .await
             }
             "payment-order" | "payment-verify" | "payment-cancel" => {
                 let id = input["id"]
@@ -327,7 +429,7 @@ impl Session {
                         Some(json!({"out_trade_no": trade})),
                     )
                     .await?;
-                    return Ok(sanitize_order(&self.order(id).await?));
+                    return OrderRead { id, links: None }.fetch(self).await;
                 }
                 if command == "payment-cancel" {
                     self.request(
@@ -336,7 +438,7 @@ impl Session {
                         None,
                     )
                     .await?;
-                    return Ok(sanitize_order(&self.order(id).await?));
+                    return OrderRead { id, links: None }.fetch(self).await;
                 }
                 Ok(sanitize_order(&order))
             }
@@ -437,6 +539,7 @@ mod tests {
     use tokio::sync::Notify;
 
     struct Mock {
+        expire_after_write: AtomicBool,
         wallet_usd: AtomicBool,
         enabled: AtomicBool,
         pending: AtomicBool,
@@ -453,6 +556,7 @@ mod tests {
     impl Default for Mock {
         fn default() -> Self {
             Self {
+                expire_after_write: AtomicBool::new(false),
                 wallet_usd: AtomicBool::new(false),
                 enabled: AtomicBool::new(true),
                 pending: AtomicBool::new(false),
@@ -505,7 +609,13 @@ mod tests {
                 if s.pause.load(Ordering::SeqCst) { s.release.notified().await; }
                 (StatusCode::OK,Json(json!({"code":0,"data":{"order_id":7,"currency":"CNY","qr_code":"weixin://mock-order-7","pay_url":"javascript:alert(1)"}})))
             }))
-            .route("/api/v1/payment/orders/7",get(|State(s):State<Arc<Mock>>|async move{ Json(json!({"code":0,"data":order_value(&s)})) }))
+            .route("/api/v1/payment/orders/7",get(|State(s):State<Arc<Mock>>|async move{
+                let writes = s.posts.load(Ordering::SeqCst) + s.checks.load(Ordering::SeqCst) + s.cancellations.load(Ordering::SeqCst);
+                if writes > 0 && s.expire_after_write.swap(false,Ordering::SeqCst) {
+                    return (StatusCode::UNAUTHORIZED,Json(json!({"code":1})));
+                }
+                (StatusCode::OK,Json(json!({"code":0,"data":order_value(&s)})))
+            }))
             .route("/api/v1/payment/orders/verify",post(|State(s):State<Arc<Mock>>,Json(body):Json<Value>|async move {
                 assert_eq!(body["out_trade_no"],"mock-order-7");
                 s.checks.fetch_add(1,Ordering::SeqCst);
@@ -536,6 +646,7 @@ mod tests {
                 client: Client::builder().no_proxy().build().unwrap(),
                 base,
                 user_id: 42,
+                login_generation: 0,
                 token: "mock-bearer".into(),
             },
             state,
@@ -743,6 +854,51 @@ mod tests {
         assert_eq!(state.posts.load(Ordering::SeqCst), 0);
         assert!(!result.to_string().contains("mock-bearer"));
         task.abort();
+    }
+    #[tokio::test]
+    async fn expired_detail_reads_resume_without_replaying_a_successful_payment_write() {
+        for command in ["payment-create", "payment-cancel", "payment-verify"] {
+            let (session, state, task) = server().await;
+            let temp = tempfile::tempdir().unwrap();
+            let mut store = crate::aihubmix::store::Store::for_test(temp.path().to_path_buf());
+            store.settings.relay_base_url = session.base.clone();
+            store.settings.account = crate::aihubmix::types::Account {
+                logged_in: true,
+                user_id: Some(42),
+                expires_at: crate::aihubmix::types::now() + 3600,
+                ..Default::default()
+            };
+            store.memory_secret("access", "mock-bearer");
+            store.memory_secret("refresh", "mock-refresh");
+            let backend = Mutex::new(Some(Backend::new(store).unwrap()));
+            state.expire_after_write.store(true, Ordering::SeqCst);
+            let result = dispatch(
+                &backend,
+                &Payments::default(),
+                command,
+                json!({"id":7,"amount":"12.34","method":"wxpay"}),
+            )
+            .await
+            .unwrap();
+            assert_eq!(state.refreshes.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                state.posts.load(Ordering::SeqCst)
+                    + state.cancellations.load(Ordering::SeqCst)
+                    + state.checks.load(Ordering::SeqCst),
+                1
+            );
+            assert_eq!(result["id"], 7);
+            if command == "payment-create" {
+                assert_eq!(result["qrCode"], "weixin://mock-order-7");
+            }
+            let mut guard = backend.lock().await;
+            let current = guard.as_mut().unwrap();
+            current.store.memory_secret("access", "rotated-mock-token");
+            assert!(session.matches(current));
+            current.login_generation += 1;
+            assert!(!session.matches(current));
+            task.abort();
+        }
     }
     #[tokio::test]
     async fn switching_accounts_during_payment_discards_the_previous_accounts_response() {

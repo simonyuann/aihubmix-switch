@@ -31,6 +31,7 @@ interface ToolCard {
   provider: Provider;
   configured: boolean;
   keyMasked: string;
+  verificationPending?: boolean;
   platform?: string;
   groupId?: number;
   selectedKeyId?: number | null;
@@ -63,9 +64,23 @@ export function ToolPage({
     refetch,
   } = useQuery({
     queryKey: ["tool-cards", app],
+    networkMode: "always",
+    refetchOnReconnect: "always",
     queryFn: () => dispatch<ToolCards>("tool-cards", { app }),
   });
   const [editing, setEditing] = useState<ToolCard | null>(null);
+  const [removing, setRemoving] = useState<ToolCard | null>(null);
+  const [replacement, setReplacement] = useState("");
+  const needsReplacement =
+    removing != null &&
+    (removing.provider.id === data?.currentProviderId ||
+      removing.inLive === true);
+  const alternatives = (data?.cards ?? []).filter(
+    (card) =>
+      card.provider.id !== removing?.provider.id &&
+      card.configured &&
+      !card.verificationPending,
+  );
   const [keyId, setKeyId] = useState("");
   const [adding, setAdding] = useState(false);
   const [groupId, setGroupId] = useState("");
@@ -120,6 +135,40 @@ export function ToolPage({
     } catch (e) {
       setError(friendlyError(e, "添加分组失败，请重试。"));
     } finally {
+      gate.current = false;
+      setBusy(false);
+    }
+  }
+  function confirmRemoval(card: ToolCard) {
+    setError("");
+    setNotice("");
+    setReplacement("");
+    setRemoving(card);
+  }
+  async function removeCard() {
+    if (!removing || gate.current || (needsReplacement && !replacement)) return;
+    gate.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await dispatch<{ warnings?: string[] }>(
+        "remove-tool-card",
+        {
+          app,
+          groupId: removing.groupId,
+          providerId: removing.provider.id,
+          ...(needsReplacement ? { replacementId: replacement } : {}),
+        },
+      );
+      setRemoving(null);
+      setNotice(
+        ["分组已从此工具移除。", ...(result?.warnings ?? [])].join(" "),
+      );
+    } catch (e) {
+      setError(friendlyError(e, "移除分组失败，请检查当前配置后重试。"));
+    } finally {
+      await refetch();
+      await client.invalidateQueries({ queryKey: ["providers", app] });
       gate.current = false;
       setBusy(false);
     }
@@ -363,7 +412,11 @@ export function ToolPage({
                         {card.provider.name}
                       </h3>
                       <p className="mt-1 text-caption text-fg-3">
-                        {card.configured ? "API 已配置" : "选择 API 后即可使用"}
+                        {card.verificationPending
+                          ? "API 绑定待联网验证"
+                          : card.configured
+                            ? "API 已配置"
+                            : "选择 API 后即可使用"}
                       </p>
                     </div>
                     {card.configured && (
@@ -417,6 +470,17 @@ export function ToolPage({
                           : "选择 API"}
                       </Button>
                     )}
+                    {card.groupId != null && (
+                      <Button
+                        variant="ghost"
+                        size="compact"
+                        disabled={busy || dshUnknown}
+                        aria-label={`移除 ${card.provider.name}`}
+                        onClick={() => confirmRemoval(card)}
+                      >
+                        移除
+                      </Button>
+                    )}
                     {dshUnknown && (
                       <span className="text-caption text-fg-3">状态未知</span>
                     )}
@@ -446,40 +510,59 @@ export function ToolPage({
                         : dshUnknown
                           ? { label: "状态未知", dot: "muted" }
                           : undefined,
-                    buttons: canReapplyCodex
-                      ? [
-                          {
-                            key: "switch",
-                            label: `重新启用 ${card.provider.name}`,
-                            disabledReason: busy ? "正在切换配置" : undefined,
-                            onClick: () =>
-                              card.configured
-                                ? void operate(card, true)
-                                : edit(card),
-                          },
-                        ]
-                      : current || enabled
-                        ? []
-                        : [
+                    buttons: [
+                      ...(canReapplyCodex
+                        ? [
                             {
                               key: "switch",
-                              label: `${app === "dsh" ? "启用" : "启动"} ${card.provider.name}`,
+                              label: `重新启用 ${card.provider.name}`,
                               disabledReason: busy ? "正在切换配置" : undefined,
                               onClick: () =>
                                 card.configured
                                   ? void operate(card, true)
                                   : edit(card),
                             },
-                          ],
+                          ]
+                        : current || enabled
+                          ? []
+                          : [
+                              {
+                                key: "switch",
+                                label: `${app === "dsh" ? "启用" : "启动"} ${card.provider.name}`,
+                                disabledReason: busy
+                                  ? "正在切换配置"
+                                  : undefined,
+                                onClick: () =>
+                                  card.configured
+                                    ? void operate(card, true)
+                                    : edit(card),
+                              },
+                            ]),
+                      ...(card.groupId != null
+                        ? [
+                            {
+                              key: "remove-group",
+                              label: `移除 ${card.provider.name}`,
+                              disabledReason:
+                                busy || dshUnknown
+                                  ? "请等待配置状态确认"
+                                  : undefined,
+                              onClick: () => confirmRemoval(card),
+                            },
+                          ]
+                        : []),
+                    ],
                     chips:
                       card.provider.category === "official"
                         ? []
                         : [
                             {
                               key: "key",
-                              label: card.configured
-                                ? card.keyMasked || "已配置"
-                                : "待选择 API",
+                              label: card.verificationPending
+                                ? "待联网验证"
+                                : card.configured
+                                  ? card.keyMasked || "已配置"
+                                  : "待选择 API",
                               tone: "outline",
                             },
                           ],
@@ -510,7 +593,7 @@ export function ToolPage({
               当前暂无适用于此工具的模型服务。
             </p>
           )}
-          {error && !editing && !adding && (
+          {error && !editing && !adding && !removing && (
             <p role="alert" className="break-words text-body text-destructive">
               {error}
             </p>
@@ -528,6 +611,64 @@ export function ToolPage({
           )}
         </div>
       </main>
+      {removing && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !busy) setRemoving(null);
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>移除 {removing.provider.name}</DialogTitle>
+              <DialogDescription>
+                从此工具移除分组后，仍可重新添加，平台 API Key 会保留。
+              </DialogDescription>
+            </DialogHeader>
+            {needsReplacement && (
+              <label className="grid gap-2 text-sm">
+                替代分组
+                <select
+                  value={replacement}
+                  disabled={busy}
+                  onChange={(e) => setReplacement(e.target.value)}
+                  className="rounded border bg-background p-2"
+                >
+                  <option value="">请选择替代分组</option>
+                  {alternatives.map((card) => (
+                    <option key={card.provider.id} value={card.provider.id}>
+                      {card.provider.name}
+                    </option>
+                  ))}
+                </select>
+                {!alternatives.length && (
+                  <span>请先添加并配置另一个分组，再移除此分组。</span>
+                )}
+              </label>
+            )}
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => setRemoving(null)}
+              >
+                取消
+              </Button>
+              <Button
+                disabled={busy || (needsReplacement && !replacement)}
+                onClick={() => void removeCard()}
+              >
+                {needsReplacement ? "切换并移除" : "确认移除"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
       {selectingTool && (
         <Dialog open onOpenChange={setSelectingTool}>
           <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl">

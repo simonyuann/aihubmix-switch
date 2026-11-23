@@ -2794,6 +2794,7 @@ mod mode_tests {
             "aihubmix-codex-account-17-service-5".into(),
             "AIHubMix · OpenAI".into(),
             json!({"auth":{"OPENAI_API_KEY":"fixture-own"},
+                "modelCatalog":{"models":[{"model":"gpt-5.5"},{"model":"gpt-image-2.5-sunburst"}]},
                 "config":"model_provider = 'custom'\nmodel = 'gpt-5.5'\n[model_providers.custom]\nname = 'AIHubMix'\nbase_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\nrequires_openai_auth = true\n"}),
             Some(crate::product_policy::ORIGIN.into()),
         );
@@ -2848,8 +2849,13 @@ mod mode_tests {
                 "requires_openai_auth = true",
             )
             + "\n";
+        let legacy = legacy.replace("https://csmy.fun/v1", "https://csmy.fun:23457/v1");
         fs::write(crate::codex_config::get_codex_config_path(), &legacy).unwrap();
+        let menu_path = crate::codex_config::get_codex_model_catalog_path();
+        let legacy_menu = br#"{"models":[{"slug":"gpt-5.5"},{"slug":"gpt-image-2.5-sunburst"}]}"#;
+        fs::write(&menu_path, legacy_menu).unwrap();
         crate::aihubmix::native_imagegen::migrate_current(&state, 99).unwrap();
+        assert_eq!(fs::read(&menu_path).unwrap(), legacy_menu);
         assert_eq!(
             read(),
             legacy,
@@ -2857,6 +2863,11 @@ mod mode_tests {
         );
         crate::aihubmix::native_imagegen::migrate_current(&state, 17).unwrap();
         assert!(read().contains("local-image-extension"));
+        assert!(read().contains("https://csmy.fun/v1"));
+        assert!(!read().contains(":23457"));
+        let migrated_menu: Value = crate::config::read_json_file(&menu_path).unwrap();
+        assert_eq!(migrated_menu["models"].as_array().unwrap().len(), 1);
+        assert_eq!(migrated_menu["models"][0]["slug"], "gpt-5.5");
         assert!(read().contains("requires_openai_auth = false"));
         assert!(toml::from_str::<toml::Value>(&read())
             .unwrap()
@@ -2948,10 +2959,7 @@ mod mode_tests {
             let doc = text.parse::<toml::Value>().unwrap();
             let route = &doc["model_providers"]["custom"];
             assert_eq!(doc["model_provider"].as_str(), Some("custom"));
-            assert_eq!(
-                route["base_url"].as_str(),
-                Some("https://csmy.fun:23457/v1")
-            );
+            assert_eq!(route["base_url"].as_str(), Some("https://csmy.fun/v1"));
             assert_eq!(route["wire_api"].as_str(), Some("responses"));
             assert_eq!(route["requires_openai_auth"].as_bool(), Some(false));
             assert_eq!(
@@ -3124,10 +3132,7 @@ mod mode_tests {
             let parsed: toml::Value = toml::from_str(&config).unwrap();
             let selected = parsed["model_provider"].as_str().unwrap();
             let route = &parsed["model_providers"][selected];
-            assert_eq!(
-                route["base_url"].as_str(),
-                Some("https://csmy.fun:23457/v1")
-            );
+            assert_eq!(route["base_url"].as_str(), Some("https://csmy.fun/v1"));
             assert_eq!(
                 route["experimental_bearer_token"].as_str(),
                 Some("fixture-own")

@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   dispatch: vi.fn(),
   add: vi.fn(),
   draft: vi.fn(),
+  account: vi.fn(),
+}));
+vi.mock("@/contexts/AccountContext", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/contexts/AccountContext")>()),
+  useOptionalAccount: mocks.account,
 }));
 vi.mock("@/lib/api/aihubmix", () => ({
   dispatch: mocks.dispatch,
@@ -28,6 +33,10 @@ import {
   RechargeDialog,
   validAmount,
 } from "@/components/aihubmix/RechargeDialog";
+import {
+  WalletActionsProvider,
+  useWalletActions,
+} from "@/components/aihubmix/WalletPanel";
 import { WalletBalanceDisplay } from "@/components/aihubmix/BalanceDisplay";
 const overview = {
   enabled: true,
@@ -43,6 +52,7 @@ const overview = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.account.mockReset();
 });
 afterEach(cleanup);
 describe("AIHubMix account integration", () => {
@@ -171,6 +181,67 @@ describe("AIHubMix account integration", () => {
     });
     render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
     expect(await screen.findByText(/钱包余额：USD 12.34/)).toBeInTheDocument();
+  });
+  it("restores a pending payment code on reopen only for the original account", async () => {
+    const pending = {
+      id: 42,
+      amount: 20,
+      payAmount: 20,
+      currency: "CNY",
+      method: "alipay",
+      status: "PENDING",
+      createdAt: "",
+      expiresAt: new Date(Date.now() + 600000).toISOString(),
+      tradeNo: "fixture",
+    };
+    let created = false;
+    mocks.dispatch.mockImplementation(async (command: string) => {
+      if (command === "payment-overview")
+        return { ...overview, orders: created ? [pending] : [] };
+      if (command === "payment-create") {
+        created = true;
+        return { ...pending, qrCode: "one-time-fixture" };
+      }
+      return pending;
+    });
+    function OpenWallet() {
+      const wallet = useWalletActions();
+      return <button onClick={wallet?.recharge}>测试打开</button>;
+    }
+    function wallet(userId: number) {
+      mocks.account.mockReturnValue({
+        state: { account: { userId }, relayBaseUrl: "https://relay.example" },
+      });
+      return (
+        <WalletActionsProvider>
+          <OpenWallet />
+        </WalletActionsProvider>
+      );
+    }
+    const view = render(wallet(7));
+    fireEvent.click(screen.getByText("测试打开"));
+    const create = await screen.findByRole("button", { name: "创建充值订单" });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    await screen.findByAltText("订单付款二维码");
+    fireEvent.click(screen.getByRole("button", { name: /^关闭$/ }));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByText("测试打开"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "查看未完成的充值" }),
+    );
+    expect(await screen.findByAltText("订单付款二维码")).toBeVisible();
+    view.rerender(wallet(8));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "查看未完成的充值" }),
+    );
+    await screen.findByText(/付款信息暂不可用/);
+    expect(screen.queryByAltText("订单付款二维码")).not.toBeInTheDocument();
+    expect(
+      mocks.dispatch.mock.calls.filter(([c]) => c === "payment-create"),
+    ).toHaveLength(1);
   });
   it("explains a pending order and allows the user to cancel it", async () => {
     const pendingOrder = {

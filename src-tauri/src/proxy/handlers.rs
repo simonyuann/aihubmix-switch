@@ -8,7 +8,10 @@
 //! - Claude 的格式转换逻辑保留在此文件（用于 OpenRouter 旧接口回退）
 
 use super::{
-    content_encoding::{decompress_body, get_content_encoding, is_supported_content_encoding},
+    content_encoding::{
+        decompress_body_with_limit, get_content_encoding, is_supported_content_encoding,
+        DecompressError,
+    },
     error_mapper::{get_error_message, map_proxy_error_to_status},
     forwarder::{ActiveConnectionGuard, CodexUpstreamFormat},
     handler_config::{
@@ -51,6 +54,7 @@ use crate::database::PRICING_SOURCE_REQUEST;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use bytes::Bytes;
 use futures::StreamExt;
+#[cfg(test)]
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 
@@ -334,11 +338,7 @@ async fn handle_messages_for_app(
     let uri = parts.uri;
     let headers = parts.headers;
     let extensions = parts.extensions;
-    let body_bytes = body
-        .collect()
-        .await
-        .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
-        .to_bytes();
+    let body_bytes = read_request_body(body).await?;
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
     let stack = match resolve_stack_target(&state, &app_type, &mut body) {
@@ -887,6 +887,22 @@ fn endpoint_with_query(uri: &axum::http::Uri, endpoint: &str) -> String {
 /// `serde_json::from_slice` 直接解析失败。这里在解析前解压，并剥掉已失真的实体头
 /// （content-encoding / content-length / transfer-encoding）——转发层会基于解压后的
 /// 明文 JSON 重新生成正确的头。
+const REQUEST_BODY_LIMIT: usize = 200 * 1024 * 1024;
+
+async fn read_request_body(body: axum::body::Body) -> Result<Bytes, ProxyError> {
+    axum::body::to_bytes(body, REQUEST_BODY_LIMIT)
+        .await
+        .map_err(|error| {
+            if std::error::Error::source(&error)
+                .is_some_and(|e| e.is::<http_body_util::LengthLimitError>())
+            {
+                ProxyError::RequestBodyTooLarge
+            } else {
+                ProxyError::InvalidRequest(format!("Failed to read request body: {error}"))
+            }
+        })
+}
+
 fn decode_codex_request_body(
     headers: &mut axum::http::HeaderMap,
     body_bytes: Bytes,
@@ -902,7 +918,8 @@ fn decode_codex_request_body(
     }
 
     log::debug!("[Codex] 解压请求体: content-encoding={encoding}");
-    let decompressed = match decompress_body(&encoding, &body_bytes) {
+    let decompressed = match decompress_body_with_limit(&encoding, &body_bytes, REQUEST_BODY_LIMIT)
+    {
         Ok(Some(decompressed)) => decompressed,
         // is_supported_content_encoding 已确保编码受支持，正常不会返回 None；
         // 防御性兜底：宁可报错，也不能把压缩字节当 JSON 透传下去。
@@ -911,6 +928,7 @@ fn decode_codex_request_body(
                 "Unsupported request content-encoding: {encoding}"
             )));
         }
+        Err(DecompressError::TooLarge { .. }) => return Err(ProxyError::RequestBodyTooLarge),
         Err(e) => {
             log::warn!("[Codex] 请求体解压失败 ({encoding}): {e}");
             return Err(ProxyError::InvalidRequest(format!(
@@ -940,11 +958,7 @@ pub async fn handle_chat_completions(
     let uri = parts.uri;
     let mut headers = parts.headers;
     let extensions = parts.extensions;
-    let body_bytes = req_body
-        .collect()
-        .await
-        .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
-        .to_bytes();
+    let body_bytes = read_request_body(req_body).await?;
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
@@ -1059,11 +1073,7 @@ async fn handle_responses_for_app(
     let uri = parts.uri;
     let mut headers = parts.headers;
     let extensions = parts.extensions;
-    let body_bytes = req_body
-        .collect()
-        .await
-        .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
-        .to_bytes();
+    let body_bytes = read_request_body(req_body).await?;
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
@@ -1306,11 +1316,7 @@ async fn handle_codex_standalone_passthrough(
     let uri = parts.uri;
     let mut headers = parts.headers;
     let extensions = parts.extensions;
-    let body_bytes = req_body
-        .collect()
-        .await
-        .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
-        .to_bytes();
+    let body_bytes = read_request_body(req_body).await?;
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::InvalidRequest(format!("Failed to parse request body: {e}")))?;
@@ -1391,11 +1397,7 @@ async fn handle_responses_compact_for_app(
     let uri = parts.uri;
     let mut headers = parts.headers;
     let extensions = parts.extensions;
-    let body_bytes = req_body
-        .collect()
-        .await
-        .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
-        .to_bytes();
+    let body_bytes = read_request_body(req_body).await?;
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
     let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
@@ -2476,6 +2478,8 @@ fn codex_proxy_error_json(
 
 fn codex_proxy_error_code(error: &ProxyError) -> &'static str {
     match error {
+        ProxyError::DeliveryUnknown => "cc_switch_delivery_unknown",
+        ProxyError::RequestBodyTooLarge => "cc_switch_request_too_large",
         ProxyError::ForwardFailed(_) => "cc_switch_forward_failed",
         ProxyError::Timeout(_) | ProxyError::StreamIdleTimeout(_) => "cc_switch_timeout",
         ProxyError::NoAvailableProvider => "cc_switch_no_available_provider",
@@ -2528,11 +2532,7 @@ pub async fn handle_gemini(
     let method = parts.method.clone();
     let headers = parts.headers;
     let extensions = parts.extensions;
-    let body_bytes = req_body
-        .collect()
-        .await
-        .map_err(|e| ProxyError::Internal(format!("Failed to read request body: {e}")))?
-        .to_bytes();
+    let body_bytes = read_request_body(req_body).await?;
     // GET 类只读端点（/v1beta/models、/v1beta/models/<model> 等）没有请求体，
     // 不能强制 parse 为 JSON —— 否则空 body 会被拒绝。
     let body: Value = if body_bytes.is_empty() {

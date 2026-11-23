@@ -93,67 +93,13 @@ pub async fn test_proxy_url(url: String) -> Result<ProxyTestResult, String> {
 
     let start = Instant::now();
 
-    // 构建带代理的临时客户端
-    let proxy = reqwest::Proxy::all(&url).map_err(|e| format!("Invalid proxy URL: {e}"))?;
-
-    let client = reqwest::Client::builder()
-        .proxy(proxy)
-        .timeout(std::time::Duration::from_secs(10))
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to build client: {e}"))?;
-
-    // 使用多个测试目标，提高兼容性
-    // 优先使用 httpbin（专门用于 HTTP 测试），回退到其他公共端点
-    let test_urls = [
-        "https://httpbin.org/get",
-        "https://www.google.com",
-        "https://api.anthropic.com",
-    ];
-
-    let mut last_error = None;
-
-    for test_url in test_urls {
-        match client.head(test_url).send().await {
-            Ok(resp) => {
-                let latency = start.elapsed().as_millis() as u64;
-                log::debug!(
-                    "[GlobalProxy] Test successful: {} -> {} via {} ({}ms)",
-                    http_client::mask_url(&url),
-                    test_url,
-                    resp.status(),
-                    latency
-                );
-                return Ok(ProxyTestResult {
-                    success: true,
-                    latency_ms: latency,
-                    error: None,
-                });
-            }
-            Err(e) => {
-                log::debug!("[GlobalProxy] Test to {test_url} failed: {e}");
-                last_error = Some(e);
-            }
-        }
-    }
-
-    // 所有测试目标都失败
-    let latency = start.elapsed().as_millis() as u64;
-    let error_msg = last_error
-        .map(|e| e.to_string())
-        .unwrap_or_else(|| "All test targets failed".to_string());
-
-    log::debug!(
-        "[GlobalProxy] Test failed: {} -> {} ({}ms)",
-        http_client::mask_url(&url),
-        error_msg,
-        latency
-    );
-
+    let client = http_client::platform_client(Some(&url), std::time::Duration::from_secs(10))
+        .map_err(|_| "代理配置无效")?;
+    let result = crate::aihubmix::public_settings(&client, crate::aihubmix::DEFAULT_BASE).await;
     Ok(ProxyTestResult {
-        success: false,
-        latency_ms: latency,
-        error: Some(error_msg),
+        success: result.is_ok(),
+        latency_ms: start.elapsed().as_millis() as u64,
+        error: result.err(),
     })
 }
 

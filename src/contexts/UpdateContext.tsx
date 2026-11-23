@@ -6,11 +6,20 @@ import React, {
   useCallback,
   useRef,
 } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { settingsApi } from "@/lib/api/settings";
 import type { UpdateInfo } from "../lib/updater";
 import { checkForUpdate } from "../lib/updater";
 import { extractErrorMessage } from "../utils/errorUtils";
 
+type UpdateProgress = {
+  downloaded: number;
+  total: number | null;
+  installing?: boolean;
+};
 interface UpdateContextValue {
+  progress: UpdateProgress | null;
+  installUpdate: () => Promise<boolean>;
   // 更新状态
   hasUpdate: boolean;
   updateInfo: UpdateInfo | null;
@@ -37,6 +46,29 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
+
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
+  const installation = useRef<Promise<boolean> | null>(null);
+  const installUpdate = useCallback((): Promise<boolean> => {
+    if (installation.current) return installation.current;
+    setProgress({ downloaded: 0, total: null });
+    const run = async () => {
+      const stop = await listen<UpdateProgress>(
+        "update-download-progress",
+        ({ payload }) => setProgress(payload),
+      );
+      try {
+        return await settingsApi.installUpdateAndRestart();
+      } finally {
+        stop();
+      }
+    };
+    installation.current = run().finally(() => {
+      installation.current = null;
+      setProgress(null);
+    });
+    return installation.current;
+  }, []);
 
   // 从 localStorage 读取已关闭的版本
   useEffect(() => {
@@ -120,9 +152,12 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     const timer = setTimeout(() => {
       checkUpdate().catch(console.error);
     }, 1000);
-    const interval = setInterval(() => {
-      checkUpdate().catch(console.error);
-    }, 60 * 60 * 1000);
+    const interval = setInterval(
+      () => {
+        checkUpdate().catch(console.error);
+      },
+      60 * 60 * 1000,
+    );
 
     return () => {
       clearTimeout(timer);
@@ -131,6 +166,8 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   }, [checkUpdate]);
 
   const value: UpdateContextValue = {
+    progress,
+    installUpdate,
     hasUpdate,
     updateInfo,
     isChecking,

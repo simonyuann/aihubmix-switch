@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AIHub Switch",
-  "version": "1.1.18",
+  "version": "1.2.0",
   "identifier": "fun.csmy.aihubmix-switch",
   "build": {
     "frontendDist": "../dist",
@@ -86,7 +86,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI1QTc5RTNFMzVFM0FDOEUKUldTT3JPTTFQcDZudGFmTFpwcmlhejR0L1JuSGhVWXFlU2ZlSy92TnBZK3dwWEJ1MG82ZjRna0MK",
       "endpoints": [
-        "https://dl.csmy.fun:23457/github-updates/gh-2dfe2a292f49bc85/latest-v2.json"
+        "https://dl.csmy.fun/github-updates/gh-2dfe2a292f49bc85/latest-v2.json"
       ],
       "requireSignedVersion": true,
       "allowDowngrades": false,

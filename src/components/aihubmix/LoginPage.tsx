@@ -12,6 +12,8 @@ import {
 } from "@/lib/platform";
 import { WindowControls } from "@/components/shell/WindowControls";
 import { useSettingsQuery } from "@/lib/query";
+import { DiagnosticReport } from "./DiagnosticReport";
+import { settingsApi } from "@/lib/api/settings";
 import logo from "@/assets/icons/aihubmix-a.png";
 import { friendlyError } from "./friendlyError";
 
@@ -22,6 +24,7 @@ interface AuthSettings {
   passwordResetEnabled: boolean;
   invitationCodeEnabled: boolean;
   captchaRequired: boolean;
+  agreements?: { title: string; content: string }[];
 }
 export function LoginPage() {
   const session = useAccount();
@@ -32,6 +35,10 @@ export function LoginPage() {
   const [settings, setSettings] = useState<AuthSettings | null>(null);
   const [settingsAttempt, setSettingsAttempt] = useState(0);
   const [settingsLoading, setSettingsLoading] = useState(true);
+  const settingsRequest = useRef<{
+    attempt: number;
+    request: Promise<AuthSettings>;
+  } | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -42,14 +49,59 @@ export function LoginPage() {
   const [cooldown, setCooldown] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [report, setReport] = useState("");
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [accepted, setAccepted] = useState(false);
+  const [manualProxy, setManualProxy] = useState(false);
+  const agreements = settings?.agreements ?? [];
+  const needsAgreement = mode !== "forgot" && agreements.length > 0;
+  useEffect(() => {
+    let mounted = true;
+    void dispatch<boolean>("auth-proxy-enabled")
+      .then((value) => {
+        if (mounted) setManualProxy(value === true);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  async function restoreSystemNetwork() {
+    try {
+      await dispatch("auth-reset-proxy");
+      setManualProxy(false);
+      setReport("");
+      setSettingsAttempt((value) => value + 1);
+    } catch {
+      setError("无法恢复系统网络设置，请重试。");
+    }
+  }
+  async function diagnose() {
+    setDiagnosing(true);
+    try {
+      setReport(await dispatch<string>("registration-diagnostics"));
+    } catch {
+      setReport("网络诊断未完成，请重试。");
+    } finally {
+      setDiagnosing(false);
+    }
+  }
   const gate = useRef(false);
   const active = useRef(true);
   useEffect(() => {
     active.current = true;
     let current = true;
     setSettingsLoading(true);
+    setSettings(null);
+    setAccepted(false);
     setError("");
-    dispatch<AuthSettings>("auth-settings")
+    if (settingsRequest.current?.attempt !== settingsAttempt) {
+      settingsRequest.current = {
+        attempt: settingsAttempt,
+        request: dispatch<AuthSettings>("auth-settings"),
+      };
+    }
+    settingsRequest.current.request
       .then((value) => {
         if (current) setSettings(value);
       })
@@ -102,7 +154,15 @@ export function LoginPage() {
     }
   }
   async function submit() {
-    if (gate.current) return;
+    if (
+      gate.current ||
+      !settings ||
+      settings.captchaRequired ||
+      (mode === "register" && !settings.registrationEnabled) ||
+      (mode === "forgot" && !settings.passwordResetEnabled) ||
+      (needsAgreement && !accepted)
+    )
+      return;
     setError("");
     setNotice("");
     if (mode === "register" && password !== confirm) {
@@ -169,8 +229,8 @@ export function LoginPage() {
           </div>
         )}
       </div>
-      <main className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-10">
-        <div className="aihub-page-enter w-full max-w-[400px]">
+      <main className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-10">
+        <div className="aihub-page-enter my-auto w-full max-w-[400px] shrink-0">
           <div className="mb-10 flex items-center justify-center gap-3">
             <img src={logo} alt="" className="h-10 w-10 rounded-xl" />
             <span className="text-xl font-semibold tracking-tight">
@@ -311,12 +371,39 @@ export function LoginPage() {
                   </button>
                 </div>
               )}
+              {needsAgreement && (
+                <section className="space-y-2 text-caption">
+                  {agreements.map((doc, index) => (
+                    <details key={index}>
+                      <summary className="cursor-pointer text-action">
+                        {doc.title}
+                      </summary>
+                      <div
+                        tabIndex={0}
+                        className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-fg-2"
+                      >
+                        {doc.content}
+                      </div>
+                    </details>
+                  ))}
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={accepted}
+                      onChange={(e) => setAccepted(e.target.checked)}
+                      required
+                    />
+                    我已阅读并同意以上协议
+                  </label>
+                </section>
+              )}
               <Button
                 className="w-full"
                 disabled={
                   busy ||
                   sending ||
                   !settings ||
+                  (needsAgreement && !accepted) ||
                   (mode === "register" && !settings.registrationEnabled) ||
                   (mode === "forgot" && !settings.passwordResetEnabled)
                 }
@@ -333,15 +420,52 @@ export function LoginPage() {
               </Button>
             </form>
           )}
-          {!settings && (
+          {(!settings || error) && (
             <Button
               variant="ghost"
               className="mt-4 w-full"
-              disabled={settingsLoading}
+              disabled={settingsLoading || busy || sending || diagnosing}
               onClick={() => setSettingsAttempt((value) => value + 1)}
             >
               {settingsLoading ? "正在连接平台…" : "重新连接平台"}
             </Button>
+          )}
+          {(!settings || error || session.error || report) && (
+            <div className="space-y-2 text-center text-body">
+              <Button
+                variant="ghost"
+                disabled={diagnosing}
+                onClick={() => void diagnose()}
+              >
+                {diagnosing ? "正在检查账号和模型接口…" : "网络诊断"}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  void settingsApi
+                    .checkUpdates()
+                    .catch(() =>
+                      setNotice(
+                        "请用浏览器打开 github.com/simonyuann/aihubmix-switch/releases/latest",
+                      ),
+                    )
+                }
+              >
+                手动下载安装包
+              </Button>
+              {manualProxy && (
+                <Button
+                  variant="ghost"
+                  disabled={busy || sending || diagnosing}
+                  onClick={() => void restoreSystemNetwork()}
+                >
+                  清除应用代理并使用系统设置
+                </Button>
+              )}
+              {report && (
+                <DiagnosticReport report={report} onNotice={setNotice} />
+              )}
+            </div>
           )}
           {(error || session.error) && (
             <p role="alert" className="mt-4 text-body text-destructive">

@@ -282,6 +282,7 @@ pub fn is_proxy_enabled() -> bool {
 /// 两种客户端共用的参数
 fn base_builder() -> reqwest::ClientBuilder {
     Client::builder()
+        .retry(reqwest::retry::never())
         .timeout(Duration::from_secs(600))
         .connect_timeout(Duration::from_secs(30))
         .pool_max_idle_per_host(10)
@@ -296,8 +297,27 @@ fn base_builder() -> reqwest::ClientBuilder {
 
 /// 构建 HTTP 客户端
 fn build_client(proxy_url: Option<&str>) -> Result<Client, String> {
-    let mut builder = base_builder();
+    build_with_proxy(base_builder(), proxy_url)
+}
 
+pub(crate) fn platform_client(
+    proxy_url: Option<&str>,
+    timeout: Duration,
+) -> Result<Client, String> {
+    build_with_proxy(
+        Client::builder()
+            .timeout(timeout)
+            .connect_timeout(Duration::from_secs(8))
+            .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never()),
+        proxy_url,
+    )
+}
+
+fn build_with_proxy(
+    mut builder: reqwest::ClientBuilder,
+    proxy_url: Option<&str>,
+) -> Result<Client, String> {
     // 有代理地址则使用代理，否则跟随系统代理
     if let Some(url) = proxy_url {
         // 先验证 URL 格式和 scheme

@@ -3,7 +3,7 @@ use crate::{app_config::AppType, error::AppError, provider::Provider};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
-pub const ORIGIN: &str = "https://csmy.fun:23457";
+pub const ORIGIN: &str = "https://csmy.fun";
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static ACCOUNT_ID: AtomicI64 = AtomicI64::new(0);
 static LOCAL_SESSION: AtomicBool = AtomicBool::new(false);
@@ -59,15 +59,61 @@ pub fn require_session() -> Result<(), String> {
     }
 }
 
+fn platform_url_parts(raw: &str) -> Option<url::Url> {
+    let authority = raw.split_once("://")?.1.split(['/', '?', '#']).next()?;
+    if !matches!(authority, "csmy.fun" | "csmy.fun:443" | "csmy.fun:23457") {
+        return None;
+    }
+    let url = url::Url::parse(raw).ok()?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("csmy.fun")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || !matches!(url.port(), None | Some(23457))
+    {
+        return None;
+    }
+    Some(url)
+}
+
+/// Accept the canonical HTTPS endpoint and the old high-port endpoint.
 pub fn own_url(raw: &str) -> bool {
-    let Ok(url) = url::Url::parse(raw) else {
+    platform_url_parts(raw).is_some()
+}
+
+/// A stored base URL is eligible for normalization when it is exactly this
+/// service, with no endpoint-specific path.
+pub fn is_platform_base_url(raw: &str) -> bool {
+    let Some(url) = platform_url_parts(raw) else {
         return false;
     };
-    url.scheme() == "https"
-        && url.host_str() == Some("csmy.fun")
-        && url.port() == Some(23457)
-        && url.username().is_empty()
-        && url.password().is_none()
+    url.query().is_none() && matches!(url.path().trim_end_matches('/'), "" | "/v1")
+}
+
+/// Accept both generations of the platform's OpenAI-compatible `/v1` endpoint.
+/// This is used when deciding whether to apply platform-specific Codex metadata
+/// to an existing config file.
+pub fn is_platform_v1_url(raw: &str) -> bool {
+    let Some(url) = platform_url_parts(raw) else {
+        return false;
+    };
+    url.query().is_none() && url.path().trim_end_matches('/') == "/v1"
+}
+
+#[cfg(test)]
+fn is_legacy_base_url(raw: &str) -> bool {
+    let Some(url) = platform_url_parts(raw) else {
+        return false;
+    };
+    url.port() == Some(23457) && matches!(url.path().trim_end_matches('/'), "" | "/v1")
+}
+
+pub fn is_platform_origin(raw: &str) -> bool {
+    let Some(url) = platform_url_parts(raw) else {
+        return false;
+    };
+    url.query().is_none() && url.path().trim_end_matches('/').is_empty()
 }
 pub fn require_url(raw: &str) -> Result<(), String> {
     if !restricted() || own_url(raw) {
@@ -85,7 +131,7 @@ fn own_value(value: &serde_json::Value) -> bool {
         serde_json::Value::Array(list) => list.iter().all(own_value),
         serde_json::Value::String(s) => {
             if s.starts_with("https://") || s.starts_with("http://") {
-                return own_url(s);
+                return platform_url_parts(s).is_some_and(|url| url.query().is_none());
             }
             // Codex/Grok serialize their connection in a TOML document.
             if s.contains("base_url") || s.contains("baseURL") {
@@ -116,7 +162,7 @@ fn own_provider_for(app: &AppType, p: &Provider, active: bool, account: i64) -> 
         .starts_with(&format!("aihubmix-{}-account-", app.as_str()))
         && (p.name == "AIHubMix" || p.name.starts_with("AIHubMix · "))
         && p.category.as_deref() == Some("custom")
-        && p.website_url.as_deref() == Some(ORIGIN)
+        && p.website_url.as_deref().is_some_and(is_platform_origin)
         && p.meta
             .as_ref()
             .is_none_or(|m| m.auth_binding.is_none() && m.custom_endpoints.is_empty())
@@ -201,6 +247,8 @@ fn command_allowed(command: &str, signed_in: bool, other_providers: bool) -> Res
     if matches!(
         command,
         "aihubmix_dispatch"
+            | "check_for_updates"
+            | "copy_text_to_clipboard"
             | "get_init_error"
             | "get_settings"
             | "is_portable_mode"
@@ -491,14 +539,26 @@ mod tests {
     }
     #[test]
     fn fixed_origin_rejects_lookalikes_credentials_and_downgrades() {
+        assert!(own_url("https://csmy.fun/v1/responses"));
         assert!(own_url("https://csmy.fun:23457/v1/responses"));
+        assert!(is_platform_v1_url("https://csmy.fun/v1"));
+        assert!(is_platform_v1_url("https://csmy.fun:23457/v1"));
+        assert!(own_url(
+            "https://csmy.fun:443/api/v1/keys?page=1&page_size=100"
+        ));
+        assert!(own_url(
+            "https://csmy.fun/v1beta/models/gemini:streamGenerateContent?alt=sse"
+        ));
+        assert!(!is_platform_base_url("https://csmy.fun/v1?a=b"));
+        assert!(!is_platform_v1_url("https://csmy.fun/v1?a=b"));
+        assert!(!is_platform_origin("https://csmy.fun/?a=b"));
+        assert!(is_legacy_base_url("https://csmy.fun:23457"));
         for value in [
             "http://csmy.fun:23457/v1",
-            "https://csmy.fun/v1",
             "https://csmy.fun.evil:23457/v1",
             "https://csmy.fun@evil.test:23457/v1",
             "https://user@csmy.fun:23457/v1",
-            "https://csmy.fun:443/v1",
+            "https://csmy.fun:8443/v1",
             "https://127.0.0.1:23457/v1",
         ] {
             assert!(!own_url(value), "{value}");

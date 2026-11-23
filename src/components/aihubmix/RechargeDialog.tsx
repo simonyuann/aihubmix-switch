@@ -50,14 +50,21 @@ export function validAmount(amount: string, minimum: number, maximum: number) {
     Number(amount) <= maximum
   );
 }
+export type PaymentLinks = Map<
+  number,
+  Pick<RechargeOrder, "qrCode" | "payUrl">
+>;
+
 export function RechargeDialog({
   open,
   onClose,
   onPaid,
+  paymentLinks,
 }: {
   open: boolean;
   onClose: () => void;
   onPaid: () => void;
+  paymentLinks?: PaymentLinks;
 }) {
   const [overview, setOverview] = useState<RechargeOverview | null>(null),
     [amount, setAmount] = useState("20"),
@@ -77,21 +84,23 @@ export function RechargeDialog({
     revision = useRef(0),
     paid = useRef(new Set<number>()),
     paidCallback = useRef(onPaid);
-  const paymentLinks = useRef(
-    new Map<number, Pick<RechargeOrder, "qrCode" | "payUrl">>(),
-  );
+  const localLinks = useRef<PaymentLinks>(new Map());
+  const linksForAccount = paymentLinks ?? localLinks.current;
   const preservePaymentLinks = useCallback(
     (next: RechargeOrder): RechargeOrder => {
-      const previous = paymentLinks.current.get(next.id);
+      if (next.status !== "PENDING") {
+        linksForAccount.delete(next.id);
+        return { ...next, qrCode: undefined, payUrl: undefined };
+      }
+      const previous = linksForAccount.get(next.id);
       const links = {
         qrCode: next.qrCode || previous?.qrCode,
         payUrl: next.payUrl || previous?.payUrl,
       };
-      if (links.qrCode || links.payUrl)
-        paymentLinks.current.set(next.id, links);
+      if (links.qrCode || links.payUrl) linksForAccount.set(next.id, links);
       return { ...next, ...links };
     },
-    [],
+    [linksForAccount],
   );
   paidCallback.current = onPaid;
   useEffect(() => {

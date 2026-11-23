@@ -26,13 +26,37 @@ fn platform_url(raw: &str) -> bool {
     url::Url::parse(raw).is_ok_and(|url| {
         url.scheme() == "https"
             && url.host_str() == Some("csmy.fun")
-            && url.port() == Some(23457)
+            && matches!(url.port(), None | Some(23457))
             && url.username().is_empty()
             && url.password().is_none()
             && url.path().trim_end_matches('/') == "/v1"
             && url.query().is_none()
             && url.fragment().is_none()
     })
+}
+
+const LEGACY_V1: &str = "https://csmy.fun:23457/v1";
+
+pub(crate) fn canonical_card_url(provider: &Provider, url: &str) -> Option<String> {
+    if url.trim_end_matches('/') != LEGACY_V1 {
+        return None;
+    }
+    let account = account_id(&provider.id)?;
+    crate::product_policy::own_provider_for_account(&AppType::Codex, provider, account)
+        .then(|| format!("{}/v1", crate::product_policy::ORIGIN))
+}
+
+pub(crate) fn upgrade_endpoint(table: &mut dyn TableLike) {
+    if table
+        .get("base_url")
+        .and_then(Item::as_str)
+        .is_some_and(|u| u.trim_end_matches('/') == LEGACY_V1)
+    {
+        table.insert(
+            "base_url",
+            toml_edit::value(format!("{}/v1", crate::product_policy::ORIGIN)),
+        );
+    }
 }
 
 fn openai_model(name: &str) -> bool {
@@ -51,7 +75,10 @@ pub(crate) fn supported(provider: &Provider) -> bool {
     if account_id(&provider.id).is_none()
         || !(provider.name == "AIHubMix" || provider.name.starts_with("AIHubMix · "))
         || provider.category.as_deref() != Some("custom")
-        || provider.website_url.as_deref() != Some(crate::product_policy::ORIGIN)
+        || !provider
+            .website_url
+            .as_deref()
+            .is_some_and(crate::product_policy::is_platform_origin)
         || provider
             .meta
             .as_ref()
@@ -417,13 +444,13 @@ struct UpgradePatch {
 }
 
 impl UpgradePatch {
-    fn apply_to(&self, path: &Path, doc: &mut DocumentMut) -> Result<(), LiveWriteError> {
+    fn apply_to(&self, path: &Path, doc: &mut DocumentMut) -> Result<bool, LiveWriteError> {
         let Some(id) = doc
             .get("model_provider")
             .and_then(Item::as_str)
             .map(str::to_owned)
         else {
-            return Ok(());
+            return Ok(false);
         };
         let Some(table) = doc
             .get_mut("model_providers")
@@ -431,19 +458,21 @@ impl UpgradePatch {
             .and_then(|providers| providers.get_mut(&id))
             .and_then(Item::as_table_like_mut)
         else {
-            return Ok(());
+            return Ok(false);
         };
         let url_matches = table
             .get("base_url")
             .and_then(Item::as_str)
             .is_some_and(|url| {
                 url.trim_end_matches('/') == self.expected_url.trim_end_matches('/')
+                    || (self.expected_url == format!("{}/v1", crate::product_policy::ORIGIN)
+                        && url.trim_end_matches('/') == LEGACY_V1)
             });
         let responses = table
             .get("wire_api")
             .is_none_or(|item| item.as_str() == Some("responses"));
         if !url_matches || has_alternate_auth(table) || !responses {
-            return Ok(());
+            return Ok(false);
         }
         let bearer = table.get("experimental_bearer_token");
         let key_matches = bearer
@@ -459,6 +488,9 @@ impl UpgradePatch {
                     .is_some_and(|key| key == self.expected_token)
             });
         if (key_matches || legacy_key_matches) && mark(table) {
+            if self.expected_url == format!("{}/v1", crate::product_policy::ORIGIN) {
+                upgrade_endpoint(table);
+            }
             if legacy_key_matches {
                 table.insert(
                     "experimental_bearer_token",
@@ -470,8 +502,9 @@ impl UpgradePatch {
             } else {
                 AuthStorePatch(self.isolate_login).apply_to(path, doc)?;
             }
+            return Ok(true);
         }
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -841,13 +874,60 @@ fn unresolved_platform_auth(config: Option<&[u8]>, auth: Option<&[u8]>) -> bool 
         })
 }
 
+/// Upgrade the menu already projected by this card. External catalogs and rows
+/// belonging to another provider must survive an application update untouched.
+struct ChatMenuPatch<'a>(&'a serde_json::Value);
+
+impl LivePatch for ChatMenuPatch<'_> {
+    fn apply(&self, _path: &Path, pre: Option<&[u8]>) -> Result<Vec<u8>, LiveWriteError> {
+        let bytes = pre.unwrap_or_default();
+        let Ok(mut catalog) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+            return Ok(bytes.to_vec());
+        };
+        let Some(rows) = catalog["models"].as_array() else {
+            return Ok(bytes.to_vec());
+        };
+        let Some(saved) = self
+            .0
+            .pointer("/modelCatalog/models")
+            .and_then(|v| v.as_array())
+        else {
+            return Ok(bytes.to_vec());
+        };
+        let owned: std::collections::HashSet<_> =
+            saved.iter().filter_map(|m| m["model"].as_str()).collect();
+        if rows.is_empty()
+            || !rows
+                .iter()
+                .all(|m| m["slug"].as_str().is_some_and(|id| owned.contains(id)))
+        {
+            return Ok(bytes.to_vec());
+        }
+        let before = catalog.clone();
+        super::normalize_openai_chat_menu(&mut catalog);
+        if catalog == before {
+            return Ok(bytes.to_vec());
+        }
+        Ok(serde_json::to_vec_pretty(&catalog).expect("JSON value is serializable"))
+    }
+
+    fn apply_file(
+        &self,
+        path: &Path,
+        pre: Option<&[u8]>,
+    ) -> Result<Option<Vec<u8>>, LiveWriteError> {
+        pre.map(|bytes| self.apply(path, Some(bytes))).transpose()
+    }
+}
 pub(crate) fn migrate_current(state: &AppState, user: i64) -> Result<(), AppError> {
     let app = AppType::Codex;
     let _switch_guard = crate::mode::controller::lock_settled_blocking(state, &app)?;
     let Some(provider) = crate::mode::current::provider_in_use(&state.db, &app)? else {
         return Ok(());
     };
-    if account_id(&provider.id) != Some(user) || !supported(&provider) {
+    if !crate::product_policy::own_provider_for_account(&app, &provider, user)
+        || !supported(&provider)
+    {
         return Ok(());
     }
     let proxy = crate::mode::current::is_proxy(&app);
@@ -892,15 +972,36 @@ pub(crate) fn migrate_current(state: &AppState, user: i64) -> Result<(), AppErro
             preserve_login: crate::settings::preserve_codex_official_auth_on_switch(),
         }),
     };
+    // Both files belong to this migration only while the live route and its key
+    // still match the saved provider. A hand-edited route can reference the same catalog.
+    let config_path = crate::codex_config::get_codex_config_path();
+    let Ok(mut snapshot) = config_text.parse::<DocumentMut>() else {
+        return Ok(());
+    };
+    if !patch.apply_to(&config_path, &mut snapshot)? {
+        return Ok(());
+    }
     let write = crate::mode::operation::AppWrite::begin(&state.db, app.as_str())?;
+    let menu_patch = ChatMenuPatch(&provider.settings_config);
+    let mut changes = vec![crate::mode::operation::FileChange {
+        file: crate::live::engine::LiveFile::private(crate::codex_config::get_codex_config_path()),
+        patch: &patch as &dyn LivePatch,
+    }];
+    let catalog_path = crate::codex_config::get_codex_model_catalog_path();
+    let owned_catalog = std::fs::canonicalize(&catalog_path).ok();
+    let referenced_catalog = crate::codex_config::resolve_cc_switch_catalog_path(
+        &config_text,
+        &crate::codex_config::get_codex_config_dir(),
+    );
+    if referenced_catalog.is_some() && referenced_catalog == owned_catalog {
+        changes.push(crate::mode::operation::FileChange {
+            file: crate::live::engine::LiveFile::shared(catalog_path),
+            patch: &menu_patch,
+        });
+    }
     write.run(
         "codex-native-imagegen-upgrade",
-        &[crate::mode::operation::FileChange {
-            file: crate::live::engine::LiveFile::private(
-                crate::codex_config::get_codex_config_path(),
-            ),
-            patch: &patch,
-        }],
+        &changes,
         crate::mode::state::PendingTarget::default(),
     )?;
     Ok(())
@@ -909,6 +1010,30 @@ pub(crate) fn migrate_current(state: &AppState, user: i64) -> Result<(), AppErro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn updates_owned_chat_menu_preserving_tools_and_foreign_catalogs() {
+        use serde_json::{json, Value};
+        let settings = json!({"modelCatalog":{"models":[{"model":"gpt-6.1-sol"},{"model":"gpt-image-2.5-sunburst"},{"model":"gpt-6.2-astra"}]}});
+        let patch = ChatMenuPatch(&settings);
+        let old = json!({"models":[{"slug":"gpt-6.1-sol","input_modalities":["image","text"]},{"slug":"gpt-image-2.5-sunburst"},{"slug":"gpt-6.2-astra","tools":["image_generation"]}]});
+        let input = serde_json::to_vec(&old).unwrap();
+        let path = Path::new("cc-switch-model-catalog.json");
+        let output = patch.apply(path, Some(&input)).unwrap();
+        let menu: Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(menu["models"].as_array().unwrap().len(), 2);
+        assert_eq!(menu["models"][0]["display_name"], "GPT-6.2 Astra");
+        assert_eq!(menu["models"][0]["tools"], json!(["image_generation"]));
+        assert_eq!(
+            menu["models"][1]["input_modalities"],
+            json!(["image", "text"])
+        );
+        assert_eq!(patch.apply(path, Some(&output)).unwrap(), output);
+        let foreign =
+            br#"{"models":[{"slug":"another-provider"},{"slug":"gpt-image-2.5-sunburst"}]}"#;
+        assert_eq!(patch.apply(path, Some(foreign)).unwrap(), foreign);
+    }
+
     use serde_json::json;
 
     #[test]
