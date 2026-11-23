@@ -120,7 +120,7 @@ fn live_dsh_card(id: &str) -> Result<bool> {
         .ok_or_else(|| "DeepSeek Harness 配置不一致，请先检查启用状态".into())
 }
 
-fn remove_local_card(
+async fn remove_local_card(
     state: &AppState,
     backend: &mut Backend,
     app: &AppType,
@@ -128,12 +128,39 @@ fn remove_local_card(
     id: &str,
     replacement: Option<&str>,
 ) -> Result<()> {
-    if app == &AppType::Dsh && live_dsh_card(id)? {
-        if !replacement.map(live_dsh_card).transpose()?.unwrap_or(false) {
+    if app == &AppType::Dsh {
+        if live_dsh_card(id)? && !replacement.map(live_dsh_card).transpose()?.unwrap_or(false) {
             return Err("请选择并启用替代分组".into());
         }
-    } else if crate::mode::current::is_referenced(&state.db, app, id).map_err(|e| e.to_string())? {
-        return Err("原分组仍在使用，请先切换到其他分组".into());
+    } else if !app.is_additive_mode() && app != &AppType::Agy {
+        let _switch = crate::mode::controller::lock_settled(state, app)
+            .await
+            .map_err(|e| e.to_string())?;
+        use crate::mode::current::{provider_for, Purpose};
+        let current = provider_for(&state.db, app, Purpose::InUse).map_err(|e| e.to_string())?;
+        if current.as_deref() == Some(id) {
+            return Err("原分组仍在使用，请先切换到其他分组".into());
+        }
+        if provider_for(&state.db, app, Purpose::Direct)
+            .map_err(|e| e.to_string())?
+            .as_deref()
+            == Some(id)
+        {
+            // A routed replacement may keep the old direct fallback. The native
+            // official seed is also the controller's fallback after leaving routing.
+            let fallback = seed_for(app).ok_or("请先选择一个可直连的备用配置")?;
+            let official = state
+                .db
+                .get_provider_by_id(fallback, app.as_str())
+                .map_err(|e| e.to_string())?;
+            if !crate::mode::current::is_proxy(app)
+                || !official.is_some_and(|p| crate::product_policy::official_provider(app, &p))
+            {
+                return Err("未找到可用的直连备用配置".into());
+            }
+            crate::settings::set_current_provider(app, Some(fallback))
+                .map_err(|e| e.to_string())?;
+        }
     }
     let provider = state
         .db
@@ -153,7 +180,15 @@ fn remove_local_card(
     }
     // The saved provider still makes the card visible until native deletion succeeds.
     if provider.is_some() {
-        if let Err(error) = ProviderService::delete(state, app.clone(), id) {
+        let state = state.clone();
+        let app = app.clone();
+        let id = id.to_owned();
+        let result =
+            tauri::async_runtime::spawn_blocking(move || ProviderService::delete(&state, app, &id))
+                .await
+                .map_err(|_| "分组移除任务中断".to_owned())
+                .and_then(|r| r.map_err(|e| e.to_string()));
+        if let Err(error) = result {
             backend.store.settings = previous;
             backend.store.save()?;
             return Err(error.to_string());
@@ -463,7 +498,7 @@ pub(super) async fn dispatch(
             id = next.to_string();
             command = "start-tool-card";
         } else {
-            remove_local_card(state, backend, &app, user, &requested_id, None)?;
+            remove_local_card(state, backend, &app, user, &requested_id, None).await?;
             return Ok(json!({"removed":true}));
         }
     }
@@ -623,7 +658,7 @@ pub(super) async fn dispatch(
     };
     if removing {
         let backend = _account_guard.as_mut().ok_or("平台服务未初始化")?;
-        remove_local_card(state, backend, &app, user, &requested_id, Some(&id))?;
+        remove_local_card(state, backend, &app, user, &requested_id, Some(&id)).await?;
     }
     Ok(json!({"providerId":id,"saved":true,"warnings":warnings,"selectedModel":selected_model}))
 }
