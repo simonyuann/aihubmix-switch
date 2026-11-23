@@ -603,6 +603,48 @@ fn menu_script(platform: &str) -> Result<String, String> {
         ))
 }
 
+// The current desktop reads this preference before creating its first window.
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+fn desktop_language_patch(language: &str) -> Option<crate::live::patch::toml::TomlPatch> {
+    use crate::live::patch::{toml::TomlPatch, KeyPath};
+    matches!(language, "zh-CN" | "en-US").then(|| TomlPatch {
+        set: vec![(
+            KeyPath::new(&["desktop", "localeOverride"]),
+            toml_edit::value(language),
+        )],
+        ..TomlPatch::default()
+    })
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub(crate) async fn prepare_language_preference(
+    db: std::sync::Arc<crate::database::Database>,
+    language: &str,
+) {
+    use crate::live::engine::LiveFile;
+    use crate::mode::{
+        operation::{AppWrite, FileChange},
+        state::{op, PendingTarget},
+    };
+    let Some(patch) = desktop_language_patch(language) else {
+        return;
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        AppWrite::begin(&db, "codex")?.run(
+            op::APPLY,
+            &[FileChange {
+                file: LiveFile::private(crate::codex_config::get_codex_config_path()),
+                patch: &patch,
+            }],
+            PendingTarget::default(),
+        )
+    })
+    .await;
+    if !matches!(result, Ok(Ok(_))) {
+        log::debug!("Codex startup language preference unavailable");
+    }
+}
+
 async fn apply_locale_inner(
     port: u16,
     inspector: Option<u16>,
@@ -641,11 +683,13 @@ async fn apply_locale_inner(
         "__LOCALE_JSON__",
         &serde_json::to_string(language).map_err(|_| "语言配置无效")?,
     );
-    let setting = cdp.evaluate(&locale_js, true).await?;
-    if !script_status(&setting) {
-        return Ok(false);
-    }
-    if language == "zh-CN" {
+    // A reload can discard the reply even after a successful write. Verify
+    // what the user sees independently, including an already-selected locale.
+    let acknowledged = cdp
+        .evaluate(&locale_js, true)
+        .await
+        .is_ok_and(|value| script_status(&value));
+    if language == "zh-CN" && acknowledged {
         retain_registered_script_session(cdp);
     } else {
         drop(cdp);
@@ -662,12 +706,16 @@ async fn apply_locale_inner(
     let verified = script_status(&cdp.evaluate(&verify, true).await?);
     if language == "zh-CN" {
         if let Some(inspector) = inspector {
-            // Menu translation is optional. A failure means partial success,
-            // not an inaccurate claim that every menu was translated.
-            let node_target = wait_target(&client, inspector, pid, "node").await?;
-            let mut node = CdpClient::connect(&node_target, inspector).await?;
-            let menu = node.evaluate(&menu_script(platform)?, false).await?;
-            return Ok(verified && script_status(&menu));
+            // Native menus are cosmetic and have a separate lifecycle.
+            let menu = async {
+                let target = wait_target(&client, inspector, pid, "node").await?;
+                let mut node = CdpClient::connect(&target, inspector).await?;
+                node.evaluate(&menu_script(platform)?, false).await
+            }
+            .await;
+            if !menu.as_ref().is_ok_and(script_status) {
+                log::debug!("Codex native menu translation was not confirmed");
+            }
         }
     }
     Ok(verified)
@@ -742,7 +790,11 @@ pub(crate) async fn install_renderer_bootstrap(
 }
 
 #[cfg(target_os = "macos")]
-async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, String> {
+async fn launch_macos(
+    db: std::sync::Arc<crate::database::Database>,
+    language: &str,
+    plugins: bool,
+) -> Result<LaunchOutcome, String> {
     let Some(bundle) = find_install() else {
         return Ok(outcome(
             "not_installed",
@@ -769,6 +821,7 @@ async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, St
             "未能自动退出 Codex，请保存工作并手动退出后重试。",
         ));
     }
+    prepare_language_preference(db, language).await;
     // Plugin intent alone has no verified renderer adapter, so it must not
     // expose a debugging interface that would not perform any useful work.
     let enhanced = language != "system";
@@ -880,6 +933,7 @@ async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, St
 
 #[tauri::command]
 pub async fn launch_codex_desktop(
+    state: tauri::State<'_, crate::store::AppState>,
     language: String,
     plugins: bool,
     executable_path: Option<String>,
@@ -891,11 +945,15 @@ pub async fn launch_codex_desktop(
         return Err("不支持的语言设置".into());
     }
     #[cfg(target_os = "macos")]
-    let result = launch_macos(&language, plugins).await?;
+    let result = launch_macos(state.db.clone(), &language, plugins).await?;
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    let result =
-        crate::codex_desktop_platform::launch(&language, plugins, executable_path.as_deref())
-            .await?;
+    let result = crate::codex_desktop_platform::launch(
+        state.db.clone(),
+        &language,
+        plugins,
+        executable_path.as_deref(),
+    )
+    .await?;
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     let result = {
         let _ = plugins;
@@ -913,6 +971,21 @@ pub async fn launch_codex_desktop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_language_is_available_before_rendering_and_preserves_other_settings() {
+        use crate::live::patch::LivePatch;
+        let before = b"# retained\n[desktop]\ncontrast = true\nlocaleOverride = \"en-US\" # mine\n";
+        let path = Path::new("config.toml");
+        let patch = desktop_language_patch("zh-CN").unwrap();
+        let written = patch.apply(path, Some(before)).unwrap();
+        let text = std::str::from_utf8(&written).unwrap();
+        assert!(text.contains("localeOverride = \"zh-CN\" # mine"));
+        assert!(text.contains("# retained\n[desktop]\ncontrast = true"));
+        assert_eq!(patch.apply(path, Some(&written)).unwrap(), written);
+        assert!(desktop_language_patch("system").is_none());
+        assert!(patch.apply(path, Some(b"[broken")).is_err());
+    }
+
     #[test]
     fn restart_does_not_request_quit_when_already_stopped() {
         let mut quits = 0;

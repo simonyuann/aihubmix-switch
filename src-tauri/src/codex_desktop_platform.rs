@@ -180,6 +180,7 @@ pub(crate) fn listener_owned_by(port: u16, pid: u32) -> bool {
 
 #[cfg(target_os = "linux")]
 pub(crate) async fn launch(
+    _db: std::sync::Arc<crate::database::Database>,
     _language: &str,
     _plugins: bool,
     _executable_path: Option<&str>,
@@ -481,6 +482,7 @@ pub(crate) fn listener_owned_by(port: u16, pid: u32) -> bool {
 
 #[cfg(target_os = "windows")]
 pub(crate) async fn launch(
+    db: std::sync::Arc<crate::database::Database>,
     language: &str,
     plugins: bool,
     executable_path: Option<&str>,
@@ -516,6 +518,17 @@ pub(crate) async fn launch(
             "not_confirmed",
             "未能自动退出 Codex，请保存工作并手动退出后重试。",
         ));
+    }
+    // Store activation uses the default desktop profile rather than AIHub's
+    // custom provider directory. Avoid writing a preference to a different user profile.
+    let profile = crate::codex_config::get_codex_config_dir();
+    let default = crate::config::get_home_dir().join(".codex");
+    if profile == default
+        || (install.app_id.is_empty()
+            && std::env::var_os("CODEX_HOME")
+                .is_some_and(|path| std::path::Path::new(&path) == profile))
+    {
+        crate::codex_desktop::prepare_language_preference(db, language).await;
     }
     let renderer = if language != "system" {
         Some(reserve_port()?)
