@@ -191,6 +191,7 @@ describe("dedicated client account boundary", () => {
     const balance = await screen.findByText("USD 12.34");
     const wallet = screen.getByRole("region", { name: "账户余额" });
     expect(wallet).toContainElement(balance);
+    expect(screen.getByRole("heading", { name: "首页" }).closest("header")).toContainElement(wallet);
     expect(balance.closest("button, a, [role='button']")).toBeNull();
     expect(
       within(wallet).getByRole("button", { name: "充值" }),

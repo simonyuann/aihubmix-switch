@@ -630,3 +630,83 @@ input[type="password"]::-ms-clear {
     width: 368px;
   }
 }
+
+/* Simple desktop home */
+.aihub-simple-sidebar {
+  --bg-sidebar: #f7f6f0;
+  --bg-selected: #e8e6da;
+  --bg-subtle: #f0eee5;
+  border-color: #e2dfd5;
+}
+.aihub-simple-sidebar [aria-current="page"] {
+  color: var(--text-1);
+  font-weight: 650;
+}
+.aihub-home, .aihub-home-header {
+  background-color: #fffefa;
+}
+.aihub-home-header h1 {
+  font-size: 1.3rem;
+  letter-spacing: -.03em;
+}
+.aihub-tool-panel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  margin-bottom: 1.6rem;
+  padding: 1.35rem 1.6rem;
+  border: 1px solid #e6d7b9;
+  border-radius: 15px;
+  color: #30291f;
+  background: #f4e8d1;
+  --action-bg: #a34419;
+  --action-hover: #883812;
+}
+.aihub-tool-panel::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -1px -1px -1px 34%;
+  background: repeating-radial-gradient(ellipse 45% 235% at 124% -32%, transparent 0 14px, #ba8c4b5c 15px, transparent 16px);
+  mask-image: linear-gradient(to right, transparent, black 60%);
+  pointer-events: none;
+}
+.aihub-tool-name {
+  display: inline-flex;
+  align-items: center;
+  gap: .65rem;
+  margin: 0;
+  font-size: clamp(1.6rem, 3.2vw, 2.35rem);
+  line-height: 1.18;
+  font-weight: 650;
+  letter-spacing: -.045em;
+  overflow-wrap: anywhere;
+}
+.aihub-group-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem;
+  min-height: 4rem;
+  padding: .75rem .15rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.aihub-group-row h3 { min-width: 6ch; }
+.aihub-group-row > div.min-w-0 { min-width: min(9rem, 100%); }
+.aihub-group-list > :is([role="status"], [role="alert"], details) {
+  margin-block: .75rem;
+}
+.dark .aihub-simple-sidebar {
+  --bg-sidebar: #20201e;
+  --bg-selected: #3c3932;
+  --bg-subtle: #302e29;
+  border-color: #413e38;
+}
+.dark :is(.aihub-home, .aihub-home-header) { background-color: var(--bg-app); }
+.dark .aihub-tool-panel {
+  background: #373028;
+  color: #f5e7ce;
+  border-color: #594a37;
+  --action-bg: #99421b;
+  --action-hover: #ac4c22;
+}

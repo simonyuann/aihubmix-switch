@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import { Layers, Plus } from "lucide-react";
+import { ArrowLeftRight, Layers, Plus } from "lucide-react";
 import { APP_IDS } from "@/config/appConfig";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
@@ -237,12 +237,14 @@ export function ToolPage({
   return (
     <>
       <AppPageHeader
-        title={simple ? "AIHub Switch" : APP_DISPLAY_NAME[app]}
+        className={simple ? "aihub-home-header" : undefined}
+        title={simple ? "首页" : APP_DISPLAY_NAME[app]}
         variant={simple ? "page" : "app"}
         hideBalance={simple}
         icon={simple ? undefined : <AppGlyph app={app} size={22} />}
         actions={
           <>
+            {simple && <HomeWalletBalance onRecharge={wallet?.recharge} />}
             {onOpenProviders && (
               <Button variant="outline" onClick={onOpenProviders}>
                 其他供应商
@@ -271,9 +273,8 @@ export function ToolPage({
       {simple && <AnnouncementBanner />}
       <main
         id="main-content"
-        className="aihub-page-enter min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-6"
+        className={`aihub-page-enter min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-6${simple ? " aihub-home" : ""}`}
       >
-        {simple && <HomeWalletBalance onRecharge={wallet?.recharge} />}
         {app === "dsh" && (
           <p className="mb-4 text-body text-fg-3">
             DeepSeek Harness 支持同时启用多个分组，请在 DeepSeek Harness
@@ -281,34 +282,33 @@ export function ToolPage({
           </p>
         )}
         {simple && (
-          <div className="mb-6">
-            <h2 className="mb-3 text-title font-semibold">AI 工具</h2>
-            <button
-              type="button"
-              onClick={() => setSelectingTool(true)}
-              aria-label={`选择 AI 工具，当前为 ${APP_DISPLAY_NAME[app]}`}
-              className="flex w-full items-center gap-4 rounded-panel border border-action bg-action-soft px-5 py-4 text-start transition-colors hover:bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-            >
-              <AppGlyph app={app} size={32} />
-              <span className="flex-1 text-strong font-semibold">
-                {APP_DISPLAY_NAME[app]}
-              </span>
-              <span className="flex items-center gap-1 text-caption font-medium text-action-text">
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                切换工具
-              </span>
-            </button>
-            {app === "codex" && <CodexDesktopControls />}
-            {app === "claude-desktop" && <ClaudeDesktopControls />}
-          </div>
+          <section className="aihub-tool-panel" aria-labelledby="current-tool-name">
+            <div>
+              <p className="text-caption font-medium">当前工具</p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <h2 id="current-tool-name" className="aihub-tool-name">
+                  <AppGlyph app={app} size={32} />
+                  {APP_DISPLAY_NAME[app]}
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  onClick={() => setSelectingTool(true)}
+                  aria-label={`选择 AI 工具，当前为 ${APP_DISPLAY_NAME[app]}`}
+                >
+                  <ArrowLeftRight aria-hidden="true" className="h-3.5 w-3.5" />
+                  切换工具
+                </Button>
+              </div>
+              {app === "codex" && <CodexDesktopControls />}
+              {app === "claude-desktop" && <ClaudeDesktopControls />}
+            </div>
+          </section>
         )}
         {simple && (
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-title font-semibold">模型分组</h2>
-              <p className="mt-1 text-caption text-fg-3">
-                选择当前工具使用的服务
-              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {officialCodex && (
@@ -341,12 +341,13 @@ export function ToolPage({
                   }
                 }}
               >
+                <Plus aria-hidden="true" className="h-4 w-4" />
                 添加分组
               </Button>
             </div>
           </div>
         )}
-        <div className="space-y-3">
+        <div className={simple ? "aihub-group-list" : "space-y-3"}>
           {isPending && (
             <p role="status" className="text-body text-fg-3">
               正在加载模型服务…
@@ -399,7 +400,7 @@ export function ToolPage({
                 return (
                   <article
                     key={card.provider.id}
-                    className="flex flex-wrap items-center gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition-colors hover:border-border-strong motion-reduce:transition-none"
+                    className="aihub-group-row"
                   >
                     <ProviderIconBox
                       icon={brandIcon ?? card.provider.icon}

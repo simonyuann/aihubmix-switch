@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Coins, RefreshCw, Wallet } from "lucide-react";
+import { RefreshCw, Wallet } from "lucide-react";
 import { useOptionalAccount } from "@/contexts/AccountContext";
 import { Button } from "@/components/ui/button";
 import type { WalletBalance } from "@/lib/api/aihubmix";
@@ -23,17 +23,12 @@ export function HomeWalletBalance({ onRecharge }: { onRecharge?: () => void }) {
   return (
     <section
       aria-label="账户余额"
-      className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-panel border border-border bg-card px-4 py-4"
+      className="flex min-w-0 items-center gap-2 text-caption"
     >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-action-soft text-action-text">
-        <Coins aria-hidden="true" className="h-5 w-5" />
-      </span>
-      <div className="min-w-0">
-        <div className="text-caption text-fg-3">账户余额</div>
-        <div className="mt-0.5 text-xl font-semibold tabular-nums text-fg-1" aria-live="polite">
-          {account.walletError ? "余额暂不可用" : formatBalance(account.wallet)}
-        </div>
-      </div>
+      <span className="hidden text-fg-3 sm:inline">账户余额</span>
+      <strong className="truncate tabular-nums text-fg-1" aria-live="polite">
+        {account.walletError ? "余额暂不可用" : formatBalance(account.wallet)}
+      </strong>
       <button
         type="button"
         aria-label="刷新余额"
@@ -53,13 +48,11 @@ export function HomeWalletBalance({ onRecharge }: { onRecharge?: () => void }) {
           aria-hidden="true"
           className={`h-4 w-4 ${refreshing ? "animate-spin motion-reduce:animate-none" : ""}`}
         />
-        {refreshing ? "刷新中" : "刷新"}
+        <span className="sr-only">{refreshing ? "刷新中" : "刷新"}</span>
       </button>
-      <div className="ms-auto border-s border-border ps-4">
-        <Button className="h-10 min-w-[104px] rounded-[10px] px-6" onClick={onRecharge} disabled={!onRecharge}>
-          充值
-        </Button>
-      </div>
+      <Button variant="outline" size="compact" onClick={onRecharge} disabled={!onRecharge}>
+        充值
+      </Button>
       {account.walletError && (
         <span role="status" className="sr-only">
           余额刷新失败，请重试

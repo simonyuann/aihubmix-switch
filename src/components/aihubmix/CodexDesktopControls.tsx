@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle, Play } from "lucide-react";
+import { LoaderCircle, Play, Puzzle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodexPluginMarketDialog } from "@/components/aihubmix/CodexPluginMarketDialog";
 import {
@@ -113,14 +113,6 @@ export function CodexDesktopControls() {
         </p>
       )}
       <Button
-        variant="outline"
-        onClick={() => setShowPlugins(true)}
-        disabled={launching}
-        className="shrink-0"
-      >
-        管理插件
-      </Button>
-      <Button
         onClick={() => void launch()}
         disabled={launching}
         className="shrink-0"
@@ -134,6 +126,15 @@ export function CodexDesktopControls() {
           <Play aria-hidden="true" className="h-4 w-4" />
         )}
         {launching ? "正在启动" : "启动 Codex"}
+      </Button>
+      <Button
+        variant="outline"
+        onClick={() => setShowPlugins(true)}
+        disabled={launching}
+        className="shrink-0"
+      >
+        <Puzzle className="h-4 w-4" aria-hidden="true" />
+        管理插件
       </Button>
       {showPlugins && (
         <CodexPluginMarketDialog onClose={() => setShowPlugins(false)} />

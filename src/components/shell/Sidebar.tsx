@@ -90,6 +90,7 @@ export function Sidebar(props: SidebarProps) {
       ref={navRef}
       aria-label={t("nav.mainLabel")}
       className={cn(
+        props.simple && "aihub-simple-sidebar",
         "relative flex h-full shrink-0 flex-col overflow-hidden whitespace-nowrap border-e border-border bg-sidebar text-body text-fg-1",
       )}
       style={{ width: sidebarWidth(collapsed) }}
@@ -147,6 +148,7 @@ function SimpleDirectory({
         dot={!!announcements?.unread}
         onClick={() => announcements?.open()}
       />
+      <div className="min-h-4 flex-1" />
       <NavItem
         collapsed={collapsed}
         selected={view === "help"}
