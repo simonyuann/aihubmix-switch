@@ -173,6 +173,7 @@ fn key_info(value: &Value) -> KeyInfo {
                 status
             }
         },
+        expires_at: value["expires_at"].as_str().map(str::to_owned),
         quota_used: value["quota_used"].as_f64(),
         quota: value["quota"].as_f64(),
         created_at: string(value, "created_at"),
@@ -510,6 +511,17 @@ impl Backend {
         body: Option<Value>,
         token: Option<&str>,
     ) -> Result<(u16, Value)> {
+        self.raw_with_idempotency(method, path, body, token, None)
+            .await
+    }
+    async fn raw_with_idempotency(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        token: Option<&str>,
+        idempotency: Option<&str>,
+    ) -> Result<(u16, Value)> {
         let url = format!(
             "{}{}",
             normalize(&self.store.settings.relay_base_url)?,
@@ -518,6 +530,9 @@ impl Backend {
         crate::product_policy::require_url(&url)?;
         let empty_allowed = method == Method::DELETE || path == "/api/v1/auth/logout";
         let mut request = self.client.request(method, url);
+        if let Some(id) = idempotency {
+            request = request.header("Idempotency-Key", id);
+        }
         if path.contains("client_version=")
             || path == "/v1/usage"
             || path == "/v1/sub2api/billing"
@@ -718,6 +733,16 @@ impl Backend {
         Ok(())
     }
     async fn request(&mut self, method: Method, path: &str, body: Option<Value>) -> Result<Value> {
+        self.request_with_idempotency(method, path, body, None)
+            .await
+    }
+    async fn request_with_idempotency(
+        &mut self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        idempotency: Option<&str>,
+    ) -> Result<Value> {
         if !self.store.settings.account.logged_in {
             return Err("请先登录账号".into());
         }
@@ -729,7 +754,13 @@ impl Backend {
         for attempt in 0..2 {
             let token = self.store.secret("access");
             let (status, value) = self
-                .raw(method.clone(), path, body.clone(), Some(&token))
+                .raw_with_idempotency(
+                    method.clone(),
+                    path,
+                    body.clone(),
+                    Some(&token),
+                    idempotency,
+                )
                 .await?;
             let rejected = confirmed_auth_rejection(status, &value);
             if rejected && status == 401 && attempt == 0 && !self.store.secret("refresh").is_empty()
@@ -752,6 +783,31 @@ impl Backend {
                 .map_err(|error| error.replace(&token, "[已隐藏]"));
         }
         Err("登录已过期，请重新登录".into())
+    }
+    pub(super) async fn create_group_key(
+        &mut self,
+        group: i64,
+        name: &str,
+        idempotency: Option<&str>,
+    ) -> Result<(KeyInfo, Option<String>)> {
+        let value = self
+            .request_with_idempotency(
+                Method::POST,
+                "/api/v1/keys",
+                Some(json!({"group_id":group,"name":name})),
+                idempotency,
+            )
+            .await?;
+        let key = string(&value, "key");
+        if key.is_empty() {
+            return Err("服务已返回创建结果，但没有完整 Key。请刷新列表查看，勿重复创建。".into());
+        }
+        let info = key_info(&value);
+        self.ephemeral_keys.insert(info.id, key.clone());
+        let secret_name = self.secret_name(info.id);
+        let warning = self.store.set_secrets(&[(&secret_name, &key)]).err();
+        // The server has created the key. Local storage or probing failures are not creation failures.
+        Ok((info, warning))
     }
     fn secret_name(&self, id: i64) -> String {
         if id < 0 {
@@ -1012,11 +1068,12 @@ impl Backend {
                             )
                             .await?;
                         let count = append_keys(&mut keys, &value)?;
-                        if count < 100
-                            || page * 100 >= value["total"].as_u64().unwrap_or(u64::MAX)
-                            || page >= 100
+                        if count < 100 || page * 100 >= value["total"].as_u64().unwrap_or(u64::MAX)
                         {
                             break;
+                        }
+                        if page >= 100 {
+                            return Err("账号的 API 列表过长，无法确认全部分组绑定".into());
                         }
                         page += 1;
                     }
@@ -1032,18 +1089,12 @@ impl Backend {
                     .filter(|id| *id > 0)
                     .ok_or("请选择模型服务")?;
                 let name = string(&input, "name");
-                let value=self.request(Method::POST,"/api/v1/keys",Some(json!({"group_id":group,"name":if name.trim().is_empty() {"我的 API Key"} else {name.trim()}}))).await?;
-                let key = string(&value, "key");
-                if key.is_empty() {
-                    return Err(
-                        "服务已返回创建结果，但没有完整 Key。请刷新列表查看，勿重复创建。".into(),
-                    );
-                }
-                let info = key_info(&value);
-                self.ephemeral_keys.insert(info.id, key.clone());
-                let secret_name = self.secret_name(info.id);
-                let warning = self.store.set_secrets(&[(&secret_name, &key)]).err();
-                // The server has created the key. Local storage or probing failures are not creation failures.
+                let name = if name.trim().is_empty() {
+                    "我的 API Key"
+                } else {
+                    name.trim()
+                };
+                let (info, warning) = self.create_group_key(group, name, None).await?;
                 Ok(json!({"info":info,"state":self.state()?,"warning":warning}))
             }
 

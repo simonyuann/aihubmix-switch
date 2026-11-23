@@ -53,12 +53,96 @@ fn eligible_key(key: &Value, group_id: i64, key_id: i64) -> bool {
         && key["groupId"].as_i64() == Some(group_id)
         && key["local"].as_bool() == Some(false)
         && key["status"].as_str() == Some("active")
+        && !key["quota"].as_f64().is_some_and(|limit| {
+            limit > 0.0 && key["quotaUsed"].as_f64().unwrap_or_default() >= limit
+        })
+        && key["expiresAt"].as_str().is_none_or(|expiry| {
+            chrono::DateTime::parse_from_rfc3339(expiry).is_ok_and(|t| t.timestamp() > now() as i64)
+        })
 }
-fn has_group_key(keys: &Value, group_id: i64) -> bool {
+fn has_group_key(keys: &Value, group: i64) -> bool {
     keys.as_array()
         .into_iter()
         .flatten()
-        .any(|key| eligible_key(key, group_id, key["id"].as_i64().unwrap_or_default()))
+        .any(|key| eligible_key(key, group, key["id"].as_i64().unwrap_or_default()))
+}
+
+fn account_group_key(
+    settings: &Settings,
+    keys: &Value,
+    id: &str,
+    user: i64,
+    group: i64,
+) -> Option<i64> {
+    let current = settings.service_key_ids.get(id).copied();
+    let other_bindings: std::collections::BTreeSet<_> = AppType::all()
+        .filter_map(|app| {
+            settings
+                .service_key_ids
+                .get(&service_id(app.as_str(), user, group))
+                .copied()
+        })
+        .collect();
+    keys.as_array()?
+        .iter()
+        .filter_map(|key| {
+            let id = key["id"].as_i64()?;
+            eligible_key(key, group, id).then_some(id)
+        })
+        .min_by_key(|id| (Some(*id) != current, !other_bindings.contains(id), *id))
+}
+
+// Persist the attempt before sending the request so an ambiguous timeout can be retried safely.
+async fn bind_added_group(
+    backend: &mut Backend,
+    id: &str,
+    user: i64,
+    group: i64,
+    keys: &Value,
+) -> Result<()> {
+    let scope = format!("{user}:{group}");
+    let key_id = match account_group_key(&backend.store.settings, keys, id, user, group) {
+        Some(key_id) => key_id,
+        None => {
+            let attempt =
+                if let Some(attempt) = backend.store.settings.pending_group_keys.get(&scope) {
+                    attempt.clone()
+                } else {
+                    let attempt = uuid::Uuid::new_v4().to_string();
+                    backend
+                        .store
+                        .settings
+                        .pending_group_keys
+                        .insert(scope.clone(), attempt.clone());
+                    if let Err(e) = backend.store.save() {
+                        backend.store.settings.pending_group_keys.remove(&scope);
+                        return Err(e);
+                    }
+                    attempt
+                };
+            let name = format!("AIHub · 分组 {group}");
+            let (info, _) = backend
+                .create_group_key(group, &name, Some(&attempt))
+                .await?;
+            if !eligible_key(&json!(&info), group, info.id) {
+                return Err("暂未确认分组创建结果，请刷新后重试".into());
+            }
+            info.id
+        }
+    };
+    let previous = backend.store.settings.clone();
+    backend.store.settings.service_cards.insert(id.to_owned());
+    backend
+        .store
+        .settings
+        .service_key_ids
+        .insert(id.to_owned(), key_id);
+    backend.store.settings.pending_group_keys.remove(&scope);
+    if let Err(error) = backend.store.save() {
+        backend.store.settings = previous;
+        return Err(error);
+    }
+    Ok(())
 }
 fn key_of(app: &AppType, p: &Provider) -> String {
     match app {
@@ -227,6 +311,7 @@ pub(super) async fn dispatch(
         let groups_unavailable = group_result.is_err();
         let (groups, mut warning) = match group_result {
             Ok(groups) => (groups, None),
+            Err(error) if command == "create-tool-card" => return Err(error),
             Err(error) => {
                 crate::product_policy::require_session()?;
                 (json!([]), Some(format!("模型服务暂不可用：{error}")))
@@ -251,6 +336,7 @@ pub(super) async fn dispatch(
                 None => backend.dispatch("keys", Value::Null).await,
             } {
                 Ok(keys) => keys,
+                Err(error) if command == "create-tool-card" => return Err(error),
                 Err(error) => {
                     crate::product_policy::require_session()?;
                     keys_unavailable = true;
@@ -259,27 +345,13 @@ pub(super) async fn dispatch(
                 }
             }
         };
-        let available_groups: Vec<&Value> = groups
-            .iter()
-            .filter(|group| has_group_key(&keys, group["id"].as_i64().unwrap_or_default()))
-            .collect();
         if command == "create-tool-card" {
             let group_id = input["groupId"].as_i64().ok_or("请选择平台分组")?;
             if !groups.iter().any(|g| g["id"].as_i64() == Some(group_id)) {
                 return Err("此分组不可用或不支持当前工具".into());
             }
-            if !has_group_key(&keys, group_id) {
-                return Err("此分组没有可用 API，请先申请对应分组的 API Key".into());
-            }
             let id = service_id(&app_name, user, group_id);
-            let mut next = backend.store.settings.clone();
-            next.service_cards.insert(id.clone());
-            // Persist only a platform group reference; an unconfigured card never changes agent files.
-            let previous = std::mem::replace(&mut backend.store.settings, next);
-            if let Err(error) = backend.store.save() {
-                backend.store.settings = previous;
-                return Err(error);
-            }
+            bind_added_group(backend, &id, user, group_id, &keys).await?;
             return Ok(json!({"providerId":id}));
         }
         let saved_providers = state
@@ -325,7 +397,10 @@ pub(super) async fn dispatch(
                 .manually_managed_card_sets
                 .contains(&crate::product_policy::provider_id(&app_name, user))
         {
-            if let Some(group) = available_groups.first() {
+            if let Some(group) = groups
+                .iter()
+                .find(|g| has_group_key(&keys, g["id"].as_i64().unwrap_or_default()))
+            {
                 let id = service_id(&app_name, user, group["id"].as_i64().unwrap());
                 backend.store.settings.service_cards.insert(id.clone());
                 if let Err(error) = backend.store.save() {
@@ -434,7 +509,7 @@ pub(super) async fn dispatch(
                 });
             card["verificationPending"] = json!(keys_unavailable);
             card["selectedKeyId"] = json!(key_id);
-            card["configured"] = json!(key_id.is_some() && !key_of(&app, &p).is_empty());
+            card["configured"] = json!(key_id.is_some());
             card["groupId"] = json!(group_id);
             card["platform"] = json!(kind);
             if app == AppType::Dsh {
@@ -451,7 +526,7 @@ pub(super) async fn dispatch(
         )
         .map_err(|e| e.to_string())?;
         return Ok(
-            json!({"cards":cards,"groups":available_groups,"currentProviderId":current,"warning":warning}),
+            json!({"cards":cards,"groups":groups,"currentProviderId":current,"warning":warning}),
         );
     }
     let requested_id = string(&input, "providerId");
@@ -484,15 +559,23 @@ pub(super) async fn dispatch(
             let saved = state
                 .db
                 .get_provider_by_id(next, &app_name)
-                .map_err(|e| e.to_string())?
-                .ok_or("替代分组尚未配置")?;
-            if next == requested_id
-                || !(crate::product_policy::official_provider(&app, &saved)
-                    || (next.starts_with(&format!(
-                        "{}-service-",
-                        crate::product_policy::provider_id(&app_name, user)
-                    )) && crate::product_policy::own_provider(&app, &saved)))
-            {
+                .map_err(|e| e.to_string())?;
+            let scoped = next.starts_with(&format!(
+                "{}-service-",
+                crate::product_policy::provider_id(&app_name, user)
+            ));
+            let available = match saved {
+                Some(p) => {
+                    crate::product_policy::official_provider(&app, &p)
+                        || (scoped && crate::product_policy::own_provider(&app, &p))
+                }
+                None => {
+                    scoped
+                        && backend.store.settings.service_cards.contains(next)
+                        && backend.store.settings.service_key_ids.contains_key(next)
+                }
+            };
+            if next == requested_id || !available {
                 return Err("请选择此工具下其他可用分组".into());
             }
             id = next.to_string();
@@ -529,11 +612,17 @@ pub(super) async fn dispatch(
             return Err("此服务不支持当前工具".into());
         }
         let group_id = group["id"].as_i64().ok_or("请选择平台分组")?;
-        let key_id = input["keyId"]
-            .as_i64()
-            .or_else(|| backend.store.settings.service_key_ids.get(&id).copied())
-            .ok_or("请选择此分组的 API Key")?;
         let keys = backend.dispatch("keys", Value::Null).await?;
+        let bound = backend.store.settings.service_key_ids.get(&id).copied();
+        let key_id = if command == "start-tool-card" && input["keyId"].is_null() {
+            account_group_key(&backend.store.settings, &keys, &id, user, group_id)
+                .ok_or("此分组暂无可用凭据，请移除后重新添加分组")?
+        } else {
+            input["keyId"]
+                .as_i64()
+                .or(bound)
+                .ok_or("请选择此分组的 API Key")?
+        };
         if !keys
             .as_array()
             .into_iter()
@@ -758,6 +847,146 @@ mod tests {
             .any(|c| c["groupId"] == 7));
     }
 
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn keyless_group_is_listed_and_explicit_add_retries_with_the_same_creation_id() {
+        use axum::{
+            http::{HeaderMap, StatusCode},
+            routing::post,
+            Json, Router,
+        };
+        use std::sync::{Arc, Mutex};
+
+        let attempts = Arc::new(Mutex::new(Vec::<String>::new()));
+        let recorded = attempts.clone();
+        let router = Router::new().route("/api/v1/keys", post(move |headers: HeaderMap, Json(body): Json<Value>| {
+            let recorded = recorded.clone();
+            async move {
+                assert_eq!(body["group_id"], 7);
+                let mut calls = recorded.lock().unwrap();
+                calls.push(headers["Idempotency-Key"].to_str().unwrap().to_owned());
+                if calls.len() == 1 {
+                    (StatusCode::SERVICE_UNAVAILABLE, Json(json!({})))
+                } else {
+                    (StatusCode::OK, Json(json!({"code":0,"data":{"id":18,"key":"fixture-private-key","group_id":7,"status":"active"}})))
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let tmp = tempfile::tempdir().unwrap();
+        let mut backend =
+            Backend::new(super::super::store::Store::for_test(tmp.path().into())).unwrap();
+        backend.client = reqwest::Client::builder().no_proxy().build().unwrap();
+        backend.store.settings.account = Account {
+            logged_in: true,
+            user_id: Some(42),
+            expires_at: now() + 3600,
+            ..Default::default()
+        };
+        backend.store.settings.relay_base_url = format!("http://{address}");
+        backend.store.memory_secret("access", "fixture-token");
+        let backend = tokio::sync::Mutex::new(Some(backend));
+        let state = AppState::new(Arc::new(crate::database::Database::memory().unwrap()));
+        let catalog = |keys| {
+            Some((
+                Ok(json!([{"id":7,"platform":"openai","name":"OpenAI"}])),
+                keys,
+            ))
+        };
+        let input = json!({"app":"codex","groupId":7});
+        let list = dispatch(
+            &state,
+            backend.lock().await,
+            catalog(Ok(json!([]))),
+            "tool-cards",
+            input.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(list["groups"][0]["id"], 7);
+        assert!(dispatch(
+            &state,
+            backend.lock().await,
+            catalog(Err("offline".into())),
+            "create-tool-card",
+            input.clone()
+        )
+        .await
+        .is_err());
+        assert!(attempts.lock().unwrap().is_empty());
+        for success in [false, true] {
+            let result = dispatch(
+                &state,
+                backend.lock().await,
+                catalog(Ok(json!([]))),
+                "create-tool-card",
+                input.clone(),
+            )
+            .await;
+            assert_eq!(result.is_ok(), success);
+        }
+        let remote_keys = json!([{"id":18,"groupId":7,"local":false,"status":"active"}]);
+        dispatch(
+            &state,
+            backend.lock().await,
+            catalog(Ok(remote_keys.clone())),
+            "create-tool-card",
+            input.clone(),
+        )
+        .await
+        .unwrap();
+        let after = dispatch(
+            &state,
+            backend.lock().await,
+            catalog(Ok(remote_keys)),
+            "tool-cards",
+            input,
+        )
+        .await
+        .unwrap();
+        let card = after["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["groupId"] == 7)
+            .unwrap();
+        assert_eq!(card["configured"], true);
+        assert_eq!(card["selectedKeyId"], 18);
+        assert_eq!(after["currentProviderId"], list["currentProviderId"]);
+        assert!(!after.to_string().contains("fixture-private-key"));
+        let calls = attempts.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0], calls[1]);
+        server.abort();
+    }
+
+    #[test]
+    fn automatic_selection_prefers_the_bound_usable_key_then_the_lowest_id() {
+        let keys = json!([
+            {"id":10,"groupId":1,"local":false,"status":"active"},
+            {"id":5,"groupId":1,"local":false,"status":"active"},
+            {"id":1,"groupId":1,"local":false,"status":"active","expiresAt":"2001-01-01T00:00:00Z"},
+            {"id":2,"groupId":1,"local":false,"status":"active","quota":2,"quotaUsed":2},
+            {"id":3,"groupId":2,"local":false,"status":"active"},
+            {"id":4,"groupId":1,"local":false,"status":"disabled"}
+        ]);
+        let id = service_id("codex", 42, 1);
+        let mut settings = Settings::default();
+        settings.service_key_ids.insert(service_id("pi", 99, 1), 10);
+        for previous in [1, 2, 3, 4] {
+            settings.service_key_ids.insert(id.clone(), previous);
+            assert_eq!(account_group_key(&settings, &keys, &id, 42, 1), Some(5));
+        }
+        settings
+            .service_key_ids
+            .insert(service_id("claude", 42, 1), 10);
+        assert_eq!(account_group_key(&settings, &keys, &id, 42, 1), Some(10));
+        settings.service_key_ids.insert(id.clone(), 5);
+        assert_eq!(account_group_key(&settings, &keys, &id, 42, 1), Some(5));
+    }
+
     #[test]
     fn unchanged_key_binding_needs_no_write_and_failed_changes_roll_back() {
         let temp = tempfile::tempdir().unwrap();
@@ -881,7 +1110,7 @@ mod tests {
         assert!(old.service_key_ids.is_empty());
     }
     #[test]
-    fn new_groups_are_addable_only_after_the_account_has_an_active_api() {
+    fn default_card_is_seeded_only_for_a_usable_key() {
         let mut keys = json!([
             {"id":10,"groupId":7,"local":false,"status":"active"},
             {"id":20,"groupId":8,"local":false,"status":"active"},

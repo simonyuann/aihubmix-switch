@@ -187,10 +187,10 @@ describe("dedicated service cards", () => {
           )
         : Promise.resolve({ cards: [service], currentProviderId: null }),
     );
-    wrap(<ToolPage app="codex" simple />);
+    wrap(<ToolPage app="codex" />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "选择 API 并使用 AIHubMix · OpenAI",
+        name: "启动 AIHubMix · OpenAI",
       }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -236,7 +236,7 @@ describe("dedicated service cards", () => {
     wrap(<ToolPage app="codex" simple />);
     expect(await screen.findByText("还没有添加模型分组")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "申请 API" }),
+      screen.getByRole("button", { name: "添加分组" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("OpenAI Official")).not.toBeInTheDocument();
   });
@@ -275,18 +275,20 @@ describe("dedicated service cards", () => {
       await screen.findByRole("button", { name: "当前为官方配置" }),
     ).toBeDisabled();
   });
-  it("explains how to activate a simple-home service and only opens key selection when needed", async () => {
+  it("activates a legacy group from home without asking for a key", async () => {
     wrap(<ToolPage app="codex" simple />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "选择 API 并使用 AIHubMix · OpenAI",
+        name: "切换到 AIHubMix · OpenAI",
       }),
     );
-    expect(await screen.findByLabelText("API Key")).toBeInTheDocument();
-    expect(mocks.dispatch).not.toHaveBeenCalledWith(
-      "start-tool-card",
-      expect.anything(),
+    await waitFor(() =>
+      expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
+        app: "codex",
+        providerId: service.provider.id,
+      }),
     );
+    expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument();
   });
   it("shows the active service and switches a configured group directly", async () => {
     mocks.dispatch.mockImplementation((command) =>
@@ -409,7 +411,7 @@ describe("dedicated service cards", () => {
       screen.queryByRole("button", { name: /重新启用/ }),
     ).not.toBeInTheDocument();
   });
-  it("asks for a group key before reapplying an unconfigured active group", async () => {
+  it("allows manual key selection in the advanced view before reapplying an unconfigured active group", async () => {
     mocks.dispatch.mockImplementation((command) =>
       Promise.resolve(
         command === "tool-cards"
@@ -423,7 +425,7 @@ describe("dedicated service cards", () => {
             : {},
       ),
     );
-    wrap(<ToolPage app="codex" simple />);
+    wrap(<ToolPage app="codex" />);
     fireEvent.click(
       await screen.findByRole("button", {
         name: "重新启用 AIHubMix · OpenAI",
@@ -624,6 +626,11 @@ describe("dedicated service cards", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "确认添加分组" }));
     await screen.findByText("AIHubMix · GLM");
+    expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument();
+    expect(mocks.dispatch).not.toHaveBeenCalledWith(
+      "start-tool-card",
+      expect.anything(),
+    );
     expect(mocks.dispatch).toHaveBeenCalledWith("create-tool-card", {
       app: "pi",
       groupId: 9,

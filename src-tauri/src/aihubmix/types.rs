@@ -51,6 +51,7 @@ pub struct KeyInfo {
     pub group_id: Option<i64>,
     pub group_name: String,
     pub status: String,
+    pub expires_at: Option<String>,
     pub quota_used: Option<f64>,
     pub quota: Option<f64>,
     pub created_at: String,
@@ -85,6 +86,7 @@ pub struct Settings {
     pub service_cards: BTreeSet<String>,
     pub manually_managed_card_sets: BTreeSet<String>,
     pub service_key_ids: BTreeMap<String, i64>,
+    pub pending_group_keys: BTreeMap<String, String>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -98,6 +100,7 @@ impl Default for Settings {
             service_cards: BTreeSet::new(),
             manually_managed_card_sets: BTreeSet::new(),
             service_key_ids: BTreeMap::new(),
+            pending_group_keys: BTreeMap::new(),
         }
     }
 }

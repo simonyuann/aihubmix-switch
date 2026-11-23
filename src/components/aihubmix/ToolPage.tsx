@@ -120,6 +120,12 @@ export function ToolPage({
     setError("");
     setEditing(card);
   }
+  function openAddGroup() {
+    setError("");
+    setGroupId(String(availableGroups[0]?.id ?? ""));
+    setAdding(true);
+    void refetch();
+  }
   async function createCard() {
     if (gate.current || !groupId) return;
     gate.current = true;
@@ -129,9 +135,12 @@ export function ToolPage({
     setImagegenNote("");
     try {
       await dispatch("create-tool-card", { app, groupId: Number(groupId) });
-      await refetch();
+      await Promise.all([
+        refetch(),
+        client.invalidateQueries({ queryKey: ["platform-keys"] }),
+      ]);
       setAdding(false);
-      setNotice("分组已添加，请选择此分组的 API Key。");
+      setNotice("分组已添加。");
     } catch (e) {
       setError(friendlyError(e, "添加分组失败，请重试。"));
     } finally {
@@ -254,12 +263,7 @@ export function ToolPage({
               <Button
                 variant="outline"
                 disabled={busy || isPending || !!loadError}
-                onClick={() => {
-                  setError("");
-                  setGroupId(String(availableGroups[0]?.id ?? ""));
-                  setAdding(true);
-                  void refetch();
-                }}
+                onClick={openAddGroup}
               >
                 添加分组
               </Button>
@@ -330,16 +334,7 @@ export function ToolPage({
               <Button
                 variant="outline"
                 disabled={busy || isPending || !!loadError}
-                onClick={() => {
-                  setError("");
-                  if (!groups.length) {
-                    setApply(true);
-                  } else {
-                    setGroupId(String(availableGroups[0]?.id ?? ""));
-                    setAdding(true);
-                    void refetch();
-                  }
-                }}
+                onClick={openAddGroup}
               >
                 <Plus aria-hidden="true" className="h-4 w-4" />
                 添加分组
@@ -421,23 +416,12 @@ export function ToolPage({
                       </div>
                       <p className="mt-1 text-caption text-fg-3">
                         {card.verificationPending
-                          ? "API 绑定待联网验证"
+                          ? "待联网验证"
                           : card.configured
-                            ? "API 已配置"
-                            : "选择 API 后即可使用"}
+                            ? "分组已就绪"
+                            : "切换时自动配置"}
                       </p>
                     </div>
-                    {card.configured && (
-                      <Button
-                        variant="ghost"
-                        size="compact"
-                        disabled={busy}
-                        aria-label={`管理 ${card.provider.name} 的 API`}
-                        onClick={() => edit(card)}
-                      >
-                        管理 API
-                      </Button>
-                    )}
                     {current || enabled ? (
                       canReapplyCodex && (
                         <Button
@@ -445,11 +429,7 @@ export function ToolPage({
                           size="compact"
                           disabled={busy}
                           aria-label={`重新启用 ${card.provider.name}`}
-                          onClick={() =>
-                            card.configured
-                              ? void operate(card, true)
-                              : edit(card)
-                          }
+                          onClick={() => void operate(card, true)}
                         >
                           重新启用
                         </Button>
@@ -459,18 +439,10 @@ export function ToolPage({
                         variant="outline"
                         size="compact"
                         disabled={busy}
-                        aria-label={`${card.configured ? (app === "dsh" ? "启用" : "切换到") : app === "dsh" ? "选择 API 并启用" : "选择 API 并使用"} ${card.provider.name}`}
-                        onClick={() =>
-                          card.configured
-                            ? void operate(card, true)
-                            : edit(card)
-                        }
+                        aria-label={`${app === "dsh" ? "启用" : "切换到"} ${card.provider.name}`}
+                        onClick={() => void operate(card, true)}
                       >
-                        {card.configured
-                          ? app === "dsh"
-                            ? "启用"
-                            : "切换"
-                          : "选择 API"}
+                        {app === "dsh" ? "启用" : "切换"}
                       </Button>
                     )}
                     {card.groupId != null && (
@@ -586,9 +558,8 @@ export function ToolPage({
                 <Layers className="h-8 w-8 text-fg-3" aria-hidden="true" />
                 <p className="font-semibold">还没有添加模型分组</p>
                 <p className="text-body text-fg-3">
-                  申请 API 后，即可在这里选择分组并开始使用。
+                  点「添加分组」选择要使用的模型分组。
                 </p>
-                <Button onClick={() => setApply(true)}>申请 API</Button>
               </div>
             )}
           {data && !simple && !data.cards.length && (
@@ -715,7 +686,7 @@ export function ToolPage({
             <DialogHeader>
               <DialogTitle>添加分组</DialogTitle>
               <DialogDescription>
-                选择已持有可用 API 的分组，卡片中只会显示此分组的 API Key。
+                选择要添加到当前工具的模型分组。添加后可随时切换。
               </DialogDescription>
             </DialogHeader>
             <form
@@ -757,7 +728,7 @@ export function ToolPage({
               </Button>
               {!availableGroups.length && (
                 <p className="text-body text-fg-3">
-                  暂无可添加的分组。请先申请对应分组的 API；已添加的分组已标记。
+                  当前工具暂无可添加的分组。
                 </p>
               )}
               {error && (

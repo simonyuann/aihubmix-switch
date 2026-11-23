@@ -205,7 +205,7 @@ describe("dedicated client account boundary", () => {
       within(nav).getByRole("button", { name: "API 管理" }),
     ).toBeInTheDocument();
     expect(
-      screen.getAllByRole("button", { name: "申请 API" }).length,
+      screen.getAllByRole("button", { name: "添加分组" }).length,
     ).toBeGreaterThan(0);
     expect(screen.queryByLabelText("服务地址")).not.toBeInTheDocument();
   });
