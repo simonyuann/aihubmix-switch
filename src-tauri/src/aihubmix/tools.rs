@@ -719,11 +719,12 @@ mod tests {
         )
         .await
         .unwrap();
-        let persisted = super::super::store::Store::reopen_for_test(dir);
+        let persisted = super::super::store::Store::load(dir).unwrap();
         assert!(persisted
             .settings
             .manually_managed_card_sets
             .contains(&crate::product_policy::provider_id("codex", 12345)));
+        let backend = tokio::sync::Mutex::new(Some(Backend::new(persisted).unwrap()));
         let list = dispatch(
             &state,
             backend.lock().await,
