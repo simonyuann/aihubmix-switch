@@ -283,9 +283,9 @@ export function ToolPage({
         )}
         {simple && (
           <section className="aihub-tool-panel" aria-labelledby="current-tool-name">
-            <div>
-              <p className="text-caption font-medium">当前工具</p>
-              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="min-w-0">
+              <p className="text-caption font-medium text-fg-3">当前工具</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <h2 id="current-tool-name" className="aihub-tool-name">
                   <AppGlyph app={app} size={32} />
                   {APP_DISPLAY_NAME[app]}
@@ -300,9 +300,9 @@ export function ToolPage({
                   切换工具
                 </Button>
               </div>
-              {app === "codex" && <CodexDesktopControls />}
-              {app === "claude-desktop" && <ClaudeDesktopControls />}
             </div>
+            {app === "codex" && <CodexDesktopControls />}
+            {app === "claude-desktop" && <ClaudeDesktopControls />}
           </section>
         )}
         {simple && (
@@ -409,9 +409,16 @@ export function ToolPage({
                       className="h-10 w-10"
                     />
                     <div className="min-w-0 flex-1">
-                      <h3 className="truncate font-semibold text-fg-1">
-                        {card.provider.name}
-                      </h3>
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                        <h3 className="truncate text-[15px] font-semibold text-fg-1">
+                          {card.provider.name}
+                        </h3>
+                        {(current || enabled) && (
+                          <span className="aihub-active-group text-caption font-medium text-success-text">
+                            {enabled ? "已启用" : "使用中"}
+                          </span>
+                        )}
+                      </div>
                       <p className="mt-1 text-caption text-fg-3">
                         {card.verificationPending
                           ? "API 绑定待联网验证"
@@ -432,26 +439,21 @@ export function ToolPage({
                       </Button>
                     )}
                     {current || enabled ? (
-                      <>
-                        <span className="rounded-full bg-success-soft px-3 py-1 text-caption font-medium text-success-text">
-                          {enabled ? "已启用" : "使用中"}
-                        </span>
-                        {canReapplyCodex && (
-                          <Button
-                            variant="outline"
-                            size="compact"
-                            disabled={busy}
-                            aria-label={`重新启用 ${card.provider.name}`}
-                            onClick={() =>
-                              card.configured
-                                ? void operate(card, true)
-                                : edit(card)
-                            }
-                          >
-                            重新启用
-                          </Button>
-                        )}
-                      </>
+                      canReapplyCodex && (
+                        <Button
+                          variant="outline"
+                          size="compact"
+                          disabled={busy}
+                          aria-label={`重新启用 ${card.provider.name}`}
+                          onClick={() =>
+                            card.configured
+                              ? void operate(card, true)
+                              : edit(card)
+                          }
+                        >
+                          重新启用
+                        </Button>
+                      )
                     ) : (
                       <Button
                         variant="outline"

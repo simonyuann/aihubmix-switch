@@ -234,7 +234,7 @@ function SidebarTopBar({
             className="pointer-events-none h-5 w-5 shrink-0 rounded-md"
           />
           <span className="pointer-events-none me-auto min-w-0 leading-tight text-fg-1">
-            <span className="block text-body font-semibold">AIHub</span>
+            <span className="aihub-wordmark block text-body font-semibold">AIHub</span>
             <span className="block text-caption text-fg-3">Switch</span>
           </span>
           {toggleButton}
@@ -280,7 +280,7 @@ function SidebarTopBar({
             className="h-[22px] w-[22px] shrink-0 rounded-md"
           />
           <span className="min-w-0 leading-tight text-fg-1">
-            <span className="block text-body font-semibold">AIHub</span>
+            <span className="aihub-wordmark block text-body font-semibold">AIHub</span>
             <span className="block text-caption text-fg-3">Switch</span>
           </span>
         </span>
