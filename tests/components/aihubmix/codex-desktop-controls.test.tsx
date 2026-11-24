@@ -21,15 +21,17 @@ beforeEach(() => {
 });
 
 describe("Codex Desktop controls", () => {
-  it("keeps successful launch status concise", async () => {
+  it("clears the loading state without showing a success message", async () => {
     setCodexDesktopPreferences({ language: "system", plugins: true, executablePath: "" });
     backend.invoke.mockImplementation((command: string) => command === "codex_desktop_status"
       ? Promise.resolve({ installed: true, running: false, platform: "windows" })
-      : Promise.resolve({ status: "started", locale: "not_requested", plugins: "active" }));
+      : Promise.resolve({ status: "started", locale: "not_requested", plugins: "configured" }));
     render(<CodexDesktopControls />);
     fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
-    expect(await screen.findByText("Codex 已启动。")).toBeInTheDocument();
-    expect(screen.queryByText(/插件支持已生效/)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled(),
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("clears the loading state while Windows applies the language in the background", async () => {
@@ -39,9 +41,10 @@ describe("Codex Desktop controls", () => {
       : Promise.resolve({ status: "started", locale: "scheduled", plugins: "not_requested" }));
     render(<CodexDesktopControls />);
     fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
-    expect(await screen.findByText("Codex 已启动。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled();
-    expect(screen.queryByText(/界面语言未能确认/)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled(),
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("allows retrying after plugin synchronization finishes", async () => {
@@ -96,7 +99,7 @@ describe("Codex Desktop controls", () => {
     expect(screen.queryByText("插件包下载中断")).not.toBeInTheDocument();
     expect(screen.queryByText(/正在准备插件库/)).not.toBeInTheDocument();
   });
-  it("launches with the requested language and never claims unverified plugin support", async () => {
+  it("launches with the requested preferences and omits unverified plugin status", async () => {
     setCodexDesktopPreferences({ language: "zh-CN", plugins: true, executablePath: "" });
     backend.invoke.mockImplementation((command: string) => {
       if (command === "codex_desktop_status") return Promise.resolve({ installed: true, running: false, platform: "macos" });
@@ -106,8 +109,10 @@ describe("Codex Desktop controls", () => {
     render(<CodexDesktopControls />);
     fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
     await waitFor(() => expect(backend.invoke).toHaveBeenCalledWith("launch_codex_desktop", { language: "zh-CN", plugins: true, executablePath: "" }));
-    expect(await screen.findByText(/插件支持未能确认/)).toBeInTheDocument();
-    expect(screen.queryByText(/插件支持已生效/)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled(),
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("explains when an automatic quit is unsuccessful", async () => {

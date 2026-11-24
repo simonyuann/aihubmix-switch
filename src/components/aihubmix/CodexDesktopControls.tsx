@@ -22,22 +22,13 @@ function startMessage(
   if (result.status === "unsupported")
     return "当前系统或 Codex 版本暂不支持从这里启动。";
 
-  const parts = ["Codex 已启动。"];
   if (
     preferences.language !== "system" &&
     result.locale !== "applied" &&
     result.locale !== "scheduled"
   )
-    parts.push("界面语言未能确认，请在 Codex 中检查。");
-  if (
-    preferences.plugins &&
-    result.plugins !== "applied" &&
-    result.plugins !== "active"
-  )
-    parts.push("插件支持未能确认，请在 Codex 的插件页面检查。");
-  if (result.status === "partial" && parts.length === 1)
-    parts.push("部分功能未能确认，请在 Codex 中检查。");
-  return parts.join("");
+    return "界面语言未能确认，请在 Codex 中检查。";
+  return "";
 }
 
 const safeLaunchErrors = new Set([
