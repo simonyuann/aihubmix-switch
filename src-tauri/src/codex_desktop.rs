@@ -947,7 +947,7 @@ pub async fn launch_codex_desktop(
     plugins: bool,
     executable_path: Option<String>,
 ) -> Result<LaunchOutcome, String> {
-    let _guard = gate().lock().await;
+    let _guard = gate().try_lock().map_err(|_| "Codex 正在启动。")?;
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let _ = &executable_path;
     if !matches!(language.as_str(), "system" | "zh-CN" | "en-US") {

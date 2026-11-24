@@ -23,7 +23,11 @@ function startMessage(
     return "当前系统或 Codex 版本暂不支持从这里启动。";
 
   const parts = ["Codex 已启动。"];
-  if (preferences.language !== "system" && result.locale !== "applied")
+  if (
+    preferences.language !== "system" &&
+    result.locale !== "applied" &&
+    result.locale !== "scheduled"
+  )
     parts.push("界面语言未能确认，请在 Codex 中检查。");
   if (
     preferences.plugins &&
@@ -37,6 +41,8 @@ function startMessage(
 }
 
 const safeLaunchErrors = new Set([
+  "Codex 正在启动。",
+  "插件目录正在更新，请稍后再启动 Codex。",
   "无法检查系统环境",
   "无法检查 Codex Desktop",
   "检查 Codex Desktop 超时",

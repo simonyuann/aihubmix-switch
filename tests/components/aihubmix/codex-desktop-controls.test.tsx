@@ -31,6 +31,30 @@ describe("Codex Desktop controls", () => {
     expect(await screen.findByText("Codex 已启动。")).toBeInTheDocument();
     expect(screen.queryByText(/插件支持已生效/)).not.toBeInTheDocument();
   });
+
+  it("clears the loading state while Windows applies the language in the background", async () => {
+    setCodexDesktopPreferences({ language: "zh-CN", plugins: false });
+    backend.invoke.mockImplementation((command: string) => command === "codex_desktop_status"
+      ? Promise.resolve({ installed: true, running: false, platform: "windows" })
+      : Promise.resolve({ status: "started", locale: "scheduled", plugins: "not_requested" }));
+    render(<CodexDesktopControls />);
+    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    expect(await screen.findByText("Codex 已启动。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled();
+    expect(screen.queryByText(/界面语言未能确认/)).not.toBeInTheDocument();
+  });
+
+  it("allows retrying after plugin synchronization finishes", async () => {
+    const message = "插件目录正在更新，请稍后再启动 Codex。";
+    backend.invoke.mockImplementation((command: string) => command === "codex_desktop_status"
+      ? Promise.resolve({ installed: true, running: false, platform: "windows" })
+      : Promise.reject(message));
+    render(<CodexDesktopControls />);
+    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled();
+  });
+
   it("shows actual download progress and the verification phase", async () => {
     let report: (value: unknown) => void = () => {};
     let finish: (value: unknown) => void = () => {};
@@ -186,7 +210,7 @@ describe("Codex Desktop controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "安装" }));
     await waitFor(() => expect(backend.invoke).toHaveBeenCalledWith("install_codex_market_plugin", { pluginId: "two", revision: "fixed-revision", executablePath: "" }));
     expect(await screen.findByRole("button", { name: "卸载" })).toBeInTheDocument();
-    expect(screen.getByText(/请新建会话或重启 Codex/)).toBeInTheDocument();
+    expect(screen.getByText("已安装。请在桌面端连接自己的服务账号，再新建会话使用。")).toBeInTheDocument();
   });
 
   it("does not describe unknown plugin state as not installed", async () => {

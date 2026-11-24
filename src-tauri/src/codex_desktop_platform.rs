@@ -484,6 +484,33 @@ pub(crate) fn listener_owned_by(port: u16, pid: u32) -> bool {
 }
 
 #[cfg(target_os = "windows")]
+fn spawn_windows_desktop(
+    executable: &str,
+    args: &[String],
+    plugin_path: Option<&str>,
+) -> Result<u32, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let mut command = Command::new(executable);
+    command
+        .args(args)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(path) = plugin_path {
+        command.env("PATH", path);
+    }
+    // The long-running desktop process must never inherit the launcher's
+    // output pipes. An inherited writer kept the PowerShell PID read open.
+    command
+        .spawn()
+        .map(|child| child.id())
+        .map_err(|_| "无法启动 Codex Desktop".into())
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) async fn launch(
     db: std::sync::Arc<crate::database::Database>,
     language: &str,
@@ -580,9 +607,19 @@ pub(crate) async fn launch(
     if language != "system" {
         args.push(format!("--lang={language}"));
     }
-    // Activation is required for Store apps; the C# source contains no dynamic input.
-    let script = r#"
-if ($env:AIHUB_APP_ID) {
+    let pid = tokio::task::spawn_blocking(move || {
+        if let Some(path) = plugin_path.as_deref() {
+            // The package-scoped alias lets the desktop inherit the private npm PATH.
+            let executable = install.scoped_alias.as_deref().unwrap_or(&install.exe);
+            return spawn_windows_desktop(executable, &args, Some(path));
+        }
+        if install.app_id.is_empty() {
+            return spawn_windows_desktop(&install.exe, &args, None);
+        }
+
+        // The Store activation broker starts the app independently of PowerShell.
+        let script = r#"
+$ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -592,67 +629,43 @@ interface IApplicationActivationManager { [PreserveSig] int ActivateApplication(
 public class CodexActivation { public static uint Start(string id, string args) { uint pid; int hr = ((IApplicationActivationManager)new ApplicationActivationManager()).ActivateApplication(id, args, 2, out pid); if (hr < 0) Marshal.ThrowExceptionForHR(hr); return pid; } }
 '@
 [CodexActivation]::Start($env:AIHUB_APP_ID, $env:AIHUB_ARGS)
-} else {
-$p = if ($env:AIHUB_ARGS) { Start-Process -FilePath $env:AIHUB_CODEX_EXE -ArgumentList $env:AIHUB_ARGS -PassThru } else { Start-Process -FilePath $env:AIHUB_CODEX_EXE -PassThru }
-$p.Id
-}
 "#;
-    let result = tokio::task::spawn_blocking(move || {
-        // The package execution alias launches with a child environment. The ordinary Store
-        // activation API does not accept one. Use the alias owned by this exact package.
-        let scoped_launch = r#"
-$ErrorActionPreference = 'Stop'
-$env:Path = $env:AIHUB_CHILD_PATH
-$start = New-Object System.Diagnostics.ProcessStartInfo
-$start.FileName = $env:AIHUB_CODEX_EXE
-$start.Arguments = $env:AIHUB_ARGS
-$start.UseShellExecute = $false
-([System.Diagnostics.Process]::Start($start)).Id
-"#;
-        let use_private = plugin_path.is_some();
-        let launch_exe = if use_private {
-            install.scoped_alias.unwrap_or(install.exe)
-        } else {
-            install.exe
-        };
-        powershell_with_timeout(
-            if use_private { scoped_launch } else { script },
+        let result = powershell_with_timeout(
+            script,
             &[
                 ("AIHUB_APP_ID", install.app_id),
-                ("AIHUB_CODEX_EXE", launch_exe),
                 ("AIHUB_ARGS", args.join(" ")),
-                ("AIHUB_CHILD_PATH", plugin_path.unwrap_or_default()),
             ],
             std::time::Duration::from_secs(30),
-        )
-    })
-    .await
-    .map_err(|_| "无法启动 Codex Desktop".to_string())??;
-    let pid = if result.status.success() {
+        )?;
+        if !result.status.success() {
+            return Err("无法启动 Codex Desktop".into());
+        }
         String::from_utf8_lossy(&result.stdout)
             .trim()
             .parse::<u32>()
             .ok()
-    } else {
-        None
-    };
-    let Some(pid) = pid.filter(|p| *p > 0) else {
-        return Err("无法启动 Codex Desktop".into());
-    };
-    let locale = if let Some(port) = renderer.filter(|_| language != "system") {
-        match apply_locale(port, inspector, pid, language, "windows").await {
-            Ok(true) => "applied",
-            _ => "not_confirmed",
-        }
+            .filter(|pid| *pid > 0)
+            .ok_or_else(|| "无法启动 Codex Desktop".into())
+    })
+    .await
+    .map_err(|_| "无法启动 Codex Desktop".to_string())??;
+    let locale = if let Some(port) = renderer {
+        let language = language.to_owned();
+        tokio::spawn(async move {
+            if !matches!(
+                apply_locale(port, inspector, pid, &language, "windows").await,
+                Ok(true)
+            ) {
+                log::debug!("Codex Windows locale was not confirmed");
+            }
+        });
+        "scheduled"
     } else {
         "not_requested"
     };
     Ok(outcome(
-        if locale == "not_confirmed" {
-            "partial"
-        } else {
-            "started"
-        },
+        "started",
         locale,
         if plugins {
             "configured"

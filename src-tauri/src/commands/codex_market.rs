@@ -992,7 +992,9 @@ fn migrate_git_entries(manifest: &mut Value, revision: &str) -> bool {
 }
 
 pub(crate) async fn needs_private_runtime() -> Result<bool, String> {
-    let _guard = MARKET_LOCK.lock().await;
+    let _guard = MARKET_LOCK
+        .try_lock()
+        .map_err(|_| "插件目录正在更新，请稍后再启动 Codex。")?;
     let root = managed_root();
     if !root.exists() {
         return Ok(false);
