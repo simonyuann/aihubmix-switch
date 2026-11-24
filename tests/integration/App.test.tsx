@@ -238,6 +238,41 @@ describe("dedicated client account boundary", () => {
       ),
     ).toBe(false);
   });
+  it("opens the announcement list from the sidebar and reads an item on its own page", async () => {
+    loggedIn = true;
+    mocks.dispatch.mockImplementation((command: string) =>
+      command === "announcements"
+        ? Promise.resolve([
+            {
+              id: 18,
+              title: "维护通知",
+              content: "今晚维护服务。",
+              notifyMode: "popup",
+              createdAt: "2026-11-24T08:00:00Z",
+              readAt: null,
+            },
+            {
+              id: 17,
+              title: "版本说明",
+              content: "上一条公告。",
+              notifyMode: "silent",
+              createdAt: "2026-11-23T08:00:00Z",
+              readAt: "2026-11-23T08:30:00Z",
+            },
+          ])
+        : response(command),
+    );
+    mount();
+    expect(await screen.findByRole("button", { name: /新公告.*维护通知/ })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "公告" }));
+    expect(await screen.findByRole("heading", { name: "公告" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /版本说明/ })).toBeInTheDocument();
+    expect(screen.queryByText("今晚维护服务。")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /维护通知/ }));
+    expect(await screen.findByText("今晚维护服务。")).toBeInTheDocument();
+    expect(mocks.dispatch).toHaveBeenCalledWith("announcement-read", { id: 18 });
+  });
   it("returns to login on expiry and clears the authenticated interface", async () => {
     loggedIn = true;
     mount();

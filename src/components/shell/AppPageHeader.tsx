@@ -2,7 +2,6 @@ import { createContext, useContext, type ReactNode } from "react";
 import { DRAG_REGION_ATTR, DRAG_REGION_STYLE } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { BalanceDisplay } from "@/components/aihubmix/BalanceDisplay";
-import { AnnouncementBell } from "@/components/aihubmix/Announcements";
 
 /** 由外壳提供：Linux 自绘窗口按钮要接在每一屏页头的最右端。 */
 export const WindowControlsContext = createContext<ReactNode>(null);
@@ -103,7 +102,6 @@ export function AppPageHeader({
         )}
       </div>
       {!truncateTitle && <div {...dragRegionAttr} className="flex-1" />}
-      <AnnouncementBell />
       {showBalance && !hideBalance && <BalanceDisplay />}
       {actions && (
         <div

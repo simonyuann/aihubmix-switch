@@ -147,6 +147,7 @@ import type { PiFamilyAppId } from "@/lib/api/pi";
 
 // Keep the upstream CC workspace intact; platform pages are additive entry points.
 import { AccountPage } from "@/components/aihubmix/AccountPage";
+import { AnnouncementPage } from "@/components/aihubmix/Announcements";
 import { ToolPage } from "@/components/aihubmix/ToolPage";
 import { HelpPage } from "@/components/aihubmix/HelpPage";
 import {
@@ -1654,6 +1655,7 @@ function CcWorkspace() {
           app={activeApp}
           simple={!advancedInterface}
           onSelectApp={selectApp}
+          onOpenAnnouncements={() => openPage("announcements")}
           onOpenProviders={
             advancedInterface && settingsData?.enableOtherProviders
               ? () => setShowPlatformGroups(false)
@@ -1735,6 +1737,8 @@ function CcWorkspace() {
         return <HelpPage />;
       case "aihubmix":
         return <AccountPage />;
+      case "announcements":
+        return <AnnouncementPage />;
       case "usage":
         return (
           <UsagePage

@@ -31,7 +31,6 @@ import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
 import { WalletPanel } from "@/components/aihubmix/WalletPanel";
-import { useAnnouncements } from "@/components/aihubmix/Announcements";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
 import { useMoneyFormat } from "@/hooks/useMoneyFormat";
@@ -122,7 +121,6 @@ function SimpleDirectory({
   settingsSection,
   onSelectSettingsSection,
 }: DirectoryProps) {
-  const announcements = useAnnouncements();
   const { hasUpdate } = useUpdate();
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pt-3">
@@ -135,11 +133,10 @@ function SimpleDirectory({
       />
       <NavItem
         collapsed={collapsed}
-        selected={false}
+        selected={view === "announcements"}
         icon={Megaphone}
         label="公告"
-        dot={!!announcements?.unread}
-        onClick={() => announcements?.open()}
+        onClick={() => onSelectPage("announcements")}
       />
       <div className="min-h-4 flex-1" />
       <NavItem
@@ -372,6 +369,7 @@ function MainDirectory({
       trailing: todayTrailing,
       trailingLabel: todayText,
     },
+    { page: "announcements", label: "公告", icon: Megaphone },
   ];
 
   const isGlobalSelected = (page: GlobalPage) =>

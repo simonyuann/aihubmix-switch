@@ -16,6 +16,7 @@ export type AppPage =
 
 export type GlobalPage =
   | "aihubmix"
+  | "announcements"
   | "help"
   | "usage"
   | "auth"
@@ -54,6 +55,7 @@ const APP_PAGES: AppPage[] = [
 
 const GLOBAL_PAGES: GlobalPage[] = [
   "aihubmix",
+  "announcements",
   "help",
   "usage",
   "auth",

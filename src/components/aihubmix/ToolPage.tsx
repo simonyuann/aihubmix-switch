@@ -46,11 +46,13 @@ interface ToolCards {
 export function ToolPage({
   app,
   onOpenProviders,
+  onOpenAnnouncements,
   simple = false,
   onSelectApp,
 }: {
   app: AppId;
   onOpenProviders?: () => void;
+  onOpenAnnouncements?: () => void;
   simple?: boolean;
   onSelectApp?: (app: AppId) => void;
 }) {
@@ -274,7 +276,9 @@ export function ToolPage({
           </>
         }
       />
-      {simple && <AnnouncementBanner />}
+      {simple && onOpenAnnouncements && (
+        <AnnouncementBanner onOpen={onOpenAnnouncements} />
+      )}
       <main
         id="main-content"
         className={`aihub-page-enter min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-6${simple ? " aihub-home" : ""}`}
@@ -686,7 +690,7 @@ export function ToolPage({
             <DialogHeader>
               <DialogTitle>添加分组</DialogTitle>
               <DialogDescription>
-                选择要添加到当前工具的模型分组。添加后可随时切换。
+                此处显示当前工具支持的模型分组。添加后可随时切换。
               </DialogDescription>
             </DialogHeader>
             <form
