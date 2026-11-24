@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { SettingsBlock, SettingsCard, SettingsRow } from "./SettingsLayout";
 import { friendlyError } from "@/components/aihubmix/friendlyError";
 
-export function AccountSettings() {
+export function AccountSettings({
+  onOpenApiManagement,
+}: {
+  onOpenApiManagement?: () => void;
+}) {
   const account = useOptionalAccount();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -50,6 +54,21 @@ export function AccountSettings() {
             </p>
           )}
         </SettingsRow>
+        {onOpenApiManagement && (
+          <SettingsRow
+            label="API Key"
+            control={
+              <Button
+                variant="outline"
+                aria-label="管理 API Key"
+                disabled={busy}
+                onClick={onOpenApiManagement}
+              >
+                管理
+              </Button>
+            }
+          />
+        )}
       </SettingsCard>
     </SettingsBlock>
   );

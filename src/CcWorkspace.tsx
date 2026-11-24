@@ -1828,6 +1828,7 @@ function CcWorkspace() {
           appConfigScrollTarget={appConfigScrollTarget}
           onImportSuccess={handleImportSuccess}
           onOpenApps={() => setCurrentView("apps")}
+          onOpenApiManagement={() => openPage("aihubmix")}
           onOpenApp={selectApp}
         />
       );

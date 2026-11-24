@@ -135,13 +135,6 @@ function SimpleDirectory({
       />
       <NavItem
         collapsed={collapsed}
-        selected={view === "aihubmix"}
-        icon={KeyRound}
-        label="API 管理"
-        onClick={() => onSelectPage("aihubmix")}
-      />
-      <NavItem
-        collapsed={collapsed}
         selected={false}
         icon={Megaphone}
         label="公告"
@@ -420,13 +413,8 @@ function MainDirectory({
 
       <div className="flex shrink-0 flex-col">
         <WalletPanel
-          onOpenAccount={() => onSelectPage("aihubmix")}
           renderItem={(item) => (
-            <NavItem
-              {...item}
-              collapsed={collapsed}
-              selected={item.label === "API 管理" && view === "aihubmix"}
-            />
+            <NavItem {...item} collapsed={collapsed} selected={false} />
           )}
         />
         {globals.map((item) => (

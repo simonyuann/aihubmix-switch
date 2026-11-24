@@ -202,14 +202,14 @@ describe("dedicated client account boundary", () => {
     expect(nav).not.toContainElement(balance);
     expect(within(nav).queryByText("余额")).not.toBeInTheDocument();
     expect(
-      within(nav).getByRole("button", { name: "API 管理" }),
-    ).toBeInTheDocument();
+      within(nav).queryByRole("button", { name: "API 管理" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getAllByRole("button", { name: "添加分组" }).length,
     ).toBeGreaterThan(0);
     expect(screen.queryByLabelText("服务地址")).not.toBeInTheDocument();
   });
-  it("opens recharge and API management from the sidebar and keeps API application in the page header", async () => {
+  it("opens recharge from home and keeps API management accessible from account settings", async () => {
     loggedIn = true;
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "充值" }));
@@ -218,12 +218,10 @@ describe("dedicated client account boundary", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );
-    const nav = screen.getByRole("navigation");
     fireEvent.click(
-      Array.from(nav.querySelectorAll("button")).find(
-        (b) => b.textContent === "API 管理",
-      )!,
+      within(screen.getByRole("navigation")).getByRole("button", { name: "设置" }),
     );
+    fireEvent.click(await screen.findByRole("button", { name: "管理 API Key" }));
     await screen.findByRole("heading", { name: "API 管理" });
     expect(await screen.findByText("USD 12.34")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -252,7 +250,10 @@ describe("dedicated client account boundary", () => {
   it("supports logout from settings instead of API management", async () => {
     loggedIn = true;
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "API 管理" }));
+    fireEvent.click(
+      within(await screen.findByRole("navigation")).getByRole("button", { name: "设置" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "管理 API Key" }));
     await screen.findByRole("heading", { name: "API 管理" });
     expect(
       screen.queryByRole("button", { name: "退出登录" }),
