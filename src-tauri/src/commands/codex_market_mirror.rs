@@ -44,6 +44,15 @@ pub(super) struct Snapshot {
     pub(super) size: u64,
 }
 
+pub(super) fn upstream_snapshot(index: Index) -> Snapshot {
+    Snapshot {
+        index,
+        archive: String::new(),
+        sha256: String::new(),
+        size: 0,
+    }
+}
+
 pub(super) async fn metadata() -> Result<Snapshot, String> {
     read_snapshot("packages/latest.json", None).await
 }
@@ -156,7 +165,7 @@ fn verify_tree(files: &[(String, String, Vec<u8>)], expected: &str) -> bool {
         .is_some_and(|hash| hex::encode(hash) == expected)
 }
 
-fn unpack(snapshot: &Snapshot, bundle: &Path, dest: &Path) -> Result<(), String> {
+pub(super) fn unpack(snapshot: &Snapshot, bundle: &Path, dest: &Path) -> Result<(), String> {
     let expected: HashMap<&str, _> = snapshot
         .index
         .plugins
@@ -184,7 +193,13 @@ fn unpack(snapshot: &Snapshot, bundle: &Path, dest: &Path) -> Result<(), String>
         let mut parts = path.splitn(4, '/');
         let prefix = parts.next().unwrap_or("");
         let section = parts.next().unwrap_or("");
-        if prefix != format!("CodexPlusPlusPluginCache-{}", snapshot.index.revision) {
+        let upstream = snapshot.index.repository == super::official::REPO;
+        let repo = if upstream {
+            "plugins"
+        } else {
+            "CodexPlusPlusPluginCache"
+        };
+        if prefix != format!("{repo}-{}", snapshot.index.revision) {
             return Err("插件包版本不匹配".into());
         }
         if section != "plugins" {
@@ -194,7 +209,12 @@ fn unpack(snapshot: &Snapshot, bundle: &Path, dest: &Path) -> Result<(), String>
         let Some(relative) = parts.next() else {
             continue;
         };
-        let plugin = expected.get(name).ok_or("插件包包含未知插件")?;
+        let Some(plugin) = expected.get(name) else {
+            if upstream {
+                continue;
+            }
+            return Err("插件包包含未知插件".into());
+        };
         if !valid_plugin_path(relative) || !seen.insert(format!("{name}/{relative}").to_lowercase())
         {
             return Err("插件路径冲突或无效".into());
@@ -456,7 +476,15 @@ pub(super) async fn prepare(
         .tempdir_in(root)
         .map_err(|_| "无法创建插件临时目录")?;
     let bundle = stage.path().join("bundle.tar.gz");
-    let url = format!("{BASE}{}", snapshot.archive);
+    let upstream = snapshot.index.repository == super::official::REPO;
+    let url = if upstream {
+        format!(
+            "https://codeload.github.com/openai/plugins/tar.gz/{}?source=aihubmix",
+            snapshot.index.revision
+        )
+    } else {
+        format!("{BASE}{}", snapshot.archive)
+    };
     let mut response = crate::proxy::http_client::get_for_url(&url)
         .get(&url)
         .timeout(std::time::Duration::from_secs(1800))
@@ -465,24 +493,35 @@ pub(super) async fn prepare(
         .map_err(|_| "无法连接插件下载站")?
         .error_for_status()
         .map_err(|_| "插件包下载失败")?;
+    let total = if upstream {
+        response.content_length().unwrap_or(0)
+    } else {
+        snapshot.size
+    };
     let mut out = fs::File::create(&bundle).map_err(|_| "无法保存插件包")?;
     let mut hash = Sha256::new();
     let mut count = 0u64;
     let mut last_emit = std::time::Instant::now();
-    progress(channel, "downloading", 0, snapshot.size);
+    progress(channel, "downloading", 0, total);
     while let Some(chunk) = response.chunk().await.map_err(|_| "插件包下载中断")? {
         count += chunk.len() as u64;
-        if count > snapshot.size {
+        if count
+            > if upstream {
+                128 * 1024 * 1024
+            } else {
+                snapshot.size
+            }
+        {
             return Err("插件包大小不匹配".into());
         }
         hash.update(&chunk);
         out.write_all(&chunk).map_err(|_| "无法保存插件包")?;
-        if last_emit.elapsed() >= std::time::Duration::from_millis(150) || count == snapshot.size {
-            progress(channel, "downloading", count, snapshot.size);
+        if last_emit.elapsed() >= std::time::Duration::from_millis(150) || count == total {
+            progress(channel, "downloading", count, total);
             last_emit = std::time::Instant::now();
         }
     }
-    if count != snapshot.size || hex::encode(hash.finalize()) != snapshot.sha256 {
+    if !upstream && (count != snapshot.size || hex::encode(hash.finalize()) != snapshot.sha256) {
         return Err("插件包校验失败".into());
     }
     drop(out);

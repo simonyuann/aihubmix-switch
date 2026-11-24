@@ -18,6 +18,8 @@ use tokio::sync::Mutex;
 
 #[path = "codex_market_mirror.rs"]
 pub mod mirror;
+#[path = "codex_market_official.rs"]
+mod official;
 
 const MARKET: &str = "aihubmix-community";
 const REPOSITORY: &str = "BigPizzaV3/CodexPlusPlusPluginCache";
@@ -86,6 +88,28 @@ pub struct PublicPlugin {
     skills: u64,
     requires_auth: bool,
     installed: Option<bool>,
+    official_url: Option<String>,
+    in_api_catalog: Option<bool>,
+}
+
+impl IndexPlugin {
+    fn public(self, installed: Option<&HashSet<String>>) -> PublicPlugin {
+        PublicPlugin {
+            id: self.name.clone(),
+            installed: installed.map(|set| set.contains(&self.name)),
+            name: self.name,
+            display_name: self.display_name,
+            description: self.description,
+            version: self.version,
+            author: self.author,
+            license: self.license,
+            tags: self.tags,
+            skills: self.skills,
+            requires_auth: self.requires_auth,
+            official_url: None,
+            in_api_catalog: None,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -107,6 +131,7 @@ pub struct MarketChange {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarketSetup {
+    official_ready: bool,
     revision: String,
     restart_required: bool,
 }
@@ -981,7 +1006,8 @@ pub(crate) async fn needs_private_runtime() -> Result<bool, String> {
         serde_json::from_slice(&std::fs::read(path).map_err(|_| "无法读取社区插件目录")?)
             .map_err(|_| "社区插件目录格式无效")?;
     let revision = std::fs::read_to_string(root.join("catalog-revision")).unwrap_or_default();
-    if migrate_git_entries(&mut manifest, &revision) {
+    let added = official::add_connections(&root, &mut manifest)?;
+    if migrate_git_entries(&mut manifest, &revision) || added {
         write_marketplace_value(&root, &manifest)?;
     }
     Ok(manifest["plugins"]
@@ -1252,27 +1278,17 @@ pub async fn list_codex_market_plugins(
     } else {
         None
     };
+    let mut plugins = index
+        .plugins
+        .into_iter()
+        .map(|p| p.public(installed.as_ref()))
+        .collect();
+    official::extend_list(&mut plugins, installed.as_ref());
     Ok(PublicCatalog {
         download_bytes: snapshot.size,
-        source: "社区公开插件缓存（非 OpenAI 官方市场）",
+        source: "AIHubMix 社区",
         revision: index.revision,
-        plugins: index
-            .plugins
-            .into_iter()
-            .map(|p| PublicPlugin {
-                id: p.name.clone(),
-                installed: installed.as_ref().map(|set| set.contains(&p.name)),
-                name: p.name,
-                display_name: p.display_name,
-                description: p.description,
-                version: p.version,
-                author: p.author,
-                license: p.license,
-                tags: p.tags,
-                skills: p.skills,
-                requires_auth: p.requires_auth,
-            })
-            .collect(),
+        plugins,
     })
 }
 
@@ -1295,27 +1311,32 @@ pub async fn enable_codex_plugin_market(
         .ok()
         .as_deref()
         == Some(snapshot.index.revision.as_str());
-    if prepare_local.unwrap_or(false) {
+    let mut manifest = if prepare_local.unwrap_or(false) {
         let (catalog, _) = mirror::prepare(&root, &snapshot, Some(&progress)).await?;
         let folder = catalog
             .file_name()
             .and_then(|s| s.to_str())
             .ok_or("插件缓存路径无效")?;
-        write_marketplace_value(&root, &mirror_marketplace_manifest(&snapshot.index, folder))?;
+        mirror_marketplace_manifest(&snapshot.index, folder)
     } else {
         let prior = previous
             .as_ref()
             .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok());
-        if let Some(mut manifest) =
-            prior.filter(|v| same_revision && v["name"] == MARKET && v["plugins"].is_array())
-        {
-            if migrate_git_entries(&mut manifest, &snapshot.index.revision) {
-                write_marketplace_value(&root, &manifest)?;
-            }
-        } else {
-            write_marketplace_value(&root, &marketplace_manifest(&snapshot.index, None))?;
+        let mut manifest = prior
+            .filter(|v| same_revision && v["name"] == MARKET && v["plugins"].is_array())
+            .unwrap_or_else(|| marketplace_manifest(&snapshot.index, None));
+        migrate_git_entries(&mut manifest, &snapshot.index.revision);
+        manifest
+    };
+    official::add_connections(&root, &mut manifest)?;
+    let official_ready = match official::prepare(&root, Some(&progress)).await {
+        Ok(folder) => {
+            official::merge(&mut manifest, &folder)?;
+            true
         }
-    }
+        Err(_) => false,
+    };
+    write_marketplace_value(&root, &manifest)?;
     mirror::progress(Some(&progress), "registering", 0, 0);
     if let Err(error) = register(&root, executable_path).await {
         if let Some(bytes) = previous {
@@ -1332,6 +1353,7 @@ pub async fn enable_codex_plugin_market(
     )
     .map_err(|_| "插件市场已更新，但版本记录保存失败")?;
     Ok(MarketSetup {
+        official_ready,
         revision: snapshot.index.revision,
         restart_required: true,
     })
@@ -1358,6 +1380,7 @@ pub async fn disable_codex_plugin_market(
         .await?;
     }
     Ok(MarketSetup {
+        official_ready: false,
         revision: String::new(),
         restart_required: true,
     })
@@ -1379,7 +1402,7 @@ pub async fn install_codex_market_plugin(
     if index.revision != revision {
         return Err("插件目录已更新，请刷新后再安装".into());
     }
-    if !index.plugins.iter().any(|p| p.name == plugin_id) {
+    if !official::provides(&plugin_id) && !index.plugins.iter().any(|p| p.name == plugin_id) {
         return Err("插件不在公开目录中".into());
     }
     let root = managed_root();
@@ -1398,34 +1421,44 @@ pub async fn install_codex_market_plugin(
     {
         return Err("插件目录已更新，请重新开启市场".into());
     }
-    let plugin = index
-        .plugins
-        .iter()
-        .find(|p| p.name == plugin_id)
-        .ok_or("插件不在公开目录中")?;
-    let snapshot = mirror::selected(&index, plugin).await?;
-    let packages = root.join("packages");
-    reject_link_or_non_dir(&packages)?;
-    let cache = packages.join(&plugin_id);
-    reject_link_or_non_dir(&cache)?;
-    let (catalog, _) = mirror::prepare(&cache, &snapshot, None).await?;
-    let folder = catalog
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or("插件缓存路径无效")?;
-    let path = format!("./packages/{plugin_id}/{folder}/{plugin_id}");
     let manifest_path = root.join(".agents/plugins/marketplace.json");
     let previous = std::fs::read(&manifest_path).map_err(|_| "请先开启社区插件市场")?;
     let mut manifest: Value = serde_json::from_slice(&previous).map_err(|_| "插件目录无效")?;
-    let item = manifest["plugins"]
-        .as_array_mut()
-        .and_then(|items| {
-            items
-                .iter_mut()
-                .find(|p| p["name"].as_str() == Some(&plugin_id))
-        })
-        .ok_or("插件目录已更新，请重新开启市场")?;
-    item["source"] = json!({"source":"local","path":path});
+    official::add_connections(&root, &mut manifest)?;
+    if official::source_is_connection(&manifest, &plugin_id) {
+        // The original verified package or its hosted provider connection is ready.
+    } else if official::source_is_original(&manifest, &plugin_id)
+        || (official::provides(&plugin_id) && !index.plugins.iter().any(|p| p.name == plugin_id))
+    {
+        let folder = official::prepare(&root, None).await?;
+        official::merge(&mut manifest, &folder)?;
+    } else {
+        let plugin = index
+            .plugins
+            .iter()
+            .find(|p| p.name == plugin_id)
+            .ok_or("插件不在公开目录中")?;
+        let snapshot = mirror::selected(&index, plugin).await?;
+        let packages = root.join("packages");
+        reject_link_or_non_dir(&packages)?;
+        let cache = packages.join(&plugin_id);
+        reject_link_or_non_dir(&cache)?;
+        let (catalog, _) = mirror::prepare(&cache, &snapshot, None).await?;
+        let folder = catalog
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or("插件缓存路径无效")?;
+        let path = format!("./packages/{plugin_id}/{folder}/{plugin_id}");
+        let item = manifest["plugins"]
+            .as_array_mut()
+            .and_then(|items| {
+                items
+                    .iter_mut()
+                    .find(|p| p["name"].as_str() == Some(&plugin_id))
+            })
+            .ok_or("插件目录已更新，请重新开启市场")?;
+        item["source"] = json!({"source":"local","path":path});
+    }
     write_marketplace_value(&root, &manifest)?;
     let selector = format!("{plugin_id}@{MARKET}");
     if let Err(error) = codex_cli(

@@ -49,3 +49,9 @@ AIhubMix 的受管应用 ID 为 `gh-2dfe2a292f49bc85`，入口为 `https://dl.cs
 部署前确认当前已验证的 1.0.x 快照含 `updater.json`、原始清单、签名和六种包；同步器按已验证快照选取最高 1.0.x，清理保留该目录。若镜像尚无此快照，应先从已发布的 1.0.x 用相同 `sync_once` 校验流程导入；不得复制一份未验证清单充作兼容源。未完成引导时旧路径安全返回 404，不允许重定向到 GitHub latest 或重构版。`node scripts/verify-mirror.mjs <版本>` 检查四种重构版更新格式的签名，并要求旧路径返回 1.0.x 或 404。发布前部署并核验路由，再由完整 Release 触发自动同步。
 
 1.1.0+ 当前仅要求 macOS arm64 / x64 App 更新归档、Windows x64 NSIS 与便携版四种格式和各自签名，并保留两种 macOS DMG；不等待 Linux。1.0.x 兼容快照仍要求原六种格式全部有效。缺失任何本轮必需格式或签名时保持原 current。
+
+### OpenAI 公开插件目录
+
+AIHubMix 社区同时读取 OpenAI 的公开插件清单和 API Key 兼容清单。客户端从 OpenAI 的固定 Git 提交下载原包，逐个校验 Git 目录树；同名插件只显示一次。Figma、Canva 等远程服务的连接配置随客户端提供，服务商账号由用户自行授权。仅列入 ChatGPT 清单的条目在 AIHub 中提供官方入口。原生目录由「同步官方插件」刷新。
+
+`sync_openai_catalog.py <openai/plugins 本地检出目录>` 从该检出的 HEAD 生成版本快照。GitHub 工作流每周检查上游并提出更新 PR，合并并打包后进入下一版客户端。

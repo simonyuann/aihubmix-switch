@@ -55,6 +55,8 @@ export interface CodexMarketPlugin {
   license: string;
   requiresAuth: boolean;
   installed: boolean | null;
+  officialUrl?: string | null;
+  inApiCatalog?: boolean | null;
   skills: number;
   tags: string[];
 }
@@ -73,6 +75,7 @@ interface CodexPluginChange {
 
 interface CodexPluginMarketChange {
   revision?: string;
+  officialReady?: boolean;
   restartRequired: boolean;
 }
 

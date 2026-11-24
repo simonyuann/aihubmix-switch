@@ -56,15 +56,18 @@ export function CodexDesktopSettings() {
     setError("");
     setNotice("");
     try {
-      if (plugins) await codexPluginMarket.enable(setMarketProgress);
-      else await codexPluginMarket.disable();
+      const setup = plugins
+        ? await codexPluginMarket.enable(setMarketProgress)
+        : await codexPluginMarket.disable();
       if (!setCodexDesktopPreferences({ plugins })) {
         setError("偏好保存失败，请重试。");
       } else {
         setNotice(
-          plugins
-            ? "插件市场已开启。从 AIHub 启动桌面端后，可在「插件 → 个人」按需安装。"
-            : "插件市场已关闭。",
+          plugins && setup?.officialReady === false
+            ? "社区已开启。请在插件管理中重试同步官方插件。"
+            : plugins
+              ? "插件市场已开启。从 AIHub 启动桌面端后，可在「插件 → 个人」按需安装。"
+              : "插件市场已关闭。",
         );
       }
     } catch (cause) {

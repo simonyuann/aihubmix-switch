@@ -26,9 +26,43 @@ vi.mock("@/lib/codexPluginMarket", () => ({
 }));
 
 import { codexPluginMarket } from "@/lib/codexPluginMarket";
+import { settingsApi } from "@/lib/api/settings";
 import { CodexPluginMarketDialog } from "@/components/aihubmix/CodexPluginMarketDialog";
 
 describe("Codex plugin catalog pagination", () => {
+  it("opens the official account entry without claiming a local installation", async () => {
+    const open = vi.spyOn(settingsApi, "openExternal").mockResolvedValue();
+    vi.mocked(codexPluginMarket.list).mockResolvedValueOnce({
+      source: "community",
+      revision: "fixture",
+      downloadBytes: 0,
+      plugins: [
+        {
+          id: "adobe",
+          name: "adobe",
+          displayName: "Adobe",
+          description: "",
+          version: "",
+          author: "",
+          license: "",
+          requiresAuth: true,
+          installed: null,
+          skills: 0,
+          tags: [],
+          inApiCatalog: false,
+          officialUrl: "https://chatgpt.com/plugins",
+        },
+      ],
+    });
+    render(<CodexPluginMarketDialog onClose={() => {}} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "前往 ChatGPT 连接" }),
+    );
+    expect(open).toHaveBeenCalledWith("https://chatgpt.com/plugins");
+    expect(codexPluginMarket.install).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
   it("prepares the full library only on request", async () => {
     render(<CodexPluginMarketDialog onClose={() => {}} />);
     await screen.findByText(/375 MiB/);

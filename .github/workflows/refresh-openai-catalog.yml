@@ -1,0 +1,30 @@
+name: Refresh OpenAI plugin catalog
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 1 * * 1'
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: refresh-openai-catalog
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: openai/plugins
+          path: upstream-plugins
+          persist-credentials: false
+      - name: Read publisher metadata
+        run: python3 deploy/download-station/sync_openai_catalog.py upstream-plugins
+      - name: Propose pinned catalog update
+        uses: peter-evans/create-pull-request@v7
+        with:
+          add-paths: src-tauri/resources/openai-plugin-catalog.json
+          branch: codex/refresh-openai-catalog
+          title: Refresh the OpenAI plugin catalog
+          commit-message: Refresh pinned OpenAI plugin metadata
+          body: Updates the official directory snapshot for the next desktop build.

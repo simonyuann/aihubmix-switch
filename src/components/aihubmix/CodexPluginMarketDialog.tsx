@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { settingsApi } from "@/lib/api/settings";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,7 +87,7 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
     setError("");
     setNotice("");
     try {
-      await codexPluginMarket.enable((progress) => {
+      const setup = await codexPluginMarket.enable((progress) => {
         if (mounted.current) setMarketProgress(progress);
       }, prepareLocal);
       if (!mounted.current) return;
@@ -95,9 +96,11 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
       if (mounted.current) {
         if (saved)
           setNotice(
-            prepareLocal
-              ? "本机插件库已就绪。重新打开 Codex 后即可在社区插件页安装。"
-              : "插件目录已启用。可在这里按需安装，或从 AIHub 启动桌面端后直接安装。",
+            setup?.officialReady === false
+              ? "社区目录已启用。官方插件同步未完成，可点「同步官方插件」重试。"
+              : prepareLocal
+                ? "本机插件库已就绪。重新打开 Codex 后即可在社区插件页安装。"
+                : "插件目录已启用。可在这里按需安装，或从 AIHub 启动桌面端后直接安装。",
           );
         else setError("插件目录已设置，但偏好保存失败；请重新检查设置。");
       }
@@ -141,9 +144,11 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
           },
       );
       setNotice(
-        plugin.installed
-          ? "已卸载。请新建会话或重启 Codex 以更新插件。"
-          : "已安装。请新建会话或重启 Codex 以加载插件。",
+        !plugin.installed && plugin.requiresAuth
+          ? "已安装。请在桌面端连接自己的服务账号，再新建会话使用。"
+          : plugin.installed
+            ? "已卸载。请新建会话或重启 Codex 以更新插件。"
+            : "已安装。请新建会话或重启 Codex 以加载插件。",
       );
     } catch (cause) {
       if (mounted.current)
@@ -238,6 +243,14 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
                   variant="outline"
                   size="compact"
                   disabled={!!busy}
+                  onClick={() => void enableMarket()}
+                >
+                  同步官方插件
+                </Button>
+                <Button
+                  variant="outline"
+                  size="compact"
+                  disabled={!!busy}
                   onClick={() => void enableMarket(true)}
                 >
                   准备 Codex 插件库
@@ -278,25 +291,49 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
                       )}
                       <p className="mt-1 text-caption text-fg-3">
                         {plugin.author ? `${plugin.author} · ` : ""}
-                        {plugin.requiresAuth
-                          ? "可能需要授权"
-                          : "授权要求以插件说明为准"}
+                        {plugin.inApiCatalog === false
+                          ? "官方入口需登录 ChatGPT"
+                          : plugin.requiresAuth
+                            ? "可能需要授权"
+                            : "授权要求以插件说明为准"}
                       </p>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="compact"
-                      disabled={!!busy || plugin.installed === null}
-                      onClick={() => void change(plugin)}
-                    >
-                      {busy === plugin.id
-                        ? "处理中…"
-                        : plugin.installed === null
-                          ? "启用后查看"
-                          : plugin.installed
-                            ? "卸载"
-                            : "安装"}
-                    </Button>
+                    {plugin.officialUrl &&
+                      (plugin.inApiCatalog === false ||
+                        plugin.requiresAuth) && (
+                        <Button
+                          variant="outline"
+                          size="compact"
+                          disabled={!!busy}
+                          onClick={() =>
+                            void settingsApi
+                              .openExternal(plugin.officialUrl!)
+                              .catch(() =>
+                                setError("无法打开 ChatGPT 插件目录。"),
+                              )
+                          }
+                        >
+                          {plugin.inApiCatalog === false
+                            ? "前往 ChatGPT 连接"
+                            : "官方入口"}
+                        </Button>
+                      )}
+                    {(plugin.inApiCatalog !== false || plugin.installed) && (
+                      <Button
+                        variant="outline"
+                        size="compact"
+                        disabled={!!busy || plugin.installed === null}
+                        onClick={() => void change(plugin)}
+                      >
+                        {busy === plugin.id
+                          ? "处理中…"
+                          : plugin.installed === null
+                            ? "启用后查看"
+                            : plugin.installed
+                              ? "卸载"
+                              : "安装"}
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>

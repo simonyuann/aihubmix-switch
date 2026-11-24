@@ -1,0 +1,1266 @@
+{
+  "revision": "981b02c0c44058b595f3b4180002c3ae3c806d40",
+  "plugins": [
+    {
+      "name": "linear",
+      "api": true,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/linear",
+      "tree": "8ef5c2d26c0bfdabc429db824e101aaf01a6fabc",
+      "bytes": 45526,
+      "displayName": "Linear",
+      "version": "5.0.1",
+      "description": "Plan and build products",
+      "requiresAuth": true,
+      "license": "MIT",
+      "remoteServers": {
+        "linear": {
+          "type": "http",
+          "url": "https://mcp.linear.app/mcp",
+          "oauth_resource": "https://mcp.linear.app/mcp"
+        }
+      },
+      "appId": "asdk_app_69a089a326dc8191b32a3f2553f5be2c"
+    },
+    {
+      "name": "atlassian-rovo",
+      "api": true,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/atlassian-rovo",
+      "tree": "b2dad6b979f07ca07edff8987c1ef92afc642870",
+      "bytes": 47541,
+      "displayName": "Atlassian Rovo",
+      "version": "1.0.6",
+      "description": "Manage Jira and Confluence",
+      "requiresAuth": true,
+      "license": "MIT",
+      "remoteServers": {
+        "atlassian-rovo": {
+          "type": "http",
+          "url": "https://mcp.atlassian.com/v1/mcp/authv2"
+        }
+      },
+      "appId": "connector_692de805e3ec8191834719067174a384"
+    },
+    {
+      "name": "google-calendar",
+      "api": false,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/google-calendar",
+      "tree": "e8bd7514457d607eb8c71adf7fc177dba608f177",
+      "bytes": 74131,
+      "displayName": "Google Calendar",
+      "version": "1.2.6",
+      "description": "Manage Google Calendar events",
+      "requiresAuth": true,
+      "license": "MIT",
+      "appId": "connector_947e0d954944416db111db556030eea6"
+    },
+    {
+      "name": "gmail",
+      "api": false,
+      "category": "Communication",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/gmail",
+      "tree": "5520d60e7c9b2b283bca85767ab50388f3f4aaf4",
+      "bytes": 45348,
+      "displayName": "Gmail",
+      "version": "0.1.9",
+      "description": "Read and manage Gmail",
+      "requiresAuth": true,
+      "license": "MIT",
+      "appId": "connector_2128aebfecb84f64a069897515042a44"
+    },
+    {
+      "name": "slack",
+      "api": true,
+      "category": "Communication",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/slack",
+      "tree": "aef4c51f268f248bf5e016aca135569adda2a426",
+      "bytes": 82589,
+      "displayName": "Slack",
+      "version": "0.1.7",
+      "description": "Read and manage Slack",
+      "requiresAuth": true,
+      "license": "MIT",
+      "appId": "asdk_app_69a1d78e929881919bba0dbda1f6436d"
+    },
+    {
+      "name": "teams",
+      "api": false,
+      "category": "Communication",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/teams",
+      "tree": "dadcd40e402042e13d3d4862cebd9b2b900c08d4",
+      "bytes": 20619,
+      "displayName": "Teams",
+      "version": "0.1.8",
+      "description": "Summarize Teams and follow up",
+      "requiresAuth": true,
+      "license": "MIT",
+      "appId": "connector_246af0940da3457da0e751171dc1ce60"
+    },
+    {
+      "name": "sharepoint",
+      "api": false,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/sharepoint",
+      "tree": "64082159cdd9ebfd7150cb0b79ae1f69a462c0ef",
+      "bytes": 23132,
+      "displayName": "SharePoint",
+      "version": "0.1.7",
+      "description": "Summarize SharePoint content",
+      "requiresAuth": true,
+      "license": "MIT",
+      "appId": "connector_1e4f6a44acf14e3ca1d96672f8c945bc"
+    },
+    {
+      "name": "outlook-email",
+      "api": false,
+      "category": "Communication",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/outlook-email",
+      "tree": "4950842ed1606f711b863f29df9aa39935d196f3",
+      "bytes": 24983,
+      "displayName": "Outlook Email",
+      "version": "0.1.7",
+      "description": "Triage Outlook inboxes",
+      "requiresAuth": true,
+      "license": "MIT",
+      "appId": "connector_4aaab2856305417b993eca9a216aaf6e"
+    },
+    {
+      "name": "outlook-calendar",
+      "api": false,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/outlook-calendar",
+      "tree": "6ff643c4df8b262db28720ebde9df879cb38f9b8",
+      "bytes": 25137,
+      "displayName": "Outlook Calendar",
+      "version": "0.1.8",
+      "description": "Manage Outlook schedules",
+      "requiresAuth": true,
+      "license": "MIT",
+      "appId": "connector_e6a7394682e24467ac68c60696f275a4"
+    },
+    {
+      "name": "canva",
+      "api": true,
+      "category": "Creativity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/canva",
+      "tree": "acc9c9bc8c9e6d0d5acc4f5fb41666ac4bdcce2f",
+      "bytes": 1169727,
+      "displayName": "Canva",
+      "version": "14.0.0",
+      "description": "Create, review, edit designs",
+      "requiresAuth": true,
+      "license": "",
+      "remoteServers": {
+        "canva": {
+          "type": "http",
+          "url": "https://mcp.canva.com/mcp"
+        }
+      },
+      "appId": "connector_68df33b1a2d081918778431a9cfca8ba"
+    },
+    {
+      "name": "figma",
+      "api": true,
+      "category": "Creativity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/figma",
+      "tree": "9059b8c62a81cac85e22999e75f4bfde1071a728",
+      "bytes": 1620184,
+      "displayName": "Figma",
+      "version": "2.0.20",
+      "description": "Figma design-to-code workflows",
+      "requiresAuth": true,
+      "license": "LicenseRef-Figma-Developer-Terms",
+      "remoteServers": {
+        "figma": {
+          "type": "http",
+          "url": "https://mcp.figma.com/mcp",
+          "oauth_resource": "https://mcp.figma.com/mcp"
+        }
+      },
+      "appId": "connector_68df038e0ba48191908c8434991bbac2"
+    },
+    {
+      "name": "stripe",
+      "api": true,
+      "category": "Finance",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/stripe",
+      "tree": "7c122a795fafbefd03161859931fce40ad5a315d",
+      "bytes": 287666,
+      "displayName": "Stripe",
+      "version": "7.0.0",
+      "description": "Accept payments. Grow revenue.",
+      "requiresAuth": true,
+      "license": "",
+      "remoteServers": {
+        "stripe": {
+          "type": "http",
+          "url": "https://mcp.stripe.com"
+        }
+      },
+      "appId": "asdk_app_6983c208e5f8819196b7511519f97993"
+    },
+    {
+      "name": "vercel",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/vercel",
+      "tree": "52806f715d53d89d23194f87e753489058b184ee",
+      "bytes": 1209620,
+      "displayName": "Vercel",
+      "version": "0.21.4",
+      "description": "Build and deploy web apps and agents",
+      "requiresAuth": true,
+      "license": "Apache-2.0",
+      "remoteServers": {
+        "vercel": {
+          "type": "http",
+          "url": "https://mcp.vercel.com"
+        }
+      },
+      "appId": "connector_690a90ec05c881918afb6a55dc9bbaa1"
+    },
+    {
+      "name": "game-studio",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/game-studio",
+      "tree": "b20ed7187bf5633b8b18ee9c7780e69eb68686e4",
+      "bytes": 90955,
+      "displayName": "Game Studio",
+      "version": "0.1.2",
+      "description": "Design, prototype, and ship browser games",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "superpowers",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/superpowers",
+      "tree": "ebebbff97c8ec8f77959080df80f4d57478f65e8",
+      "bytes": 491516,
+      "displayName": "Superpowers",
+      "version": "6.3.0",
+      "description": "Plan, develop, and debug code",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "github",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/github",
+      "tree": "6988bbbd539c0bd4f9af6932726722cd02a33aa8",
+      "bytes": 40666,
+      "displayName": "GitHub",
+      "version": "0.1.12",
+      "description": "Triage PRs, issues, CI, and publish flows",
+      "requiresAuth": true,
+      "license": "MIT"
+    },
+    {
+      "name": "circleci",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/circleci",
+      "tree": "c07c153d604229b232b1f09640438c8af4a6a08e",
+      "bytes": 61841,
+      "displayName": "CircleCI",
+      "version": "1.0.4",
+      "description": "Build, test, and deploy any application",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "google-drive",
+      "api": false,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/google-drive",
+      "tree": "14ec4043bb90d3ea4effe27dcf215effb87cd8d4",
+      "bytes": 956252,
+      "displayName": "Google Drive",
+      "version": "0.1.15",
+      "description": "Drive, Docs, Sheets or Slides",
+      "requiresAuth": true,
+      "license": "MIT",
+      "appId": "connector_5f3c8c41a1e54ad7a76272c89e2554fa"
+    },
+    {
+      "name": "notion",
+      "api": true,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/notion",
+      "tree": "87f8c1848b571ba616df607a11a075674b65b080",
+      "bytes": 269625,
+      "displayName": "Notion",
+      "version": "0.1.7",
+      "description": "Notion workflows for specs, research, meetings, and knowledge capture",
+      "requiresAuth": true,
+      "license": "MIT",
+      "remoteServers": {
+        "notion": {
+          "type": "http",
+          "url": "https://mcp.notion.com/mcp",
+          "oauth_resource": "https://mcp.notion.com"
+        }
+      },
+      "appId": "asdk_app_69c18c28f1188191bf5b8445c4ab0a2e"
+    },
+    {
+      "name": "cloudflare",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/cloudflare",
+      "tree": "44056417d1f8dfc44eea9b2a08d3c64573edd638",
+      "bytes": 1609106,
+      "displayName": "Cloudflare",
+      "version": "0.1.2",
+      "description": "Cloudflare platform guidance with official MCP",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "sentry",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/sentry",
+      "tree": "3b1c0422be348497b92267a5d7cc57ccd2d0c189",
+      "bytes": 29736,
+      "displayName": "Sentry",
+      "version": "0.1.2",
+      "description": "Inspect recent Sentry issues and events",
+      "requiresAuth": false,
+      "license": "MIT",
+      "remoteServers": {
+        "sentry": {
+          "type": "http",
+          "url": "https://mcp.sentry.dev/mcp"
+        }
+      }
+    },
+    {
+      "name": "build-ios-apps",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/build-ios-apps",
+      "tree": "f9a0d9e756f52a8a6764e823dc7760b64b6ec2f1",
+      "bytes": 269955,
+      "displayName": "Build iOS Apps",
+      "version": "0.1.2",
+      "description": "Build, refine, and debug iOS apps with App Intents, SwiftUI, and Xcode workflows",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "build-macos-apps",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/build-macos-apps",
+      "tree": "b150c7ad29479b9431f9028a281f5667ea3a673a",
+      "bytes": 95876,
+      "displayName": "Build macOS Apps",
+      "version": "0.1.4",
+      "description": "Build, debug, instrument, and implement macOS apps with SwiftUI and AppKit guidance",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "build-web-apps",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/build-web-apps",
+      "tree": "83e3adc1eeb8e474e60aae43eb56a1c2a90ebc22",
+      "bytes": 416605,
+      "displayName": "Build Web Apps",
+      "version": "0.1.2",
+      "description": "Build frontend-focused web apps with generated assets, browser testing, payments, and databases",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "build-web-data-visualization",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/build-web-data-visualization",
+      "tree": "bc053f29725f02c887a5a905a39824a41fb6a19b",
+      "bytes": 690815,
+      "displayName": "Build Web Data Visualization",
+      "version": "0.1.21",
+      "description": "Design, build, test, and export web data visualizations",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "test-android-apps",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/test-android-apps",
+      "tree": "a8b3024448390d0f9c24e5ec78059c890bab50cd",
+      "bytes": 128187,
+      "displayName": "Test Android Apps",
+      "version": "0.1.2",
+      "description": "Reproduce issues, inspect UI, and capture performance evidence from Android emulators",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "life-science-research",
+      "api": true,
+      "category": "Education & Research",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/life-science-research",
+      "tree": "dc85d9ce2b81eab9eace5b8b4b857f166e2a8d5b",
+      "bytes": 825558,
+      "displayName": "Life Science Research",
+      "version": "1.0.3",
+      "description": "General life-sciences research with routing, evidence synthesis, and optional parallel subagent analysis",
+      "requiresAuth": false,
+      "license": "Proprietary"
+    },
+    {
+      "name": "zotero",
+      "api": true,
+      "category": "Education & Research",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/zotero",
+      "tree": "9418fa4c038bc9ab6e282ef9b050e1d838ca728a",
+      "bytes": 58420,
+      "displayName": "Zotero",
+      "version": "0.1.2",
+      "description": "Find papers and add citations from Zotero",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "expo",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/expo",
+      "tree": "b7920cf48436dd4c4103f8247e9a3bee17761dfd",
+      "bytes": 278040,
+      "displayName": "Expo",
+      "version": "1.0.2",
+      "description": "Build, deploy, upgrade, and debug Expo and React Native apps",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "coderabbit",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/coderabbit",
+      "tree": "bafbc89df2bbaf939d9dc5cf366e1d2e2405dc0d",
+      "bytes": 72986,
+      "displayName": "CodeRabbit",
+      "version": "1.1.4",
+      "description": "Run AI-powered code review for your current changes",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "remotion",
+      "api": true,
+      "category": "Creativity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/remotion",
+      "tree": "e0c41f92edec7863e66db4200e25743e58ab734e",
+      "bytes": 2357576,
+      "displayName": "Remotion",
+      "version": "1.0.7",
+      "description": "Make videos agentically",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "plugin-eval",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/plugin-eval",
+      "tree": "32a63821b26939612c51ce710d05c190afdd7f05",
+      "bytes": 301442,
+      "displayName": "Plugin Eval",
+      "version": "0.1.2",
+      "description": "Start from chat, then evaluate or benchmark locally",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "granola",
+      "api": true,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/granola",
+      "tree": "75339b564918f75bc4e59364841e6afe1fdd6114",
+      "bytes": 69364,
+      "displayName": "Granola",
+      "version": "1.0.0",
+      "description": "Add your meeting context",
+      "requiresAuth": true,
+      "license": "MIT",
+      "remoteServers": {
+        "granola": {
+          "type": "http",
+          "url": "https://mcp.granola.ai/mcp"
+        }
+      },
+      "appId": "asdk_app_697761cab6f48191b5ed345919a3ce8b"
+    },
+    {
+      "name": "monday-com",
+      "api": true,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/monday-com",
+      "tree": "f0d5516aeb712cd9f3ff7267b5dcdae722e41c67",
+      "bytes": 15644,
+      "displayName": "monday.com",
+      "version": "2.0.0",
+      "description": "Manage projects, tasks & CRM",
+      "requiresAuth": true,
+      "license": "",
+      "remoteServers": {
+        "monday-com": {
+          "type": "http",
+          "url": "https://mcp.monday.com/mcp"
+        }
+      },
+      "appId": "connector_690aabb71bf481918b8d5b614ed3fd4c"
+    },
+    {
+      "name": "temporal",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/temporal",
+      "tree": "4b94bfcbc80e3915ae3ed87610042d3931863eba",
+      "bytes": 1640707,
+      "displayName": "Temporal",
+      "version": "0.4.0",
+      "description": "Develop with Temporal",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "hyperframes",
+      "api": true,
+      "category": "Creativity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/hyperframes",
+      "tree": "1b70ce3e44d8ccb330f5d77baf227893bb049cd8",
+      "bytes": 371425,
+      "displayName": "HyperFrames by HeyGen",
+      "version": "0.1.2",
+      "description": "Write HTML, render video",
+      "requiresAuth": false,
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "supabase",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/supabase",
+      "tree": "b44239dd7c7132e45d35aa260d8d03911c263d9d",
+      "bytes": 90040,
+      "displayName": "Supabase",
+      "version": "1.0.0",
+      "description": "Manage and query databases",
+      "requiresAuth": true,
+      "license": "MIT",
+      "remoteServers": {
+        "supabase": {
+          "type": "http",
+          "url": "https://mcp.supabase.com/mcp"
+        }
+      },
+      "appId": "asdk_app_69d3e5ee6a708191baa733f7b8931995"
+    },
+    {
+      "name": "codex-security",
+      "api": true,
+      "category": "Security",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/codex-security",
+      "tree": "b8b9fdc4be40910966cfa3431ae016607d558be3",
+      "bytes": 7297322,
+      "displayName": "Codex Security",
+      "version": "0.1.33",
+      "description": "Security scanning for your codebase",
+      "requiresAuth": true,
+      "license": "Proprietary"
+    },
+    {
+      "name": "twilio-developer-kit",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/twilio-developer-kit",
+      "tree": "0fbf841f2f821be0deceaa167cfc4e585df20ca3",
+      "bytes": 628333,
+      "displayName": "Twilio Developer Kit",
+      "version": "0.2.2",
+      "description": "Twilio Skills for building, debugging, and shipping on Twilio",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "openai-developers",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "path": "plugins/openai-developers",
+      "tree": "72a809102782a00c27a8d410789e603435fb60c5",
+      "bytes": 226618,
+      "displayName": "OpenAI Developers",
+      "version": "1.2.3",
+      "description": "Develop AI apps, agents, and ChatGPT Apps with OpenAI best practices",
+      "requiresAuth": true,
+      "license": "Proprietary",
+      "appId": "connector_2de447f3f15448ebab48783d7e4f5d81"
+    },
+    {
+      "name": "datadog",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/datadog",
+      "tree": "f1dfbcbd906880cfc06a56cb3d46c42909f8fa1e",
+      "bytes": 207896,
+      "displayName": "Datadog (Preview)",
+      "version": "10.0.0",
+      "description": "Search and act on your data",
+      "requiresAuth": true,
+      "license": "",
+      "remoteServers": {
+        "datadog": {
+          "type": "http",
+          "url": "https://mcp.datadoghq.com/v1/mcp"
+        }
+      },
+      "appId": "asdk_app_69e8c7f174a08191a28b6da96c8062c4"
+    },
+    {
+      "name": "zoom",
+      "api": false,
+      "category": "Communication",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/zoom",
+      "tree": "60dba5e21729027ad5076f41172cb1f64a5cb89d",
+      "bytes": 5493050,
+      "displayName": "Zoom",
+      "version": "1.0.0",
+      "description": "Smart meeting insights from Zoom",
+      "requiresAuth": true,
+      "license": "MIT",
+      "appId": "asdk_app_69373a13116c819189d046aea1278836"
+    },
+    {
+      "name": "mixpanel-headless",
+      "api": true,
+      "category": "Data & Analytics",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/mixpanel-headless",
+      "tree": "062a1ea33dd9bd9195a2988e1a526637f97a5eb3",
+      "bytes": 425817,
+      "displayName": "Mixpanel Headless",
+      "version": "0.1.2",
+      "description": "Analyze Mixpanel data with Python",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "airtable",
+      "api": false,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/airtable",
+      "tree": "f8983c1bf6bf39003c866988d80bfcd36a4114fb",
+      "bytes": 29819,
+      "displayName": "Airtable",
+      "version": "6.0.1",
+      "description": "Add structured data to ChatGPT",
+      "requiresAuth": true,
+      "license": "",
+      "appId": "asdk_app_693ca6ce2db08191bb52d66743c65184"
+    },
+    {
+      "name": "nvidia",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/nvidia",
+      "tree": "8a2ccff80649230cc5e75a1a8c6a7a5178317e55",
+      "bytes": 3340764,
+      "displayName": "NVIDIA",
+      "version": "1.0.4",
+      "description": "Guided help for NVIDIA AI, GPU, robotics, simulation, and 3D workflows.",
+      "requiresAuth": false,
+      "license": "Apache-2.0 AND CC-BY-4.0"
+    },
+    {
+      "name": "posthog",
+      "api": true,
+      "category": "Data & Analytics",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/posthog",
+      "tree": "99359b5f77febc5f29573ce0e337992390e59203",
+      "bytes": 182282,
+      "displayName": "PostHog",
+      "version": "1.0.0",
+      "description": "Analyze your product data",
+      "requiresAuth": true,
+      "license": "MIT",
+      "remoteServers": {
+        "posthog": {
+          "type": "http",
+          "url": "https://mcp.posthog.com/mcp"
+        }
+      },
+      "appId": "asdk_app_699caef2d680819188727b0ddbb349dd"
+    },
+    {
+      "name": "ngs-analysis",
+      "api": true,
+      "category": "Education & Research",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/ngs-analysis",
+      "tree": "bf16b54db2ec21e278a69ffb6b2f364d10d6d250",
+      "bytes": 1181976,
+      "displayName": "Life Sciences NGS Analysis",
+      "version": "1.0.3",
+      "description": "Guided NGS routing and local execution for sequencing analysis",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "shopify",
+      "api": false,
+      "category": "Business & Operations",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/shopify",
+      "tree": "4632cd0604155363b154f2ee4c865b559d6cfbf1",
+      "bytes": 6410230,
+      "displayName": "Shopify",
+      "version": "3.0.0",
+      "description": "Build and manage your store",
+      "requiresAuth": true,
+      "license": "",
+      "appId": "asdk_app_69e65c430b3081919aa4d962ab5d1698"
+    },
+    {
+      "name": "magicpath",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/magicpath",
+      "tree": "32150a2aba0b60d9ab973035b6d7ffafceacc527",
+      "bytes": 37558,
+      "displayName": "MagicPath",
+      "version": "0.1.2",
+      "description": "Find, install, and author MagicPath UI components from Codex",
+      "requiresAuth": false,
+      "license": "UNLICENSED"
+    },
+    {
+      "name": "openai-ads-conversions",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/openai-ads-conversions",
+      "tree": "60b9ad23b69de5ce7b06ab6399b8aad600033bae",
+      "bytes": 86580,
+      "displayName": "OpenAI Ads Conversions",
+      "version": "0.1.2",
+      "description": "Set up OpenAI Ads Pixel and CAPI tracking",
+      "requiresAuth": false,
+      "license": "Proprietary"
+    },
+    {
+      "name": "boltz-api-cli",
+      "api": true,
+      "category": "Scientific Research",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/boltz-api-cli",
+      "tree": "ce0bf054f282dd7777f903892bb2c2299a2d5575",
+      "bytes": 207992,
+      "displayName": "Boltz",
+      "version": "0.1.1",
+      "description": "Predict structures, screen molecules and proteins, and design binders",
+      "requiresAuth": false,
+      "license": "MIT"
+    },
+    {
+      "name": "dropbox",
+      "api": true,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/dropbox",
+      "tree": "71d222e051fe240afa78a211185c768c87415bd6",
+      "bytes": 1557562,
+      "displayName": "Dropbox",
+      "version": "5.0.1",
+      "description": "Access, save and share files",
+      "requiresAuth": true,
+      "license": "",
+      "remoteServers": {
+        "dropbox": {
+          "type": "http",
+          "url": "https://mcp.dropbox.com/mcp"
+        }
+      },
+      "appId": "asdk_app_69b31dc2110c8191b8b47dc98fe5a052"
+    },
+    {
+      "name": "product-design",
+      "api": true,
+      "category": "Creativity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "path": "plugins/product-design",
+      "tree": "4d41e3b08997d258c5fede8ddf000a550832a74f",
+      "bytes": 1173548,
+      "displayName": "Product Design",
+      "version": "0.1.52",
+      "description": "Explore and prototype ideas",
+      "requiresAuth": false,
+      "license": "Proprietary"
+    },
+    {
+      "name": "data-analytics",
+      "api": false,
+      "category": "Data & Analytics",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "path": "plugins/data-analytics",
+      "tree": "be5ecedc3431b1249e3d2b8175821bce9e627676",
+      "bytes": 4913341,
+      "displayName": "Data Analytics",
+      "version": "0.2.8",
+      "description": "Answer product and business questions with data",
+      "requiresAuth": true,
+      "license": "Proprietary"
+    },
+    {
+      "name": "creative-production",
+      "api": false,
+      "category": "Creativity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "path": "plugins/creative-production",
+      "tree": "b11ed573873c1c3538c139b6aff65049ac85311f",
+      "bytes": 5221978,
+      "displayName": "Creative Production",
+      "version": "0.1.25",
+      "description": "Create marketing visuals from a brief or product image.",
+      "requiresAuth": true,
+      "license": "Proprietary"
+    },
+    {
+      "name": "public-equity-investing",
+      "api": false,
+      "category": "Finance",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "path": "plugins/public-equity-investing",
+      "tree": "5898efe013dedd0769e602cb7049aa83ed4530dc",
+      "bytes": 3847637,
+      "displayName": "Public Equity Investing",
+      "version": "0.1.31",
+      "description": "Public equity PM research, long/short, earnings, ETF/index diligence, and memos",
+      "requiresAuth": true,
+      "license": "Proprietary"
+    },
+    {
+      "name": "adobe",
+      "api": false,
+      "category": "Creativity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/adobe",
+      "tree": "3b470a1a7b5de5fdde84abbca95ebf94f06f734b",
+      "bytes": 177461,
+      "displayName": "Adobe",
+      "version": "8.0.0",
+      "description": "Design, combine, and edit",
+      "requiresAuth": true,
+      "license": "",
+      "appId": "asdk_app_69312da8e4dc81919370cb86fd172b6c"
+    },
+    {
+      "name": "lovable",
+      "api": false,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/lovable",
+      "tree": "661ad4a9c10929042f21a55452ed1d5199413bb2",
+      "bytes": 833,
+      "displayName": "Lovable",
+      "version": "2.0.1",
+      "description": "Build apps and websites",
+      "requiresAuth": true,
+      "license": "",
+      "appId": "asdk_app_693a0a79ffe48191901173077edcf914"
+    },
+    {
+      "name": "clickup",
+      "api": true,
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/clickup",
+      "tree": "86d4477d7ddaad7d230b591d85519b19261ba5f5",
+      "bytes": 70758,
+      "displayName": "ClickUp",
+      "version": "1.0.3",
+      "description": "Turn Codex into your ClickUp command center.",
+      "requiresAuth": true,
+      "license": "MIT",
+      "remoteServers": {
+        "clickup": {
+          "type": "http",
+          "url": "https://mcp.clickup.com/mcp"
+        }
+      },
+      "appId": "asdk_app_69431e6d26b88191b4029488aeb42f5b"
+    },
+    {
+      "name": "consensus",
+      "api": true,
+      "category": "Education & Research",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/consensus",
+      "tree": "45bc558650bbaa7dc6efd5a52ccc542f0748c7b6",
+      "bytes": 2488,
+      "displayName": "Consensus",
+      "version": "4.0.0",
+      "description": "Explore scientific research",
+      "requiresAuth": true,
+      "license": "",
+      "remoteServers": {
+        "consensus": {
+          "type": "http",
+          "url": "https://mcp.consensus.app/mcp"
+        }
+      },
+      "appId": "asdk_app_6943e6f4a928819195962de16fb9ffe4"
+    },
+    {
+      "name": "chatcut",
+      "api": true,
+      "category": "Creativity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/chatcut",
+      "tree": "d306690e4443a90856420bc65e28b1e314a962cc",
+      "bytes": 178077,
+      "displayName": "ChatCut",
+      "version": "1.0.4",
+      "description": "Install and connect ChatCut",
+      "requiresAuth": true,
+      "license": "GPL-3.0-only"
+    },
+    {
+      "name": "higgsfield",
+      "api": true,
+      "category": "Creativity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "path": "plugins/higgsfield",
+      "tree": "0049673d07bfa9b44cd97d645b60d1e035e5db27",
+      "bytes": 239881,
+      "displayName": "Higgsfield",
+      "version": "1.2.1",
+      "description": "Every image and video model",
+      "requiresAuth": true,
+      "license": "",
+      "remoteServers": {
+        "higgsfield": {
+          "type": "http",
+          "url": "https://mcp.higgsfield.ai/mcp"
+        }
+      },
+      "appId": "asdk_app_6a3293e129088191abf0875820e839da"
+    },
+    {
+      "name": "crowdstrike-falcon-foundry",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
+    },
+    {
+      "name": "crowdstrike-falcon-fusion",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
+    },
+    {
+      "name": "qodo",
+      "api": true,
+      "category": "Developer Tools",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      }
+    }
+  ]
+}
