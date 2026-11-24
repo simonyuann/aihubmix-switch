@@ -21,7 +21,11 @@ fn compatible(app: &AppType, platform: &str) -> bool {
         }
         AppType::GrokBuild => platform == "openai",
         AppType::Hermes => matches!(platform, "openai" | "openai_chat"),
-        AppType::Codex => matches!(platform, "openai" | "openai_chat" | "anthropic"),
+        // Sub2API provides a Responses API bridge for Antigravity OAuth groups.
+        AppType::Codex => matches!(
+            platform,
+            "openai" | "openai_chat" | "anthropic" | "antigravity"
+        ),
         AppType::Gemini | AppType::Agy => matches!(platform, "gemini" | "antigravity"),
         _ => matches!(platform, "openai" | "openai_chat" | "anthropic"),
     }
@@ -1050,6 +1054,7 @@ mod tests {
     fn only_supported_protocols_become_cards() {
         assert!(compatible(&AppType::Claude, "gemini"));
         assert!(compatible(&AppType::Codex, "anthropic"));
+        assert!(compatible(&AppType::Codex, "antigravity"));
         assert!(!compatible(&AppType::Codex, "gemini"));
         assert!(!compatible(&AppType::GrokBuild, "anthropic"));
         for platform in ["deepseek", "glm", "zhipu", "future-chat-family"] {
