@@ -232,6 +232,7 @@ pub(crate) fn detected_codex_cli(
 struct WindowsInstall {
     exe: String,
     app_id: String,
+    scoped_alias: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -298,7 +299,9 @@ if ($p) {
   if ($exe) {
     $id = 'App'
     try { [xml]$manifest = Get-Content -LiteralPath (Join-Path $p.InstallLocation 'AppxManifest.xml') -Raw; $entry = $manifest.Package.Applications.Application | Select-Object -First 1; if ($entry.Id) { $id = $entry.Id } } catch {}
-    @{exe=$exe;app_id=($p.PackageFamilyName + '!' + $id)} | ConvertTo-Json -Compress
+    $aliasPath = Join-Path $env:LOCALAPPDATA ("Microsoft\WindowsApps\" + $p.PackageFamilyName + "\chatgpt-desktop.exe")
+    $aliasExe = if (Test-Path -LiteralPath $aliasPath -PathType Leaf) { $aliasPath }
+    @{exe=$exe;app_id=($p.PackageFamilyName + '!' + $id);scoped_alias=$aliasExe} | ConvertTo-Json -Compress
     exit
   }
 }
@@ -500,6 +503,22 @@ pub(crate) async fn launch(
             "未找到 Codex Desktop。",
         ));
     };
+    let plugin_path = if plugins && crate::commands::codex_market::needs_private_runtime().await? {
+        if !install.app_id.is_empty() && install.scoped_alias.is_none() {
+            return Err("未找到桌面插件启动入口，请在 Windows 设置中启用 ChatGPT 的应用执行别名，或从 AIHub 管理插件".into());
+        }
+        let node = std::path::Path::new(&install.exe)
+            .parent()
+            .ok_or("桌面程序路径无效")?
+            .join("resources/cua_node/bin/node.exe");
+        Some(
+            crate::codex_plugin_runtime::launch_path(&node)?
+                .into_string()
+                .map_err(|_| "桌面插件路径无效")?,
+        )
+    } else {
+        None
+    };
     let exe_for_check = install.exe.clone();
     let stopped = tokio::task::spawn_blocking(move || {
         prepare_restart(
@@ -579,12 +598,30 @@ $p.Id
 }
 "#;
     let result = tokio::task::spawn_blocking(move || {
+        // The package execution alias launches with a child environment. The ordinary Store
+        // activation API does not accept one. Use the alias owned by this exact package.
+        let scoped_launch = r#"
+$ErrorActionPreference = 'Stop'
+$env:Path = $env:AIHUB_CHILD_PATH
+$start = New-Object System.Diagnostics.ProcessStartInfo
+$start.FileName = $env:AIHUB_CODEX_EXE
+$start.Arguments = $env:AIHUB_ARGS
+$start.UseShellExecute = $false
+([System.Diagnostics.Process]::Start($start)).Id
+"#;
+        let use_private = plugin_path.is_some();
+        let launch_exe = if use_private {
+            install.scoped_alias.unwrap_or(install.exe)
+        } else {
+            install.exe
+        };
         powershell_with_timeout(
-            script,
+            if use_private { scoped_launch } else { script },
             &[
                 ("AIHUB_APP_ID", install.app_id),
-                ("AIHUB_CODEX_EXE", install.exe),
+                ("AIHUB_CODEX_EXE", launch_exe),
                 ("AIHUB_ARGS", args.join(" ")),
+                ("AIHUB_CHILD_PATH", plugin_path.unwrap_or_default()),
             ],
             std::time::Duration::from_secs(30),
         )
@@ -611,14 +648,14 @@ $p.Id
         "not_requested"
     };
     Ok(outcome(
-        if locale == "not_confirmed" || plugins {
+        if locale == "not_confirmed" {
             "partial"
         } else {
             "started"
         },
         locale,
         if plugins {
-            "not_supported"
+            "configured"
         } else {
             "not_requested"
         },

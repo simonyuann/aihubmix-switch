@@ -130,3 +130,5 @@ if __name__ == "__main__":
             print("plugin mirror sync already running")
         else:
             sync(directory)
+            from package_plugins import publish
+            publish(directory, directory / "packages")

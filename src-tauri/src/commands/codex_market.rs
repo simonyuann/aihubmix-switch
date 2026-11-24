@@ -916,18 +916,77 @@ async fn fetch_verified_blob(
     Err("无法连接插件文件，请检查网络".into())
 }
 
+fn native_package_source(name: &str, revision: &str) -> Value {
+    json!({"source":"npm", "package":format!("aihubmix-plugin-{name}"),
+        "version":format!("0.0.0-r{revision}"), "registry":format!("{}packages/npm-v1/{revision}/", mirror::BASE)})
+}
+
 fn marketplace_manifest(index: &Index, local: Option<(&str, &str)>) -> Value {
-    let plugins: Vec<Value> = index.plugins.iter().map(|p| json!({
-        "name": p.name,
-        "source": if let Some((_, path)) = local.filter(|(name, _)| *name == p.name) {
-            json!({"source":"local", "path":path})
-        } else {
-            json!({"source":"git-subdir", "url": GIT_URL, "sha":index.revision, "path":format!("./{}", p.path)})
-        },
-        "policy": {"installation":"AVAILABLE", "authentication":"ON_USE"},
-        "category":"Productivity"
-    })).collect();
+    let plugins: Vec<Value> = index
+        .plugins
+        .iter()
+        .map(|p| {
+            json!({
+                "name": p.name,
+                "source": if let Some((_, path)) = local.filter(|(name, _)| *name == p.name) {
+                    json!({"source":"local", "path":path})
+                } else {
+                    native_package_source(&p.name, &index.revision)
+                },
+                "policy": {"installation":"AVAILABLE", "authentication":"ON_USE"},
+                "category":"Productivity"
+            })
+        })
+        .collect();
     json!({"name":MARKET, "interface":{"displayName":"AIHubMix 社区插件", "shortDescription":"社区公开插件缓存，部分插件需额外授权"}, "plugins":plugins})
+}
+
+// Change only our old pinned Git entries. Locally prepared packages stay usable offline.
+fn migrate_git_entries(manifest: &mut Value, revision: &str) -> bool {
+    if manifest["name"] != MARKET || !valid_git_id(revision) {
+        return false;
+    }
+    let mut changed = false;
+    if let Some(items) = manifest["plugins"].as_array_mut() {
+        for item in items {
+            let Some(name) = item["name"].as_str().filter(|n| valid_slug(n)) else {
+                continue;
+            };
+            let source = &item["source"];
+            if source["source"] == "git-subdir"
+                && source["url"] == GIT_URL
+                && source["sha"] == revision
+                && source["path"] == format!("./plugins/{name}")
+            {
+                item["source"] = native_package_source(name, revision);
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+pub(crate) async fn needs_private_runtime() -> Result<bool, String> {
+    let _guard = MARKET_LOCK.lock().await;
+    let root = managed_root();
+    if !root.exists() {
+        return Ok(false);
+    }
+    ensure_owned_market_root(&root)?;
+    let path = root.join(".agents/plugins/marketplace.json");
+    if !path.is_file() {
+        return Ok(false);
+    }
+    let mut manifest: Value =
+        serde_json::from_slice(&std::fs::read(path).map_err(|_| "无法读取社区插件目录")?)
+            .map_err(|_| "社区插件目录格式无效")?;
+    let revision = std::fs::read_to_string(root.join("catalog-revision")).unwrap_or_default();
+    if migrate_git_entries(&mut manifest, &revision) {
+        write_marketplace_value(&root, &manifest)?;
+    }
+    Ok(manifest["plugins"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|p| p["source"]["source"] == "npm")))
 }
 
 fn mirror_marketplace_manifest(index: &Index, folder: &str) -> Value {
@@ -1243,13 +1302,19 @@ pub async fn enable_codex_plugin_market(
             .and_then(|s| s.to_str())
             .ok_or("插件缓存路径无效")?;
         write_marketplace_value(&root, &mirror_marketplace_manifest(&snapshot.index, folder))?;
-    } else if !same_revision
-        || previous
+    } else {
+        let prior = previous
             .as_ref()
-            .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
-            .is_none_or(|v| v["name"] != MARKET || !v["plugins"].is_array())
-    {
-        write_marketplace_value(&root, &marketplace_manifest(&snapshot.index, None))?;
+            .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok());
+        if let Some(mut manifest) =
+            prior.filter(|v| same_revision && v["name"] == MARKET && v["plugins"].is_array())
+        {
+            if migrate_git_entries(&mut manifest, &snapshot.index.revision) {
+                write_marketplace_value(&root, &manifest)?;
+            }
+        } else {
+            write_marketplace_value(&root, &marketplace_manifest(&snapshot.index, None))?;
+        }
     }
     mirror::progress(Some(&progress), "registering", 0, 0);
     if let Err(error) = register(&root, executable_path).await {
@@ -1715,9 +1780,20 @@ mod tests {
         let index = fixture();
         validate_index(&index).unwrap();
         let m = marketplace_manifest(&index, None);
-        assert_eq!(m["plugins"][0]["source"]["url"], GIT_URL);
-        assert_eq!(m["plugins"][0]["source"]["sha"], index.revision);
-        assert_eq!(m["plugins"][0]["source"]["path"], "./plugins/hello");
+        let source = &m["plugins"][0]["source"];
+        assert_eq!(source["source"], "npm");
+        assert_eq!(source["package"], "aihubmix-plugin-hello");
+        assert_eq!(source["version"], format!("0.0.0-r{}", index.revision));
+        assert_eq!(
+            source["registry"],
+            format!("{}packages/npm-v1/{}/", mirror::BASE, index.revision)
+        );
+        let mut old = m.clone();
+        old["plugins"][0]["source"] = json!({"source":"git-subdir","url":GIT_URL,"sha":index.revision,"path":"./plugins/hello"});
+        assert!(migrate_git_entries(&mut old, &index.revision));
+        assert_eq!(old, m);
+        old["plugins"][0]["source"] = json!({"source":"local","path":"./catalog/hello"});
+        assert!(!migrate_git_entries(&mut old, &index.revision));
         let mut bad = fixture();
         bad.plugins[0].path = "plugins/../../other".into();
         assert!(validate_index(&bad).is_err());

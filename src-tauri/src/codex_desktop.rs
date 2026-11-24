@@ -803,6 +803,13 @@ async fn launch_macos(
             "未找到受信任的 Codex Desktop，请检查安装来源。",
         ));
     };
+    let plugin_path = if plugins && crate::commands::codex_market::needs_private_runtime().await? {
+        Some(crate::codex_plugin_runtime::launch_path(
+            &bundle.join("Contents/Resources/cua_node/bin/node"),
+        )?)
+    } else {
+        None
+    };
     let stopped = tokio::task::spawn_blocking(|| {
         prepare_restart(
             any_known_install_running,
@@ -851,7 +858,13 @@ async fn launch_macos(
     // Codex home. LaunchServices does not necessarily inherit our process
     // environment, so pass it explicitly to this child application only.
     let codex_home = codex_home_env_argument(&crate::codex_config::get_codex_config_dir());
-    command.arg("-n").arg("--env").arg(codex_home).arg(&bundle);
+    command.arg("-n").arg("--env").arg(codex_home);
+    if let Some(path) = plugin_path {
+        let mut value = std::ffi::OsString::from("PATH=");
+        value.push(path);
+        command.arg("--env").arg(value);
+    }
+    command.arg(&bundle);
     if let Some(renderer) = renderer {
         command
             .arg("--args")
@@ -906,18 +919,14 @@ async fn launch_macos(
             Ok(false) | Err(_) => "not_confirmed",
         }
     };
-    // The plugin market agent can install a renderer adapter at this point.
-    // A local market configuration alone must not be presented as active.
     let plugin_status = if plugins {
-        "not_supported"
+        "configured"
     } else {
         "not_requested"
     };
-    let partial = locale == "not_confirmed" || plugins;
-    let message = if partial && enhanced {
-        "Codex 已启动，但部分增强未能确认；请查看 Codex 实际界面。本机其他进程可能访问增强调试接口，退出 Codex 后关闭。"
-    } else if partial {
-        "Codex 已启动，但当前版本尚未验证桌面插件增强。"
+    let partial = locale == "not_confirmed";
+    let message = if partial {
+        "Codex 已启动，界面语言尚未确认。本机其他进程可能访问增强调试接口，退出 Codex 后关闭。"
     } else if enhanced {
         "Codex 已启动并确认语言设置。本机其他进程可能访问增强调试接口，退出 Codex 后关闭。"
     } else {

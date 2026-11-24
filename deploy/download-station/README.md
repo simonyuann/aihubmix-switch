@@ -2,13 +2,15 @@
 
 ## 社区插件镜像
 
-`sync_plugin_market.py` 在 NAS 上同步社区插件快照，逐项验证 Git 树和大小，再以原子方式更新 `latest.json`。客户端只访问 `https://dl.csmy.fun:23457/files/manual/aihub-plugin-market/`；同步过程访问上游，客户端准备本地插件后 Codex 不需要 Git。运行示例：
+`sync_plugin_market.py` 在 NAS 上同步社区插件快照，逐项验证 Git 树和大小，再以原子方式更新 `latest.json`。新版客户端通过 `https://dl.csmy.fun/files/manual/aihub-plugin-market/` 获取插件，旧版继续使用同一路径的 23457 端口。同步脚本负责访问上游。运行示例：
 
 ```sh
 python3 sync_plugin_market.py /srv/hdd/download-station/data/persistent/manual/aihub-plugin-market
 ```
 
 NAS 的 `simon` 用户定时任务每天 04:17 执行 `/srv/hdd/download-station/aihub-plugin-market/sync_plugin_market.py`，日志写入同目录的 `sync.log`；同步失败时保留上一版。发布客户端前应确认公网目录、完整快照及 Windows 安装均通过验证。插件库约 375 MiB 下载、509 MiB 解压；旧版用户需要重新启用市场以切换本地来源。历史快照不会自动删除，需按需检查磁盘使用情况。
+
+桌面端按需安装使用标准 HTTPS 端口的 `packages/npm-v1/<revision>/`。同一快照的每个插件有一份 npm 元数据和一个带 SHA-512 校验的安装包。同步时将 `sync_plugin_market.py`、`package_plugins.py` 和 `native_plugin_registry.py` 放在同一目录。已有单包可用 `python3 native_plugin_registry.py <packages目录>` 补齐，确认新版本目录完整后再同步对外的 `packages/latest.json`。AIHub 启动的 Windows 和 macOS 桌面进程使用私有 npm 和桌面应用自带的 Node.js。
 
 ## 2026-10-27 下载站改版后的入口
 

@@ -14,6 +14,8 @@ mod codex_desktop;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 mod codex_desktop_platform;
 mod codex_history_migration;
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+mod codex_plugin_runtime;
 mod codex_rollout_file;
 mod codex_state_db;
 mod commands;

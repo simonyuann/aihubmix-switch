@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const BASE: &str = "https://dl.csmy.fun:23457/files/manual/aihub-plugin-market/";
+pub(super) const BASE: &str = "https://dl.csmy.fun/files/manual/aihub-plugin-market/";
 const MAX_ARCHIVE: u64 = 1024 * 1024 * 1024;
 
 #[derive(Clone, Serialize)]

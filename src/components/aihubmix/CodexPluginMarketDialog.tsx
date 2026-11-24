@@ -97,7 +97,7 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
           setNotice(
             prepareLocal
               ? "本机插件库已就绪。重新打开 Codex 后即可在社区插件页安装。"
-              : "插件目录已启用，可以选择插件安装。",
+              : "插件目录已启用。可在这里按需安装，或从 AIHub 启动桌面端后直接安装。",
           );
         else setError("插件目录已设置，但偏好保存失败；请重新检查设置。");
       }
@@ -229,7 +229,7 @@ export function CodexPluginMarketDialog({ onClose }: { onClose: () => void }) {
               </p>
               <div className="flex flex-wrap items-center justify-between gap-2 text-caption text-fg-2">
                 <span>
-                  要在 Codex 里直接安装，可先下载插件库
+                  从 AIHub 启动桌面端即可按需安装。也可提前下载完整插件库
                   {catalog.downloadBytes > 0 &&
                     `（约 ${Math.ceil(catalog.downloadBytes / 1048576)} MiB）`}
                   。

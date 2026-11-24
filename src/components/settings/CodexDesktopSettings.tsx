@@ -63,7 +63,7 @@ export function CodexDesktopSettings() {
       } else {
         setNotice(
           plugins
-            ? "插件市场已开启，重启 Codex 后可在「插件 → 个人」中查看。"
+            ? "插件市场已开启。从 AIHub 启动桌面端后，可在「插件 → 个人」按需安装。"
             : "插件市场已关闭。",
         );
       }
