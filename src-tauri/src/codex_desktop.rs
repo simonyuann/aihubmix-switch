@@ -665,6 +665,21 @@ async fn apply_locale_inner(
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|_| "无法建立增强连接")?;
+    // Linux may advertise the extension worker well before the first desktop
+    // window exists. Reuse the same verified lookup for up to four 30 s windows.
+    #[cfg(target_os = "linux")]
+    let target = {
+        let page = || wait_target(&client, port, pid, "page");
+        let mut result = page().await;
+        for _ in 1..4 {
+            if result.is_ok() {
+                break;
+            }
+            result = page().await;
+        }
+        result?
+    };
+    #[cfg(not(target_os = "linux"))]
     let target = wait_target(&client, port, pid, "page").await?;
     let mut cdp = CdpClient::connect(&target, port).await?;
     if language == "zh-CN" {
