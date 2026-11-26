@@ -652,6 +652,48 @@ pub(crate) async fn prepare_language_preference(
     }
 }
 
+#[cfg(target_os = "linux")]
+async fn linux_page_has_locale(
+    client: &reqwest::Client,
+    port: u16,
+    pid: u32,
+    language: &str,
+    verify: &str,
+) -> Result<bool, String> {
+    // A locale change can replace the page. Each probe must prove ownership
+    // again and read visible labels from the current renderer.
+    let target = wait_target(client, port, pid, "page").await?;
+    let mut cdp = CdpClient::connect(&target, port).await?;
+    if language == "zh-CN"
+        && cdp
+            .evaluate(
+                include_str!("../resources/codex_zh/verify-linux-login.js"),
+                false,
+            )
+            .await?
+            .as_bool()
+            == Some(true)
+    {
+        return Ok(true);
+    }
+    Ok(script_status(&cdp.evaluate(verify, true).await?))
+}
+
+#[cfg(any(target_os = "linux", test))]
+async fn retry_linux_locale_probe<F, Fut>(budget: Duration, mut probe: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    tokio::time::timeout(budget, async {
+        while !probe().await {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    })
+    .await
+    .is_ok()
+}
+
 async fn apply_locale_inner(
     port: u16,
     inspector: Option<u16>,
@@ -718,23 +760,26 @@ async fn apply_locale_inner(
     // Locale changes may reload the renderer. Reacquire the target and inspect
     // only fixed translated UI labels; never return or log page content.
     tokio::time::sleep(Duration::from_millis(1500)).await;
+    #[cfg(not(target_os = "linux"))]
     let target = wait_target(&client, port, pid, "page").await?;
+    #[cfg(not(target_os = "linux"))]
     let mut cdp = CdpClient::connect(&target, port).await?;
     let verify = include_str!("../resources/codex_zh/verify-locale.js").replace(
         "__LOCALE_JSON__",
         &serde_json::to_string(language).map_err(|_| "语言配置无效")?,
     );
+    #[cfg(not(target_os = "linux"))]
     let verified = script_status(&cdp.evaluate(&verify, true).await?);
     #[cfg(target_os = "linux")]
-    let verified = verified
-        || (language == "zh-CN"
-            && cdp
-                .evaluate(
-                    include_str!("../resources/codex_zh/verify-linux-login.js"),
-                    false,
-                )
-                .await
-                .is_ok_and(|result| result.as_bool() == Some(true)));
+    let probe = || async {
+        linux_page_has_locale(&client, port, pid, language, &verify)
+            .await
+            .unwrap_or(false)
+    };
+    #[cfg(target_os = "linux")]
+    let verified = tokio::time::timeout(Duration::from_secs(15), probe())
+        .await
+        .unwrap_or(false);
     if language == "zh-CN" {
         if let Some(inspector) = inspector {
             // Native menus are cosmetic and have a separate lifecycle.
@@ -749,6 +794,11 @@ async fn apply_locale_inner(
             }
         }
     }
+    // On a cold Linux profile the login screen can finish translating while
+    // menu localization is in flight. Retry only an unconfirmed result; never
+    // repeat the setting write, reload, or menu operation.
+    #[cfg(target_os = "linux")]
+    let verified = verified || retry_linux_locale_probe(Duration::from_secs(25), probe).await;
     Ok(verified)
 }
 
@@ -991,6 +1041,23 @@ pub async fn launch_codex_desktop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn linux_locale_rechecks_a_reloaded_page_and_bounds_unconfirmed_results() {
+        use std::cell::Cell;
+        let attempts = Cell::new(0);
+        let applied = retry_linux_locale_probe(Duration::from_secs(2), || async {
+            attempts.set(attempts.get() + 1);
+            attempts.get() == 3
+        })
+        .await;
+        assert!(applied);
+        assert_eq!(attempts.get(), 3);
+        assert!(!retry_linux_locale_probe(Duration::from_secs(1), || async { false }).await);
+        assert!(
+            !retry_linux_locale_probe(Duration::from_secs(1), std::future::pending::<bool>).await
+        );
+    }
+
     #[test]
     fn debug_ports_match_the_language_request() {
         assert_eq!(locale_ports("system").unwrap(), (None, None));
