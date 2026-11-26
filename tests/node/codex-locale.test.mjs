@@ -171,3 +171,23 @@ test("verifies visible shell controls without using words from the open chat", a
   assert.equal(await check([control("Settings"), control("Plugins"), control("插件",true), control("设置",false,false)], "Settings Plugins 插件 设置"), "partial");
   assert.equal(await check([control("插件"), control("插件")], "插件"), "partial");
 });
+
+test("confirms the signed-out Chinese Linux desktop from distinct visible login actions", () => {
+  const source = readFileSync(new URL("verify-linux-login.js", resources), "utf8");
+  const action = (innerText, hidden = false, inChat = false, aria = null) => ({
+    innerText, getClientRects: () => hidden ? [] : [{}], closest: () => inChat ? {} : null,
+    getAttribute: name => name === "aria-label" ? aria : null,
+  });
+  const screen = (headings, actions) => vm.runInNewContext(source, {
+    document: { querySelectorAll: (selector) => selector.startsWith("h1") ? headings : actions },
+  });
+  const check = (...actions) => screen([action("登录 ChatGPT")], actions);
+  assert.equal(screen([action("聊天")], [action("继续登录"), action("注册")]), false);
+  assert.equal(screen([action("登录 ChatGPT", true)], [action("继续登录"), action("注册")]), false);
+  assert.equal(check(action("继续登录"), action("使用其他方式登录"), action("注册")), true);
+  assert.equal(check(action("", false, false, "继续登录"), action("注册")), true);
+  assert.equal(check(action("继续登录", false, false, "注册")), false);
+  assert.equal(check(action("继续登录"), action("继续登录")), false);
+  assert.equal(check(action("继续登录"), action("注册", true), action("使用其他方式登录", false, true)), false);
+  assert.equal(check(action("Continue"), action("Sign up")), false);
+});

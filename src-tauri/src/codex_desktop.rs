@@ -725,6 +725,16 @@ async fn apply_locale_inner(
         &serde_json::to_string(language).map_err(|_| "语言配置无效")?,
     );
     let verified = script_status(&cdp.evaluate(&verify, true).await?);
+    #[cfg(target_os = "linux")]
+    let verified = verified
+        || (language == "zh-CN"
+            && cdp
+                .evaluate(
+                    include_str!("../resources/codex_zh/verify-linux-login.js"),
+                    false,
+                )
+                .await
+                .is_ok_and(|result| result.as_bool() == Some(true)));
     if language == "zh-CN" {
         if let Some(inspector) = inspector {
             // Native menus are cosmetic and have a separate lifecycle.
