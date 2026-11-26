@@ -95,6 +95,13 @@ function wrap(node: React.ReactNode) {
     </QueryClientProvider>,
   );
 }
+async function hoverImageGroup() {
+  const disclosure = await screen.findByRole("button", {
+    name: `${service.provider.name} 的生图模型`,
+  });
+  fireEvent.pointerEnter(disclosure.closest("article")!);
+  return disclosure;
+}
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.imagegenGuide.mockResolvedValue({ status: "unavailable" });
@@ -109,6 +116,192 @@ beforeEach(() => {
   );
 });
 describe("dedicated service cards", () => {
+  it("selects an image model from the active group on the home page and restores the gateway default", async () => {
+    Element.prototype.scrollIntoView ??= vi.fn();
+    let selected: string | null = null;
+    const other = {
+      ...service,
+      provider: { ...service.provider, id: "another-group" },
+      groupId: 8,
+      imageModel: "gpt-image-1",
+    };
+    mocks.dispatch.mockImplementation(async (command, payload) => {
+      if (command === "tool-cards")
+        return {
+          cards: [
+            { ...service, configured: true, imageModel: selected },
+            other,
+          ],
+          currentProviderId: service.provider.id,
+        };
+      if (command === "tool-image-models")
+        return [{ id: "gpt-image-2.6-sunburst", name: "2.6 Sunburst" }];
+      if (command === "set-tool-image-model") {
+        expect(payload).toMatchObject({
+          app: "codex",
+          groupId: 7,
+          providerId: service.provider.id,
+        });
+        selected = payload.model;
+        return { model: selected, restartRequired: true };
+      }
+      return {};
+    });
+    wrap(<ToolPage app="codex" simple />);
+    await hoverImageGroup();
+    const picker = await screen.findByRole("combobox", { name: "生图模型" });
+    expect(picker).toHaveTextContent("跟随网关");
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    fireEvent.click(
+      await screen.findByRole("option", { name: "2.6 Sunburst" }),
+    );
+    await waitFor(() => expect(picker).toHaveTextContent("2.6 Sunburst"));
+    expect(
+      await screen.findByText(/请重启 Codex，使连接设置生效/),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(picker).toBeEnabled());
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: /跟随网关/ }));
+    await waitFor(() => expect(picker).toHaveTextContent("跟随网关"));
+    expect(selected).toBeNull();
+  });
+  it("collapses the image row at rest and holds it open while choosing from the portalled menu", async () => {
+    Element.prototype.scrollIntoView ??= vi.fn();
+    mocks.dispatch.mockImplementation(async (command) => {
+      if (command === "tool-cards")
+        return {
+          cards: [{ ...service, configured: true, imageModel: null }],
+          currentProviderId: service.provider.id,
+        };
+      return [];
+    });
+    wrap(<ToolPage app="codex" simple />);
+    const disclosure = await screen.findByRole("button", {
+      name: `${service.provider.name} 的生图模型`,
+    });
+    const row = disclosure.closest("article")!;
+    const panel = document.getElementById(
+      disclosure.getAttribute("aria-controls")!,
+    )!;
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(panel).toHaveAttribute("inert");
+    expect(screen.queryByRole("combobox", { name: "生图模型" })).toBeNull();
+
+    fireEvent.pointerEnter(row);
+    const picker = screen.getByRole("combobox", { name: "生图模型" });
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    const option = await screen.findByRole("option", { name: /跟随网关/ });
+    expect(row.contains(option)).toBe(false);
+    fireEvent.pointerLeave(row);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(option);
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+
+    // A tap/assistive activation also works without any hover event.
+    fireEvent.click(disclosure);
+    expect(panel).not.toHaveAttribute("inert");
+    fireEvent.pointerDown(document.body);
+    expect(panel).toHaveAttribute("inert");
+
+    document.documentElement.dataset.keyboard = "";
+    try {
+      act(() => disclosure.focus());
+      expect(disclosure).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(disclosure);
+      expect(picker).toHaveFocus();
+      act(() => screen.getByRole("button", { name: "添加分组" }).focus());
+      expect(panel).toHaveAttribute("inert");
+    } finally {
+      delete document.documentElement.dataset.keyboard;
+    }
+  });
+  it("refreshes the active group's image models on every open and selects a newly available model", async () => {
+    Element.prototype.scrollIntoView ??= vi.fn();
+    const saved = { id: "gpt-image-2.6-sunburst", name: "2.6 Sunburst" };
+    const retired = { id: "gpt-image-2.5-flare", name: "2.5 Flare" };
+    const added = { id: "gpt-image-2.7", name: "gpt-image-2.7" };
+    let models = Promise.resolve([saved, retired]);
+    let selected = saved.id;
+    mocks.dispatch.mockImplementation(async (command, payload) => {
+      if (command === "tool-cards")
+        return {
+          cards: [{ ...service, configured: true, imageModel: selected }],
+          currentProviderId: service.provider.id,
+        };
+      if (command === "tool-image-models") return models;
+      if (command === "set-tool-image-model") {
+        selected = payload.model;
+        return { model: selected, restartRequired: false };
+      }
+      return {};
+    });
+    wrap(<ToolPage app="codex" simple />);
+    await hoverImageGroup();
+    const picker = await screen.findByRole("combobox", { name: "生图模型" });
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    const initialOption = await screen.findByRole("option", {
+      name: retired.name,
+    });
+    fireEvent.keyDown(initialOption, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    let finishRefresh!: (value: (typeof saved)[]) => void;
+    models = new Promise((resolve) => {
+      finishRefresh = resolve;
+    });
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    expect(await screen.findByRole("listbox")).toBeVisible();
+    expect(screen.queryByRole("option", { name: retired.name })).toBeNull();
+    await act(async () => finishRefresh([saved, added]));
+    const newOption = await screen.findByRole("option", { name: "2.7" });
+    expect(screen.queryByRole("option", { name: retired.name })).toBeNull();
+    fireEvent.click(newOption);
+    await waitFor(() =>
+      expect(mocks.dispatch).toHaveBeenCalledWith("set-tool-image-model", {
+        app: "codex",
+        groupId: service.groupId,
+        providerId: service.provider.id,
+        model: added.id,
+      }),
+    );
+    await waitFor(() => expect(picker).toHaveTextContent("2.7"));
+  });
+  it("identifies a retired saved model on a known image-capable card even without platform metadata", async () => {
+    Element.prototype.scrollIntoView ??= vi.fn();
+    mocks.dispatch.mockImplementation(async (command) => {
+      if (command === "tool-cards") {
+        return {
+          cards: [
+            {
+              ...service,
+              configured: true,
+              imageModel: "gpt-image-2.5-sunburst",
+              platform: undefined,
+            },
+          ],
+          currentProviderId: service.provider.id,
+        };
+      }
+      return [];
+    });
+    wrap(<ToolPage app="codex" simple />);
+    await hoverImageGroup();
+    expect(
+      await screen.findByText("当前分组已不提供所选模型，请重新选择。"),
+    ).toBeVisible();
+    const picker = screen.getByRole("combobox", { name: "生图模型" });
+    expect(picker).toHaveTextContent("2.5 Sunburst");
+    fireEvent.keyDown(picker, { key: "ArrowDown" });
+    expect(
+      await screen.findByRole("option", { name: /跟随网关/ }),
+    ).toBeVisible();
+    expect(screen.queryByRole("option", { name: "2.5 Sunburst" })).toBeNull();
+    expect(mocks.dispatch).not.toHaveBeenCalledWith(
+      "set-tool-image-model",
+      expect.anything(),
+    );
+  });
   it("requires a chosen replacement before removing the current group", async () => {
     mocks.dispatch.mockImplementation((command) =>
       Promise.resolve(
@@ -187,10 +380,10 @@ describe("dedicated service cards", () => {
           )
         : Promise.resolve({ cards: [service], currentProviderId: null }),
     );
-    wrap(<ToolPage app="codex" simple />);
+    wrap(<ToolPage app="codex" />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "选择 API 并使用 AIHubMix · OpenAI",
+        name: "启动 AIHubMix · OpenAI",
       }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -236,7 +429,7 @@ describe("dedicated service cards", () => {
     wrap(<ToolPage app="codex" simple />);
     expect(await screen.findByText("还没有添加模型分组")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "申请 API" }),
+      screen.getByRole("button", { name: "添加分组" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("OpenAI Official")).not.toBeInTheDocument();
   });
@@ -275,18 +468,20 @@ describe("dedicated service cards", () => {
       await screen.findByRole("button", { name: "当前为官方配置" }),
     ).toBeDisabled();
   });
-  it("explains how to activate a simple-home service and only opens key selection when needed", async () => {
+  it("activates a legacy group from home without asking for a key", async () => {
     wrap(<ToolPage app="codex" simple />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "选择 API 并使用 AIHubMix · OpenAI",
+        name: "切换到 AIHubMix · OpenAI",
       }),
     );
-    expect(await screen.findByLabelText("API Key")).toBeInTheDocument();
-    expect(mocks.dispatch).not.toHaveBeenCalledWith(
-      "start-tool-card",
-      expect.anything(),
+    await waitFor(() =>
+      expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
+        app: "codex",
+        providerId: service.provider.id,
+      }),
     );
+    expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument();
   });
   it("shows the active service and switches a configured group directly", async () => {
     mocks.dispatch.mockImplementation((command) =>
@@ -409,7 +604,7 @@ describe("dedicated service cards", () => {
       screen.queryByRole("button", { name: /重新启用/ }),
     ).not.toBeInTheDocument();
   });
-  it("asks for a group key before reapplying an unconfigured active group", async () => {
+  it("allows manual key selection in the advanced view before reapplying an unconfigured active group", async () => {
     mocks.dispatch.mockImplementation((command) =>
       Promise.resolve(
         command === "tool-cards"
@@ -423,7 +618,7 @@ describe("dedicated service cards", () => {
             : {},
       ),
     );
-    wrap(<ToolPage app="codex" simple />);
+    wrap(<ToolPage app="codex" />);
     fireEvent.click(
       await screen.findByRole("button", {
         name: "重新启用 AIHubMix · OpenAI",
@@ -624,6 +819,11 @@ describe("dedicated service cards", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "确认添加分组" }));
     await screen.findByText("AIHubMix · GLM");
+    expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument();
+    expect(mocks.dispatch).not.toHaveBeenCalledWith(
+      "start-tool-card",
+      expect.anything(),
+    );
     expect(mocks.dispatch).toHaveBeenCalledWith("create-tool-card", {
       app: "pi",
       groupId: 9,

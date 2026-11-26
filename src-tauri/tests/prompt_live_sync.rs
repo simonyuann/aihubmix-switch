@@ -5,6 +5,41 @@ use std::fs;
 use support::{create_test_state, ensure_test_home, reset_test_fs, test_mutex};
 
 #[test]
+fn refresh_after_failed_projection_keeps_restored_prompt_and_retries() {
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let home = ensure_test_home();
+    let state = create_test_state().unwrap();
+    let path = home.join(".codex/AGENTS.md");
+    fs::create_dir_all(&path).unwrap();
+    let restored = Prompt {
+        id: "active".into(),
+        name: "Restored".into(),
+        content: "restored content".into(),
+        description: None,
+        enabled: true,
+        created_at: None,
+        updated_at: None,
+    };
+    state.db.save_prompt("codex", &restored).unwrap();
+    assert!(PromptService::sync_to_live(&state, AppType::Codex).is_err());
+    fs::remove_dir(&path).unwrap();
+    fs::write(&path, "stale editable content").unwrap();
+    let prompts = PromptService::get_prompts(&state, AppType::Codex).unwrap();
+    assert_eq!(prompts["active"].content, "restored content");
+    assert_eq!(
+        state.db.get_prompts("codex").unwrap()["active"].content,
+        "restored content"
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), "restored content");
+    fs::write(&path, "new external edit").unwrap();
+    assert_eq!(
+        PromptService::get_prompts(&state, AppType::Codex).unwrap()["active"].content,
+        "new external edit"
+    );
+}
+
+#[test]
 fn prompt_list_refreshes_external_edits_without_changing_inactive_templates() {
     let _guard = test_mutex().lock().unwrap();
     reset_test_fs();

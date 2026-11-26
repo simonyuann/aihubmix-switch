@@ -2,6 +2,7 @@
 pub(crate) mod claude_models;
 pub(crate) use draft::normalize_openai_chat_menu;
 mod draft;
+pub(crate) mod image_models;
 pub(crate) mod native_imagegen;
 mod payments;
 mod service;
@@ -107,6 +108,8 @@ pub async fn aihubmix_dispatch(
             command.as_str(),
             "state"
                 | "session"
+                | "remembered-login"
+                | "forget-remembered-login"
                 | "login"
                 | "register"
                 | "logout"
@@ -120,6 +123,8 @@ pub async fn aihubmix_dispatch(
     if matches!(
         command.as_str(),
         "tool-cards"
+            | "tool-image-models"
+            | "set-tool-image-model"
             | "create-tool-card"
             | "save-tool-key"
             | "start-tool-card"
@@ -217,27 +222,33 @@ pub async fn aihubmix_dispatch(
                 if crate::dsh_config::has_active_platform_traces()? {
                     return Err(crate::error::AppError::Config("旧账号配置归属不明".into()));
                 }
+                detach_gemini(&state, None)?;
                 native_imagegen::cleanup_and_verify_account(&state, 0)
             })
             .await;
             if !matches!(safe, Ok(Ok(()))) {
-                return Err("无法确认旧账号配置归属。请关闭 Codex 和 DeepSeek Harness，检查 Codex 的 config.toml、auth.json 及 DSH 供应商配置后重试。".into());
+                return Err("无法确认旧账号配置归属。请关闭相关工具，检查 Codex、Gemini CLI 与 DeepSeek Harness 的配置后重试。".into());
             }
         }
     }
+    let mut gemini_detached = false;
     if command == "logout" {
         if let Some(user) = guard
             .as_ref()
             .and_then(|b| b.store.settings.account.user_id)
         {
-            prepare_account_exit(app_state.inner(), user).await?;
+            gemini_detached = prepare_account_exit(app_state.inner(), user).await?;
         }
     }
-    let result = guard
+    let mut result = guard
         .as_mut()
         .ok_or("平台服务未初始化")?
         .dispatch(&command, payload.unwrap_or(Value::Null))
         .await;
+    if let (true, Ok(account)) = (gemini_detached, &mut result) {
+        let warning = account["revocationWarning"].as_str().unwrap_or_default();
+        account["logoutNotice"] = serde_json::json!(format!("{warning}已解绑 Gemini CLI 的平台 Key。若有已打开的 Gemini 会话，请关闭后再使用新账号。"));
+    }
     if result.is_ok() && matches!(command.as_str(), "login" | "register" | "session") {
         if let Some(user) = guard.as_ref().and_then(|b| {
             b.store
@@ -259,22 +270,26 @@ pub async fn aihubmix_dispatch(
     result
 }
 
-async fn prepare_account_exit(state: &crate::store::AppState, user: i64) -> Result<(), String> {
-    const RECOVERY: &str = "无法安全清理旧账号配置。请关闭 Codex 和 DeepSeek Harness，检查 Codex 的 config.toml、auth.json 以及 DSH 供应商配置后重试；不要在新账号中使用旧配置。";
+async fn prepare_account_exit(state: &crate::store::AppState, user: i64) -> Result<bool, String> {
+    const RECOVERY: &str = "无法安全清理旧账号配置。请关闭相关工具，检查 Codex、Gemini CLI 与 DeepSeek Harness 的配置后重试。";
     crate::product_policy::set_session(0);
     // Ownership validation must work after an expired session and on cold start.
     crate::product_policy::set_account(user);
-    let codex = crate::app_config::AppType::Codex;
-    if crate::mode::current::is_proxy(&codex) {
+    for app in [crate::AppType::Codex, crate::AppType::Gemini] {
+        if !crate::mode::current::is_proxy(&app) {
+            continue;
+        }
         let current =
-            crate::mode::current::provider_in_use(&state.db, &codex).map_err(|_| RECOVERY)?;
+            crate::mode::current::provider_in_use(&state.db, &app).map_err(|_| RECOVERY)?;
         match current {
-            Some(ref provider) if crate::product_policy::own_provider(&codex, provider) => {
-                crate::mode::controller::exit_for_account_recovery(state, &codex, user)
+            Some(ref provider)
+                if crate::product_policy::own_provider_for_account(&app, provider, user) =>
+            {
+                crate::mode::controller::exit_for_account_recovery(state, &app, user)
                     .await
                     .map_err(|_| RECOVERY)?;
             }
-            Some(ref provider) if provider.id.starts_with("aihubmix-codex-account-") => {
+            Some(ref provider) if crate::product_policy::reserved_platform_id(&provider.id) => {
                 return Err(RECOVERY.into())
             }
             None => return Err(RECOVERY.into()),
@@ -284,13 +299,113 @@ async fn prepare_account_exit(state: &crate::store::AppState, user: i64) -> Resu
     let state = state.clone();
     match tauri::async_runtime::spawn_blocking(move || {
         cleanup_dsh_account(&state, user)?;
-        native_imagegen::cleanup_and_verify_account(&state, user)
+        native_imagegen::cleanup_and_verify_account(&state, user)?;
+        detach_gemini(&state, Some(user))
     })
     .await
     {
-        Ok(Ok(())) => Ok(()),
+        Ok(Ok(gemini_detached)) => Ok(gemini_detached),
         _ => Err(RECOVERY.into()),
     }
+}
+
+/// Older releases could leave the native credential installed even after the
+/// platform session was removed. Recover those on first login as well.
+fn detach_gemini(
+    state: &crate::store::AppState,
+    owner: Option<i64>,
+) -> Result<bool, crate::AppError> {
+    use crate::live::engine::{digest, read_current};
+    use crate::live::patch::{
+        dotenv::{entries, literal_value, DotenvPatch},
+        Guarded, LivePatch, WholeFile,
+    };
+    use crate::live::project::gemini::{API_KEY_ENV, BASE_URL_ENV};
+    use crate::mode::{
+        current,
+        operation::{AppWrite, FileChange},
+        state::PendingTarget,
+    };
+
+    let app = crate::AppType::Gemini;
+    let _guard = futures::executor::block_on(state.proxy_service.lock_switch_for_app(app.as_str()));
+    let write = AppWrite::begin(&state.db, app.as_str())?;
+    let rows = state.db.get_all_providers(app.as_str())?;
+    let owned = |p: &crate::Provider| {
+        let Some(id) =
+            p.id.strip_prefix("aihubmix-gemini-account-")
+                .and_then(|suffix| suffix.split('-').next())
+                .and_then(|id| id.parse::<i64>().ok())
+        else {
+            return false;
+        };
+        owner.is_none_or(|owner| owner == id)
+            && crate::product_policy::own_provider_for_account(&app, p, id)
+    };
+    let direct = current::direct_provider(&state.db, &app)?;
+    let target = PendingTarget {
+        clear_pointer: direct.as_ref().is_some_and(owned),
+        ..Default::default()
+    };
+    let keys: Vec<_> = rows
+        .values()
+        .filter(|p| owned(p))
+        .filter_map(|p| p.settings_config["env"][API_KEY_ENV].as_str())
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if keys.is_empty() {
+        if target.clear_pointer {
+            write.run("gemini-account-logout", &[], target)?;
+        }
+        return Ok(false);
+    }
+    let file = crate::services::provider::gemini_direct::env_file();
+    let before = read_current(&file.path)?;
+    let Some(bytes) = before.as_deref() else {
+        write.run("gemini-account-logout", &[], target)?;
+        return Ok(false);
+    };
+    if !keys
+        .iter()
+        .any(|key| bytes.windows(key.len()).any(|part| part == key.as_bytes()))
+    {
+        write.run("gemini-account-logout", &[], target)?;
+        return Ok(false);
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| crate::AppError::Config("无法读取 Gemini CLI 凭据文件".into()))?;
+    let env = entries(text);
+    let value = |key: &str| {
+        env.iter()
+            .find(|entry| entry.0 == key)
+            .map(|entry| literal_value(&entry.1))
+            .unwrap_or("")
+    };
+    let active_key = keys.iter().any(|key| key == value(API_KEY_ENV));
+    let mut patch = DotenvPatch {
+        remove_if: vec![(API_KEY_ENV.into(), keys)],
+        ..Default::default()
+    };
+    let base = value(BASE_URL_ENV);
+    if active_key && crate::product_policy::own_url(base) {
+        patch
+            .remove_if
+            .push((BASE_URL_ENV.into(), vec![base.into()]));
+    }
+    let patch = Guarded {
+        expected_pre: digest(Some(bytes)),
+        then: WholeFile::Write(patch.apply(&file.path, Some(bytes))?),
+    };
+    write.run(
+        "gemini-account-logout",
+        &[FileChange {
+            file,
+            patch: &patch,
+        }],
+        target,
+    )?;
+    Ok(active_key)
 }
 
 fn cleanup_dsh_account(
@@ -449,6 +564,23 @@ pub fn start_wallet_worker(app: AppHandle) {
 }
 
 #[cfg(test)]
+pub(crate) fn supported_apps() -> [&'static str; 14] {
+    types::AGENTS
+}
+#[cfg(test)]
+pub(crate) fn test_draft(app: &str, base: &str) -> crate::provider::Provider {
+    serde_json::from_value(
+        draft::build(
+            &serde_json::json!({"app":app,"model":"test-model"}),
+            base,
+            "fixture-key",
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}
+
+#[cfg(test)]
 mod wallet_tests {
     use super::*;
 
@@ -478,6 +610,47 @@ mod wallet_tests {
             user_id: Some(1),
             ..Default::default()
         };
+        // The expired account still owns a high-port card while the on-disk
+        // Codex config has already migrated to the standard HTTPS port.
+        let mut card = draft::catalog(
+            "codex",
+            "openai",
+            "fixture-key",
+            &[types::Model {
+                id: "test-model".into(),
+                ..Default::default()
+            }],
+            "aihubmix-codex-account-1-service-7",
+        )
+        .unwrap();
+        let config = "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun/v1'\nexperimental_bearer_token = 'fixture-key'\n";
+        card.settings_config["config"] =
+            serde_json::json!(config.replace("csmy.fun/v1", "csmy.fun:23457/v1"));
+        state.db.save_provider("codex", &card).unwrap();
+        state.db.set_current_provider("codex", &card.id).unwrap();
+        let gemini = draft::catalog(
+            "gemini",
+            "gemini",
+            "fixture-gemini-old",
+            &[types::Model {
+                id: "gemini-pro".into(),
+                ..Default::default()
+            }],
+            "aihubmix-gemini-account-1-service-7",
+        )
+        .unwrap();
+        state.db.save_provider("gemini", &gemini).unwrap();
+        state.db.set_current_provider("gemini", &gemini.id).unwrap();
+        let env = crate::gemini_config::get_gemini_env_path();
+        assert_eq!(env, temp.path().join(".gemini/.env"));
+        std::fs::create_dir_all(env.parent().unwrap()).unwrap();
+        let retained = "# owned by user\nGEMINI_API_KEY=personal\nOTHER=1\n";
+        let managed = format!("{retained}export GEMINI_API_KEY=\"fixture-gemini-old\" # generated\nGOOGLE_GEMINI_BASE_URL=https://csmy.fun\n");
+        std::fs::write(&env, &managed).unwrap();
+        let live = temp.path().join(".codex/config.toml");
+        assert_eq!(crate::codex_config::get_codex_config_path(), live);
+        std::fs::create_dir_all(live.parent().unwrap()).unwrap();
+        std::fs::write(&live, config).unwrap();
         let error = prepare_account_exit(&state, 1).await.unwrap_err();
         assert!(!error.contains("fixture-secret"));
         assert_eq!(backend.store.settings.account.user_id, Some(1));
@@ -485,7 +658,28 @@ mod wallet_tests {
             .unwrap()
             .contains("fixture-secret"));
         std::fs::remove_file(&path).unwrap();
-        prepare_account_exit(&state, 1).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&live).unwrap(), config);
+        assert!(prepare_account_exit(&state, 1).await.unwrap());
+        assert!(!std::fs::read_to_string(&live)
+            .unwrap()
+            .contains("fixture-key"));
+        assert_eq!(std::fs::read_to_string(&env).unwrap(), retained);
+        assert!(
+            crate::mode::current::direct_provider(&state.db, &crate::AppType::Gemini)
+                .unwrap()
+                .is_none()
+        );
+        // A previous client may already have cleared the account ID. Recover only
+        // the exact known credential, leaving the user's active endpoint untouched.
+        let mixed = "GEMINI_API_KEY=fixture-gemini-old\nGEMINI_API_KEY=personal\nGOOGLE_GEMINI_BASE_URL=https://csmy.fun\n";
+        std::fs::write(&env, mixed).unwrap();
+        detach_gemini(&state, Some(999)).unwrap();
+        assert_eq!(std::fs::read_to_string(&env).unwrap(), mixed);
+        detach_gemini(&state, None).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&env).unwrap(),
+            "GEMINI_API_KEY=personal\nGOOGLE_GEMINI_BASE_URL=https://csmy.fun\n"
+        );
         backend.finish_account_recovery().unwrap();
         assert_eq!(backend.store.settings.account.user_id, None);
         match old_dsh {
@@ -631,21 +825,4 @@ mod wallet_tests {
             Some(&serde_json::json!({"email": "current@example.test"}))
         ));
     }
-}
-
-#[cfg(test)]
-pub(crate) fn supported_apps() -> [&'static str; 14] {
-    types::AGENTS
-}
-#[cfg(test)]
-pub(crate) fn test_draft(app: &str, base: &str) -> crate::provider::Provider {
-    serde_json::from_value(
-        draft::build(
-            &serde_json::json!({"app":app,"model":"test-model"}),
-            base,
-            "fixture-key",
-        )
-        .unwrap(),
-    )
-    .unwrap()
 }

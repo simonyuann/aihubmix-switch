@@ -6,8 +6,14 @@ vi.mock("@/contexts/AccountContext", () => ({
   useOptionalAccount: () => mocks.account,
 }));
 
-import { BalanceDisplay, HomeWalletBalance } from "@/components/aihubmix/BalanceDisplay";
-import { AppPageHeader, HeaderBalanceContext } from "@/components/shell/AppPageHeader";
+import {
+  BalanceDisplay,
+  SidebarWalletCard,
+} from "@/components/aihubmix/BalanceDisplay";
+import {
+  AppPageHeader,
+  HeaderBalanceContext,
+} from "@/components/shell/AppPageHeader";
 
 beforeEach(() => {
   mocks.account = {
@@ -18,7 +24,7 @@ beforeEach(() => {
   };
 });
 
-describe("simple home balance", () => {
+describe("wallet balance", () => {
   it("keeps raw balance errors out of the header tooltip", () => {
     mocks.account.walletError = "private server details";
     render(<BalanceDisplay />);
@@ -32,12 +38,15 @@ describe("simple home balance", () => {
   it("shows the balance, refreshes once while pending, and opens recharge", async () => {
     let finish!: () => void;
     mocks.account.refreshWallet.mockImplementation(
-      () => new Promise<void>((resolve) => { finish = resolve; }),
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
     );
     const recharge = vi.fn();
-    render(<HomeWalletBalance onRecharge={recharge} />);
+    render(<SidebarWalletCard collapsed={false} onRecharge={recharge} />);
 
-    expect(screen.getByText("CNY 88.80")).toBeInTheDocument();
+    expect(screen.getByText("¥88.80")).toBeInTheDocument();
     const refresh = screen.getByRole("button", { name: "刷新余额" });
     fireEvent.click(refresh);
     expect(refresh).toBeDisabled();
@@ -52,33 +61,57 @@ describe("simple home balance", () => {
 
   it("handles unavailable or empty balances without exposing error details", () => {
     mocks.account.wallet = null;
-    const view = render(<HomeWalletBalance onRecharge={() => {}} />);
+    const view = render(
+      <SidebarWalletCard collapsed={false} onRecharge={() => {}} />,
+    );
     expect(screen.getByText("—")).toBeInTheDocument();
     mocks.account.walletError = "private server details";
-    view.rerender(<HomeWalletBalance onRecharge={() => {}} />);
+    view.rerender(
+      <SidebarWalletCard collapsed={false} onRecharge={() => {}} />,
+    );
     expect(screen.getByText("余额暂不可用")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("余额刷新失败，请重试");
-    expect(screen.queryByText(/private server details/)).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "余额刷新失败，请重试",
+    );
+    expect(
+      screen.queryByText(/private server details/),
+    ).not.toBeInTheDocument();
   });
 
-  it("only hides the header balance when explicitly requested", () => {
+  it("keeps the amount accessible and opens recharge from the collapsed rail", () => {
+    const recharge = vi.fn();
+    render(<SidebarWalletCard collapsed onRecharge={recharge} />);
+    const wallet = screen.getByRole("button", {
+      name: "账户余额 ¥88.80，充值",
+    });
+    fireEvent.click(wallet);
+    expect(recharge).toHaveBeenCalledOnce();
+  });
+
+  it("only shows the header balance when the workspace enables it", () => {
     const view = render(
-      <HeaderBalanceContext.Provider value>
-        <AppPageHeader title="首页" hideBalance />
+      <HeaderBalanceContext.Provider value={false}>
+        <AppPageHeader title="首页" />
       </HeaderBalanceContext.Provider>,
     );
-    expect(screen.queryByRole("button", { name: "刷新余额" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "刷新余额" }),
+    ).not.toBeInTheDocument();
     view.rerender(
       <HeaderBalanceContext.Provider value>
         <AppPageHeader title="其他页面" />
       </HeaderBalanceContext.Provider>,
     );
-    expect(screen.getByRole("button", { name: "刷新余额" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "刷新余额" }),
+    ).toBeInTheDocument();
   });
 
   it("does not show an account balance while logged out", () => {
     mocks.account.state.account.loggedIn = false;
-    render(<HomeWalletBalance onRecharge={() => {}} />);
-    expect(screen.queryByRole("region", { name: "账户余额" })).not.toBeInTheDocument();
+    render(<SidebarWalletCard collapsed={false} onRecharge={() => {}} />);
+    expect(
+      screen.queryByRole("region", { name: "账户余额" }),
+    ).not.toBeInTheDocument();
   });
 });

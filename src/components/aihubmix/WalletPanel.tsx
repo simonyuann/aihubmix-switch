@@ -6,7 +6,7 @@ import {
   type ReactNode,
   type ComponentType,
 } from "react";
-import { CreditCard, KeyRound } from "lucide-react";
+import { CreditCard } from "lucide-react";
 import { useOptionalAccount } from "@/contexts/AccountContext";
 import { RechargeDialog, type PaymentLinks } from "./RechargeDialog";
 
@@ -55,27 +55,16 @@ export interface WalletNavItem {
   onClick: () => void;
 }
 export function WalletPanel({
-  onOpenAccount,
   renderItem,
 }: {
-  onOpenAccount: () => void;
   renderItem: (item: WalletNavItem) => ReactNode;
 }) {
   const account = useOptionalAccount();
   const actions = useContext(WalletActions);
   if (!account?.state?.account.loggedIn) return null;
-  return (
-    <>
-      {renderItem({
-        label: "充值",
-        icon: CreditCard,
-        onClick: () => actions?.recharge(),
-      })}
-      {renderItem({
-        label: "API 管理",
-        icon: KeyRound,
-        onClick: onOpenAccount,
-      })}
-    </>
-  );
+  return renderItem({
+    label: "充值",
+    icon: CreditCard,
+    onClick: () => actions?.recharge(),
+  });
 }

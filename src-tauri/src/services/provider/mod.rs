@@ -5480,10 +5480,8 @@ impl ProviderService {
             return Ok(rows);
         }
         let _native_guard = lock_native_provider_operations(state, &app_type);
-        if app_type == AppType::Dsh {
-            if initialize_dsh_profiles(state).is_err() {
-                log::warn!("Initializing DeepSeek Harness profiles failed");
-            }
+        if app_type == AppType::Dsh && initialize_dsh_profiles(state).is_err() {
+            log::warn!("Initializing DeepSeek Harness profiles failed");
         }
         if app_type == AppType::Pi {
             let mut rows = pi::list(state)?;

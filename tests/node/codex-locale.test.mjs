@@ -153,3 +153,21 @@ test("patches the language gate before the client's first synchronous read", () 
   `, context);
   assert.equal(enabled, true);
 });
+
+test("verifies visible shell controls without using words from the open chat", async () => {
+  const source = readFileSync(new URL("verify-locale.js", resources), "utf8").replace("__LOCALE_JSON__", '"zh-CN"');
+  const control = (text, chat = false, visible = true) => ({
+    innerText: text, getAttribute: () => null, closest: () => chat ? {} : null,
+    getClientRects: () => visible ? [{}] : [],
+  });
+  async function check(items, bodyText) {
+    let time = 0;
+    return JSON.parse(await vm.runInNewContext(source, {
+      document: { body: {innerText: bodyText}, querySelectorAll: () => items },
+      window: {setTimeout: resolve => resolve()}, Date: {now: () => time += 2000},
+    })).status;
+  }
+  assert.equal(await check([control("插件"), control("设置"), control("Settings", true)], "插件 设置 Settings"), "ok");
+  assert.equal(await check([control("Settings"), control("Plugins"), control("插件",true), control("设置",false,false)], "Settings Plugins 插件 设置"), "partial");
+  assert.equal(await check([control("插件"), control("插件")], "插件"), "partial");
+});

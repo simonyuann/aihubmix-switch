@@ -12,6 +12,7 @@ import { useTauriEvent } from "@/hooks/useTauriEvent";
 import {
   dispatch,
   type AccountState,
+  type LogoutResult,
   type WalletBalance,
 } from "@/lib/api/aihubmix";
 
@@ -101,7 +102,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         client.clear();
         setError(
           /登录已失效|登录信息已变更|登录已过期/.test(message)
-            ? "登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。"
+            ? "登录已失效，请重新登录。"
             : "",
         );
       } else {
@@ -138,9 +139,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       setState(null);
       setWallet(null);
       setChecking(false);
-      setError(
-        "登录已失效。请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据，DSH 凭据文件也可能保留旧引用。",
-      );
+      setError("登录已失效，请重新登录。");
       activeAccount.current = null;
       client.clear();
     };
@@ -192,10 +191,10 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     revision.current++;
     walletRevision.current++;
     setChecking(true);
-    let revocationWarning = "";
+    let logoutNotice = "";
     try {
-      const result = await dispatch<{ revocationWarning?: string }>("logout");
-      revocationWarning = result?.revocationWarning ?? "";
+      const result = await dispatch<LogoutResult>("logout");
+      logoutNotice = result?.logoutNotice ?? result?.revocationWarning ?? "";
     } catch (error) {
       loggingOut.current = false;
       setChecking(false);
@@ -206,9 +205,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     setState(null);
     setWallet(null);
     setWalletError("");
-    setError(
-      `${revocationWarning ? `${revocationWarning} ` : ""}请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据。为保护自定义配置，DSH 凭据文件可能保留旧引用。`,
-    );
+    setError(logoutNotice);
     setChecking(false);
     activeAccount.current = null;
     client.clear();

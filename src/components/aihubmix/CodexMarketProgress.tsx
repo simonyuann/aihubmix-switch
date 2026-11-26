@@ -18,7 +18,9 @@ export function CodexMarketProgress({
     : progress.phase === "checking"
       ? "正在准备插件库…"
       : progress.phase === "downloading"
-        ? `正在下载插件库：${mib(progress.downloaded)} / ${mib(progress.total)} MiB（${percent}%）`
+        ? !progress.total
+          ? `正在下载插件库，已下载 ${mib(progress.downloaded)} MiB`
+          : `正在下载插件库：${mib(progress.downloaded)} / ${mib(progress.total)} MiB（${percent}%）`
         : progress.phase === "verifying"
           ? "正在安装插件库，请稍候…"
           : "正在安装插件库，请稍候…";

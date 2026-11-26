@@ -7,40 +7,29 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowLeft, Bell, ChevronRight, Megaphone, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, Megaphone } from "lucide-react";
 import { useAccount } from "@/contexts/AccountContext";
 import { dispatch, type Announcement } from "@/lib/api/aihubmix";
-import { Button } from "@/components/ui/button";
-import { useSettingsQuery } from "@/lib/query";
-import { friendlyError } from "./friendlyError";
 import { SessionMarkdown } from "@/components/sessions/reader/SessionMarkdown";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { AppPageHeader } from "@/components/shell/AppPageHeader";
+import { Button } from "@/components/ui/button";
+import { friendlyError } from "./friendlyError";
 
 const Context = createContext<{
-  unread: number;
-  open: () => void;
-  latestUnread: Announcement | null;
-  openUnread: () => void;
+  items: Announcement[];
+  error: string;
+  loading: boolean;
+  refresh: () => Promise<void>;
+  markRead: (item: Announcement) => void;
 } | null>(null);
 
-export function useAnnouncements() {
-  return useContext(Context);
-}
-
-export function AnnouncementBanner() {
-  const announcements = useAnnouncements();
-  if (!announcements?.latestUnread) return null;
+export function AnnouncementBanner({ onOpen }: { onOpen: () => void }) {
+  const unread = useContext(Context)?.items.filter((item) => !item.readAt);
+  if (!unread?.length) return null;
   return (
     <button
       type="button"
-      onClick={announcements.openUnread}
+      onClick={onOpen}
       className="aihub-page-enter mx-6 mt-3 flex items-center gap-3 rounded-panel bg-subtle px-4 py-3 text-start text-body text-fg-1 transition-colors hover:bg-selected motion-reduce:transition-none"
     >
       <Megaphone
@@ -48,12 +37,12 @@ export function AnnouncementBanner() {
         aria-hidden="true"
       />
       <span className="min-w-0 flex-1 truncate">
-        <strong>平台公告：</strong>
-        {announcements.latestUnread.title}
+        <strong>新公告</strong>
+        <span className="ms-2">{unread[0].title}</span>
       </span>
-      {announcements.unread > 1 && (
+      {unread.length > 1 && (
         <span className="shrink-0 text-caption text-fg-3">
-          {announcements.unread} 条未读
+          {unread.length} 条未读
         </span>
       )}
       <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -61,90 +50,47 @@ export function AnnouncementBanner() {
   );
 }
 
-export function AnnouncementBell() {
-  const announcements = useContext(Context);
-  if (!announcements) return null;
-  return (
-    <button
-      type="button"
-      aria-label={
-        announcements.unread
-          ? `平台公告，${announcements.unread} 条未读`
-          : "平台公告"
-      }
-      title="平台公告"
-      className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded text-fg-2 hover:bg-subtle hover:text-fg-1"
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      onClick={announcements.open}
-    >
-      <Bell className="h-4 w-4" aria-hidden="true" />
-      {announcements.unread > 0 && (
-        <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-action" />
-      )}
-    </button>
-  );
-}
-
 export function AnnouncementProvider({ children }: { children: ReactNode }) {
-  const account = useAccount();
-  const { data: settings, isError: settingsError } = useSettingsQuery();
+  const { state } = useAccount();
   const [items, setItems] = useState<Announcement[]>([]);
-  const [open, setOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [anotherDialogOpen, setAnotherDialogOpen] = useState(false);
-  const seenPopups = useRef(new Set<number>());
   const generation = useRef(0);
-
-  useEffect(() => {
-    if (
-      open ||
-      !items.some(
-        (item) =>
-          !item.readAt &&
-          item.notifyMode === "popup" &&
-          !seenPopups.current.has(item.id),
-      )
-    ) {
-      setAnotherDialogOpen(false);
-      return;
-    }
-    const check = () =>
-      setAnotherDialogOpen(!!document.querySelector('[role="dialog"]'));
-    check();
-    const observer = new MutationObserver(check);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [items, open]);
+  const latestRefresh = useRef(0);
+  const pendingReads = useRef(new Set<number>());
 
   const refresh = useCallback(async () => {
     const current = generation.current;
+    const request = ++latestRefresh.current;
+    const isCurrent = () =>
+      generation.current === current && latestRefresh.current === request;
     try {
       const next = await dispatch<Announcement[]>("announcements");
-      if (generation.current !== current) return;
+      if (!isCurrent()) return;
       if (!Array.isArray(next)) throw new Error("公告数据格式异常");
-      // A refresh may have started before a read acknowledgement arrived.
-      // Read state is monotonic within this account's session.
+      // An earlier read acknowledgement must survive a stale server response.
       setItems((previous) => {
         const readAt = new Map(previous.map((item) => [item.id, item.readAt]));
-        return next.map((item) => ({
-          ...item,
-          readAt: item.readAt ?? readAt.get(item.id) ?? null,
-        }));
+        return next
+          .map((item) => ({
+            ...item,
+            readAt: item.readAt ?? readAt.get(item.id) ?? null,
+          }))
+          .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
       });
       setError("");
     } catch (e) {
-      if (generation.current === current)
-        setError(friendlyError(e, "公告加载失败，请重试。"));
+      if (isCurrent()) setError(friendlyError(e, "公告加载失败，请重试。"));
+    } finally {
+      if (isCurrent()) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     generation.current++;
-    seenPopups.current.clear();
+    pendingReads.current = new Set();
     setItems([]);
-    setOpen(false);
-    setSelectedId(null);
+    setLoading(true);
     setError("");
     void refresh();
     const timer = window.setInterval(() => void refresh(), 60_000);
@@ -152,166 +98,160 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
       generation.current++;
       window.clearInterval(timer);
     };
-  }, [account.state?.account.userId, refresh]);
+  }, [state?.account.userId, state?.relayBaseUrl, refresh]);
 
   const markRead = useCallback((item: Announcement) => {
-    if (!item.readAt) {
-      const current = generation.current;
-      void dispatch("announcement-read", { id: item.id })
-        .then(() => {
-          if (generation.current !== current) return;
-          setItems((previous) =>
-            previous.map((entry) =>
-              entry.id === item.id
-                ? { ...entry, readAt: new Date().toISOString() }
-                : entry,
-            ),
-          );
-        })
-        .catch((e) => {
-          if (generation.current === current)
-            setError(friendlyError(e, "公告状态保存失败，请重试。"));
-        });
-    }
+    const pending = pendingReads.current;
+    if (item.readAt || pending.has(item.id)) return;
+    pending.add(item.id);
+    const current = generation.current;
+    void dispatch("announcement-read", { id: item.id })
+      .then(() => {
+        if (generation.current !== current) return;
+        const readAt = new Date().toISOString();
+        setItems((previous) =>
+          previous.map((entry) =>
+            entry.id === item.id ? { ...entry, readAt } : entry,
+          ),
+        );
+      })
+      .catch((e) => {
+        if (generation.current === current)
+          setError(friendlyError(e, "公告状态保存失败，请重试。"));
+      })
+      .finally(() => pending.delete(item.id));
   }, []);
 
-  const view = useCallback(
-    (item: Announcement, mark = true) => {
-      seenPopups.current.add(item.id);
-      setSelectedId(item.id);
-      setOpen(true);
-      if (mark) markRead(item);
-    },
-    [markRead],
+  return (
+    <Context.Provider value={{ items, error, loading, refresh, markRead }}>
+      {children}
+    </Context.Provider>
   );
+}
+
+export function AnnouncementPage() {
+  const announcements = useContext(Context);
+  const refresh = announcements?.refresh;
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = announcements?.items.find((item) => item.id === selectedId);
+  const scrollArea = useRef<HTMLElement>(null);
+  const articleTitle = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    // First-run UI has a higher layer and its own focus trap. Wait until it
-    // has been dismissed and any other open dialog has actually unmounted.
-    if (
-      open ||
-      (!settings && !settingsError) ||
-      (settings && settings.firstRunNoticeConfirmed !== true) ||
-      anotherDialogOpen ||
-      document.querySelector('[role="dialog"]')
-    )
-      return;
-    const popup = items.find(
-      (item) =>
-        !item.readAt &&
-        item.notifyMode === "popup" &&
-        !seenPopups.current.has(item.id),
-    );
-    if (popup) {
-      view(popup, false);
-    }
-  }, [items, open, view, settings, settingsError, anotherDialogOpen]);
+    void refresh?.();
+  }, [refresh]);
 
-  const selected = items.find((item) => item.id === selectedId);
-  const close = () => {
-    if (selected) markRead(selected);
-    setOpen(false);
-  };
-  const unread = items.filter((item) => !item.readAt).length;
-  const latestUnread =
-    items
-      .filter((item) => !item.readAt)
-      .sort((a, b) =>
-        (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
-      )[0] ?? null;
+  useEffect(() => {
+    scrollArea.current?.scrollTo?.(0, 0);
+    if (selectedId != null) articleTitle.current?.focus();
+  }, [selectedId]);
+
   return (
-    <Context.Provider
-      value={{
-        unread,
-        latestUnread,
-        openUnread: () => {
-          if (latestUnread) view(latestUnread, false);
-        },
-        open: () => {
-          setSelectedId(null);
-          setOpen(true);
-          void refresh();
-        },
-      }}
-    >
-      {children}
-      <Dialog
-        open={open}
-        onOpenChange={(next) => (next ? setOpen(true) : close())}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <Button
-              variant="ghost"
-              size="icon-compact"
-              aria-label="关闭公告"
-              className="absolute right-4 top-4"
-              onClick={close}
-            >
-              <X className="h-4 w-4" />
+    <>
+      <AppPageHeader
+        title="公告"
+        icon={<Megaphone className="h-5 w-5" />}
+        actions={
+          selected && (
+            <Button variant="outline" onClick={() => setSelectedId(null)}>
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              返回公告列表
             </Button>
-            <DialogTitle className="flex items-center gap-2 pr-10">
-              {selected && (
-                <Button
-                  variant="ghost"
-                  size="icon-compact"
-                  aria-label="返回公告列表"
-                  onClick={() => {
-                    if (selected) markRead(selected);
-                    setSelectedId(null);
-                  }}
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-              )}
-              {selected ? selected.title : "平台公告"}
-            </DialogTitle>
-            <DialogDescription>
-              {selected ? "平台公告" : "查看平台最新消息"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-24 min-w-0 flex-1 overflow-y-auto px-6 py-2">
-            {error && (
-              <p role="alert" className="mb-3 break-words text-destructive">
-                {error}
+          )
+        }
+      />
+      <main
+        id="main-content"
+        ref={scrollArea}
+        className="min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-5"
+      >
+        <div className="max-w-3xl space-y-4">
+          {announcements?.error && (
+            <div className="flex flex-wrap items-center gap-3">
+              <p role="alert" className="text-body text-destructive">
+                {announcements.error}
               </p>
-            )}
-            {selected ? (
+              <Button
+                variant="outline"
+                size="compact"
+                onClick={() => void refresh?.()}
+              >
+                刷新公告
+              </Button>
+            </div>
+          )}
+          {selected ? (
+            <article className="min-w-0 rounded-panel border border-border p-6">
+              <h2
+                ref={articleTitle}
+                tabIndex={-1}
+                className="mb-2 break-words text-title font-semibold"
+              >
+                {selected.title}
+              </h2>
+              {selected.createdAt && (
+                <time
+                  dateTime={selected.createdAt}
+                  className="text-caption text-fg-3"
+                >
+                  {selected.createdAt.slice(0, 10)}
+                </time>
+              )}
               <SessionMarkdown
                 content={selected.content}
                 autoLoadRemoteImages
-                className="whitespace-pre-line text-body leading-6"
+                className="mt-5 whitespace-pre-line break-words text-body leading-6"
               />
-            ) : items.length ? (
-              <div className="divide-y divide-border">
-                {items.map((item) => (
+            </article>
+          ) : announcements?.items.length ? (
+            <ul className="divide-y divide-border overflow-hidden rounded-panel border border-border">
+              {announcements.items.map((item) => (
+                <li key={item.id}>
                   <button
-                    key={item.id}
                     type="button"
-                    onClick={() => view(item)}
-                    className="flex w-full items-start gap-3 py-3 text-start hover:text-action-text"
+                    onClick={() => {
+                      setSelectedId(item.id);
+                      announcements.markRead(item);
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-3.5 text-start hover:bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   >
                     <span
-                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.readAt ? "bg-transparent" : "bg-action"}`}
+                      aria-hidden="true"
+                      className={`h-2 w-2 shrink-0 rounded-full ${item.readAt ? "bg-transparent" : "bg-action"}`}
                     />
                     <span className="min-w-0 flex-1 break-words font-medium">
                       {item.title}
+                      {!item.readAt && (
+                        <span className="sr-only">（未读）</span>
+                      )}
                     </span>
-                    <span className="shrink-0 text-caption text-fg-3">
-                      {item.createdAt ? item.createdAt.slice(0, 10) : ""}
-                    </span>
+                    {item.createdAt && (
+                      <time
+                        dateTime={item.createdAt}
+                        className="shrink-0 text-caption text-fg-3"
+                      >
+                        {item.createdAt.slice(0, 10)}
+                      </time>
+                    )}
+                    <ChevronRight
+                      className="h-4 w-4 shrink-0 text-fg-3"
+                      aria-hidden="true"
+                    />
                   </button>
-                ))}
-              </div>
-            ) : (
-              <p className="py-4 text-fg-3">暂无公告</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button onClick={close}>关闭</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Context.Provider>
+                </li>
+              ))}
+            </ul>
+          ) : announcements?.loading ? (
+            <p role="status" className="py-4 text-body text-fg-3">
+              正在加载公告…
+            </p>
+          ) : (
+            !announcements?.error && (
+              <p className="py-4 text-body text-fg-3">暂无公告</p>
+            )
+          )}
+        </div>
+      </main>
+    </>
   );
 }

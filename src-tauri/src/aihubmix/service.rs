@@ -16,6 +16,13 @@ fn transient_session_error(error: &str) -> bool {
             | TRANSIENT_SERVER
     )
 }
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RememberedLogin {
+    origin: String,
+    email: String,
+    password: String,
+}
+
 pub struct Backend {
     pub store: Store,
     pub(super) client: Client,
@@ -166,6 +173,7 @@ fn key_info(value: &Value) -> KeyInfo {
                 status
             }
         },
+        expires_at: value["expires_at"].as_str().map(str::to_owned),
         quota_used: value["quota_used"].as_f64(),
         quota: value["quota"].as_f64(),
         created_at: string(value, "created_at"),
@@ -176,7 +184,13 @@ pub(super) fn parse_groups(value: &Value) -> Result<Value> {
     let groups:Vec<Value> = value.as_array().ok_or("分组列表格式异常")?.iter().map(|v| json!({"id":v["id"],"name":v["name"],"description":v["description"].as_str().unwrap_or_default(),"platform":v["platform"],"rateMultiplier":v["rate_multiplier"],"allowMessagesDispatch":v["allow_messages_dispatch"].as_bool().unwrap_or(false),"subscriptionType":v["subscription_type"]})).collect();
     Ok(json!(groups))
 }
-pub(super) fn append_keys(keys: &mut Vec<KeyInfo>, value: &Value) -> Result<usize> {
+pub(super) fn key_page_path(page: u64) -> String {
+    format!("/api/v1/keys?page={page}&page_size=100")
+}
+
+/// Returns whether another page is required. Both catalog paths must signal
+/// truncation because an incomplete list cannot verify group bindings.
+pub(super) fn append_key_page(keys: &mut Vec<KeyInfo>, page: u64, value: &Value) -> Result<bool> {
     let list = value
         .as_array()
         .or(value["items"].as_array())
@@ -184,7 +198,11 @@ pub(super) fn append_keys(keys: &mut Vec<KeyInfo>, value: &Value) -> Result<usiz
         .ok_or("API 列表格式异常")?;
     let count = list.len();
     keys.extend(list.iter().map(key_info));
-    Ok(count)
+    let more = count >= 100 && page * 100 < value["total"].as_u64().unwrap_or(u64::MAX);
+    if more && page >= 100 {
+        return Err("账号的 API 列表过长，无法确认全部分组绑定".into());
+    }
+    Ok(more)
 }
 const SETTINGS_PATH: &str = "/api/v1/settings/public";
 fn network_stage(error: &reqwest::Error) -> &'static str {
@@ -361,21 +379,24 @@ async fn load_public_settings(
     if !value["registration_enabled"].is_boolean() {
         return Err(Failed("注册设置缺少有效的注册开关".into()));
     }
-    let mut documents = Vec::new();
-    if value["login_agreement_enabled"].as_bool() == Some(true) {
-        let docs = value["login_agreement_documents"]
+    let documents = if value["login_agreement_enabled"].as_bool() == Some(true) {
+        value["login_agreement_documents"]
             .as_array()
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| Failed("平台启用了登录协议，但未返回协议内容，请重新连接".into()))?;
-        for doc in docs {
-            let title = doc["title"].as_str().filter(|s| !s.trim().is_empty());
-            let content = doc["content_md"].as_str().filter(|s| !s.trim().is_empty());
-            let (Some(title), Some(content)) = (title, content) else {
-                return Err(Failed("登录协议内容不完整，请重新连接".into()));
-            };
-            documents.push(json!({"title":title,"content":content}));
-        }
-    }
+            .filter(|docs| !docs.is_empty())
+            .and_then(|docs| {
+                docs.iter()
+                    .map(|doc| {
+                        let title = doc["title"].as_str().filter(|s| !s.trim().is_empty())?;
+                        let content = doc["content_md"]
+                            .as_str()
+                            .filter(|s| !s.trim().is_empty())?;
+                        Some(json!({"title":title,"content":content}))
+                    })
+                    .collect::<Option<Vec<_>>>()
+            })
+    } else {
+        Some(Vec::new())
+    };
     let captcha_required = [
         "turnstile_enabled",
         "tencent_captcha_enabled",
@@ -384,7 +405,7 @@ async fn load_public_settings(
     .iter()
     .any(|k| value[*k].as_bool() == Some(true));
     Ok(
-        json!({"registrationEnabled":value["registration_enabled"],"emailVerifyEnabled":value["email_verify_enabled"].as_bool().unwrap_or(false),"passwordResetEnabled":value["password_reset_enabled"].as_bool().unwrap_or(false),"invitationCodeEnabled":value["invitation_code_enabled"].as_bool().unwrap_or(false),"captchaRequired": captcha_required, "agreements":documents}),
+        json!({"registrationEnabled":value["registration_enabled"] == true && documents.is_some(),"emailVerifyEnabled":value["email_verify_enabled"].as_bool().unwrap_or(false),"passwordResetEnabled":value["password_reset_enabled"].as_bool().unwrap_or(false),"invitationCodeEnabled":value["invitation_code_enabled"].as_bool().unwrap_or(false),"captchaRequired": captcha_required, "agreements":documents.unwrap_or_default()}),
     )
 }
 pub(crate) async fn public_settings(client: &Client, base: &str) -> Result<Value> {
@@ -500,6 +521,17 @@ impl Backend {
         body: Option<Value>,
         token: Option<&str>,
     ) -> Result<(u16, Value)> {
+        self.raw_with_idempotency(method, path, body, token, None)
+            .await
+    }
+    async fn raw_with_idempotency(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        token: Option<&str>,
+        idempotency: Option<&str>,
+    ) -> Result<(u16, Value)> {
         let url = format!(
             "{}{}",
             normalize(&self.store.settings.relay_base_url)?,
@@ -508,6 +540,9 @@ impl Backend {
         crate::product_policy::require_url(&url)?;
         let empty_allowed = method == Method::DELETE || path == "/api/v1/auth/logout";
         let mut request = self.client.request(method, url);
+        if let Some(id) = idempotency {
+            request = request.header("Idempotency-Key", id);
+        }
         if path.contains("client_version=")
             || path == "/v1/usage"
             || path == "/v1/sub2api/billing"
@@ -638,7 +673,7 @@ impl Backend {
             self.invalidate_local_auth()?;
             return Err("AUTH_REQUIRED: 登录信息已变更，请重新登录".into());
         }
-        self.save_auth(value, None)
+        self.save_auth(value, None, None)
     }
     /// Retain the old owner ID until native configuration has been safely
     /// detached. Empty credentials alone are never proof that cleanup happened.
@@ -663,7 +698,18 @@ impl Backend {
         crate::product_policy::set_account(0);
         Ok(())
     }
-    fn save_auth(&mut self, value: Value, email: Option<&str>) -> Result<()> {
+    fn remembered_login(&self) -> Option<RememberedLogin> {
+        let saved: RememberedLogin =
+            serde_json::from_str(&self.store.secret("remembered-login")).ok()?;
+        (saved.origin == self.store.settings.relay_base_url && !saved.password.is_empty())
+            .then_some(saved)
+    }
+    fn save_auth(
+        &mut self,
+        value: Value,
+        email: Option<&str>,
+        remembered: Option<&str>,
+    ) -> Result<()> {
         if value["requires_2fa"].as_bool() == Some(true) {
             return Err("此账号启用了两步验证，当前客户端暂不支持，请联系平台管理员".into());
         }
@@ -675,8 +721,11 @@ impl Backend {
             .as_str()
             .map(str::to_string)
             .unwrap_or_else(|| self.store.secret("refresh"));
-        self.store
-            .set_secrets(&[("access", &access), ("refresh", &refresh)])?;
+        let mut entries = vec![("access", access.as_str()), ("refresh", refresh.as_str())];
+        if let Some(saved) = remembered {
+            entries.push(("remembered-login", saved));
+        }
+        self.store.set_secrets(&entries)?;
         let old = self.store.settings.account.clone();
         self.store.settings.account = Account {
             logged_in: true,
@@ -694,6 +743,16 @@ impl Backend {
         Ok(())
     }
     async fn request(&mut self, method: Method, path: &str, body: Option<Value>) -> Result<Value> {
+        self.request_with_idempotency(method, path, body, None)
+            .await
+    }
+    async fn request_with_idempotency(
+        &mut self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        idempotency: Option<&str>,
+    ) -> Result<Value> {
         if !self.store.settings.account.logged_in {
             return Err("请先登录账号".into());
         }
@@ -705,7 +764,13 @@ impl Backend {
         for attempt in 0..2 {
             let token = self.store.secret("access");
             let (status, value) = self
-                .raw(method.clone(), path, body.clone(), Some(&token))
+                .raw_with_idempotency(
+                    method.clone(),
+                    path,
+                    body.clone(),
+                    Some(&token),
+                    idempotency,
+                )
                 .await?;
             let rejected = confirmed_auth_rejection(status, &value);
             if rejected && status == 401 && attempt == 0 && !self.store.secret("refresh").is_empty()
@@ -728,6 +793,31 @@ impl Backend {
                 .map_err(|error| error.replace(&token, "[已隐藏]"));
         }
         Err("登录已过期，请重新登录".into())
+    }
+    pub(super) async fn create_group_key(
+        &mut self,
+        group: i64,
+        name: &str,
+        idempotency: Option<&str>,
+    ) -> Result<(KeyInfo, Option<String>)> {
+        let value = self
+            .request_with_idempotency(
+                Method::POST,
+                "/api/v1/keys",
+                Some(json!({"group_id":group,"name":name})),
+                idempotency,
+            )
+            .await?;
+        let key = string(&value, "key");
+        if key.is_empty() {
+            return Err("服务已返回创建结果，但没有完整 Key。请刷新列表查看，勿重复创建。".into());
+        }
+        let info = key_info(&value);
+        self.ephemeral_keys.insert(info.id, key.clone());
+        let secret_name = self.secret_name(info.id);
+        let warning = self.store.set_secrets(&[(&secret_name, &key)]).err();
+        // The server has created the key. Local storage or probing failures are not creation failures.
+        Ok((info, warning))
     }
     fn secret_name(&self, id: i64) -> String {
         if id < 0 {
@@ -806,6 +896,11 @@ impl Backend {
                 }
                 Err(error) => Err(error),
             },
+            "remembered-login" => Ok(json!(self.remembered_login().map(|saved| saved.email))),
+            "forget-remembered-login" => {
+                self.store.set_secrets(&[("remembered-login", "")])?;
+                Ok(Value::Null)
+            }
             "auth-settings" => {
                 public_settings(&self.client, &self.store.settings.relay_base_url).await
             }
@@ -855,7 +950,17 @@ impl Backend {
                     }
                 }
                 let email = string(&input, "email").trim().to_string();
-                let password = string(&input, "password");
+                let reuse = command == "login"
+                    && input["useSavedPassword"] == true
+                    && input["remember"] == true;
+                let password = if reuse {
+                    self.remembered_login()
+                        .filter(|saved| saved.email == email)
+                        .ok_or("请重新输入密码")?
+                        .password
+                } else {
+                    string(&input, "password")
+                };
                 if email.is_empty() || password.is_empty() {
                     return Err("请填写邮箱和密码".into());
                 }
@@ -870,6 +975,10 @@ impl Backend {
                     .await?;
                 if command == "login" && status == 401 {
                     let reason = value["reason"].as_str().or_else(|| value["code"].as_str());
+                    if reuse && reason == Some("INVALID_CREDENTIALS") {
+                        self.store.set_secrets(&[("remembered-login", "")])?;
+                        return Err("请重新输入密码".into());
+                    }
                     return Err(if reason == Some("INVALID_CREDENTIALS") {
                         "邮箱或密码不正确，请检查后重试"
                     } else {
@@ -894,7 +1003,21 @@ impl Backend {
                     self.store.settings.selected_key = None;
                 }
                 self.login_generation = self.login_generation.wrapping_add(1);
-                self.save_auth(value, Some(&email))?;
+                let remembered = if command == "login" && input["remember"] == true {
+                    Some(
+                        serde_json::to_string(&RememberedLogin {
+                            origin: self.store.settings.relay_base_url.clone(),
+                            email: email.clone(),
+                            password,
+                        })
+                        .map_err(|_| "无法保存登录信息")?,
+                    )
+                } else if command == "login" {
+                    Some(String::new())
+                } else {
+                    None
+                };
+                self.save_auth(value, Some(&email), remembered.as_deref())?;
                 self.state()
             }
             "logout" => {
@@ -920,6 +1043,7 @@ impl Backend {
                     ("access", ""),
                     ("refresh", ""),
                     ("session-owner", ""),
+                    (super::payments::CHECKOUT_SECRET, ""),
                 ])?;
                 crate::product_policy::set_session(0);
                 self.store.settings.account = Account::default();
@@ -948,17 +1072,9 @@ impl Backend {
                     let mut page = 1;
                     loop {
                         let value = self
-                            .request(
-                                Method::GET,
-                                &format!("/api/v1/keys?page={page}&page_size=100"),
-                                None,
-                            )
+                            .request(Method::GET, &key_page_path(page), None)
                             .await?;
-                        let count = append_keys(&mut keys, &value)?;
-                        if count < 100
-                            || page * 100 >= value["total"].as_u64().unwrap_or(u64::MAX)
-                            || page >= 100
-                        {
+                        if !append_key_page(&mut keys, page, &value)? {
                             break;
                         }
                         page += 1;
@@ -975,18 +1091,12 @@ impl Backend {
                     .filter(|id| *id > 0)
                     .ok_or("请选择模型服务")?;
                 let name = string(&input, "name");
-                let value=self.request(Method::POST,"/api/v1/keys",Some(json!({"group_id":group,"name":if name.trim().is_empty() {"我的 API Key"} else {name.trim()}}))).await?;
-                let key = string(&value, "key");
-                if key.is_empty() {
-                    return Err(
-                        "服务已返回创建结果，但没有完整 Key。请刷新列表查看，勿重复创建。".into(),
-                    );
-                }
-                let info = key_info(&value);
-                self.ephemeral_keys.insert(info.id, key.clone());
-                let secret_name = self.secret_name(info.id);
-                let warning = self.store.set_secrets(&[(&secret_name, &key)]).err();
-                // The server has created the key. Local storage or probing failures are not creation failures.
+                let name = if name.trim().is_empty() {
+                    "我的 API Key"
+                } else {
+                    name.trim()
+                };
+                let (info, warning) = self.create_group_key(group, name, None).await?;
                 Ok(json!({"info":info,"state":self.state()?,"warning":warning}))
             }
 
@@ -1153,13 +1263,27 @@ fn discard_cross_origin_session(store: &mut Store) -> Result<()> {
     store.settings.relay_base_url = DEFAULT_BASE.into();
     store.settings.selected_key = None;
     store.save()?;
-    store.set_secrets(&[("access", ""), ("refresh", ""), ("session-owner", "")])?;
+    store.set_secrets(&[
+        ("access", ""),
+        ("refresh", ""),
+        ("session-owner", ""),
+        (super::payments::CHECKOUT_SECRET, ""),
+    ])?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn last_key_page_never_silently_truncates_an_account() {
+        let items = vec![json!({"id":1}); 100];
+        let mut keys = Vec::new();
+        assert!(append_key_page(&mut keys, 99, &json!({"items":items,"total":10_001})).unwrap());
+        assert!(append_key_page(&mut keys, 100, &json!({"items":items,"total":10_001})).is_err());
+        assert!(!append_key_page(&mut keys, 100, &json!({"items":items,"total":10_000})).unwrap());
+    }
 
     #[tokio::test]
     #[serial_test::serial]
@@ -1642,6 +1766,47 @@ mod auth_tests {
             Some("group-key")
         );
         assert!(!result.to_string().contains("new-token"));
+        assert!(backend
+            .dispatch("remembered-login", Value::Null)
+            .await
+            .unwrap()
+            .is_null());
+        let email = "owner@example.test";
+        let login = json!({"email": email, "password":"correct","remember":true});
+        backend.dispatch("login", login).await.unwrap();
+        backend.dispatch("logout", Value::Null).await.unwrap();
+        backend.store = Store::reopen_for_test(dir.path().into());
+        for file in ["state-v2.json", "vault-v2.bin"] {
+            let contents = std::fs::read(dir.path().join(file)).unwrap();
+            assert!(!contents.windows(b"correct".len()).any(|w| w == b"correct"));
+        }
+        assert_eq!(
+            backend
+                .dispatch("remembered-login", Value::Null)
+                .await
+                .unwrap(),
+            email
+        );
+        let origin = backend.store.settings.relay_base_url.clone();
+        backend.store.settings.relay_base_url = "https://different.example".into();
+        assert!(backend.remembered_login().is_none());
+        backend.store.settings.relay_base_url = origin;
+        let mut saved =
+            json!({"email":"other@example.test", "remember":true,"useSavedPassword":true});
+        assert_eq!(
+            backend.dispatch("login", saved.clone()).await.unwrap_err(),
+            "请重新输入密码"
+        );
+        saved["email"] = json!(email);
+        assert_eq!(
+            backend.dispatch("login", saved.clone()).await.unwrap()["account"]["userId"],
+            8
+        );
+        backend
+            .dispatch("forget-remembered-login", Value::Null)
+            .await
+            .unwrap();
+        assert!(backend.dispatch("login", saved).await.is_err());
         task.abort();
         crate::product_policy::set_session(0);
     }

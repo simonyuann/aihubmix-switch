@@ -55,11 +55,14 @@ export interface CodexMarketPlugin {
   license: string;
   requiresAuth: boolean;
   installed: boolean | null;
+  officialUrl?: string | null;
+  inApiCatalog?: boolean | null;
   skills: number;
   tags: string[];
 }
 
 export interface CodexPluginCatalog {
+  downloadBytes: number;
   source: string;
   revision: string;
   plugins: CodexMarketPlugin[];
@@ -72,6 +75,7 @@ interface CodexPluginChange {
 
 interface CodexPluginMarketChange {
   revision?: string;
+  officialReady?: boolean;
   restartRequired: boolean;
 }
 
@@ -80,11 +84,15 @@ export const codexPluginMarket = {
     invoke<CodexPluginCatalog>("list_codex_market_plugins", {
       executablePath: getCodexDesktopPreferences().executablePath,
     }),
-  enable: (onProgress?: (progress: CodexMarketProgress) => void) => {
+  enable: (
+    onProgress?: (progress: CodexMarketProgress) => void,
+    prepareLocal = false,
+  ) => {
     const progress = new Channel<CodexMarketProgress>();
     progress.onmessage = onProgress ?? (() => {});
     return invoke<CodexPluginMarketChange>("enable_codex_plugin_market", {
       progress,
+      prepareLocal,
       executablePath: getCodexDesktopPreferences().executablePath,
     });
   },

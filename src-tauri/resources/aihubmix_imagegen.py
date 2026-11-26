@@ -120,7 +120,7 @@ def _base_url(value):
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
-def resolve_pair(data_dir, device_dir):
+def _request_settings(data_dir, device_dir):
     settings_text, category, meta_text = _read_current_provider(Path(data_dir), Path(device_dir))
     settings = _json_object(settings_text)
     meta = _json_object(meta_text)
@@ -155,7 +155,14 @@ def resolve_pair(data_dir, device_dir):
     key = key.strip()
     if key in ("***", "PROXY_MANAGED", "codex_oauth_placeholder", "xai_oauth_placeholder", "copilot_placeholder"):
         raise Unavailable()
-    return key, _base_url(base)
+    choice = settings.get("aihubImageChoice")
+    model = choice.get("model") if isinstance(choice, dict) else None
+    return key, _base_url(base), model if isinstance(model, str) else None
+
+
+def resolve_pair(data_dir, device_dir):
+    key, base, _ = _request_settings(data_dir, device_dir)
+    return key, base
 
 
 def _copy_redacted(source, destination, secrets):
@@ -203,7 +210,10 @@ def main(argv=None):
         if (len(command) < 2 or not re.fullmatch(r"python(?:3(?:\.[0-9]+)?)?(?:\.exe)?", executable)
                 or Path(command[1]).name != "image_gen.py"):
             raise Unavailable()
-        key, base = resolve_pair(args.data_dir, args.device_dir)
+        key, base, model = _request_settings(args.data_dir, args.device_dir)
+        if (model and len(command) > 2 and command[2] in ("generate", "edit", "generate-batch")
+                and not any(arg == "--model" or arg.startswith("--model=") for arg in command[3:])):
+            command = [*command, "--model", model]
         env = os.environ.copy()
         for name in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID", "OPENAI_ORGANIZATION", "OPENAI_PROJECT"):
             env.pop(name, None)

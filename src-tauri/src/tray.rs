@@ -2567,7 +2567,7 @@ fn balance_icon(amount: f64) -> Image<'static> {
     let mut pixels = vec![0; 32 * 32 * 4];
     for y in 0..32usize {
         for x in 0..32usize {
-            if (x < 2 || x > 29) && (y < 2 || y > 29) {
+            if !(2..=29).contains(&x) && !(2..=29).contains(&y) {
                 continue;
             }
             let at = (y * 32 + x) * 4;
@@ -2696,7 +2696,7 @@ fn update_problem_indicator(app: &tauri::AppHandle, texts: &TrayTexts, problems:
             #[cfg(target_os = "linux")]
             let _ = tray.set_title(Some(wallet_label(currency, *amount)));
             #[cfg(not(target_os = "linux"))]
-            let _ = currency;
+            let _ = (currency, amount);
         } else {
             #[cfg(target_os = "linux")]
             let _ = tray.set_title(None::<&str>);

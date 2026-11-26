@@ -142,8 +142,8 @@ describe("account session connectivity", () => {
     await screen.findByText("user@example.test");
     fireEvent.click(screen.getByText("退出"));
     await screen.findByText(/无法确认服务端会话已撤销/);
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "DSH 凭据文件可能保留旧引用",
+    expect(screen.getByRole("status").textContent).toBe(
+      "无法确认服务端会话已撤销",
     );
     expect(screen.getByTestId("account")).toHaveTextContent("logged-out");
   });

@@ -563,6 +563,16 @@ impl Database {
         Ok(())
     }
 
+    pub(crate) fn clear_current_provider(&self, app_type: &str) -> Result<(), AppError> {
+        lock_conn!(self.conn)
+            .execute(
+                "UPDATE providers SET is_current = 0 WHERE app_type = ?1",
+                [app_type],
+            )
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn set_current_provider(&self, app_type: &str, id: &str) -> Result<(), AppError> {
         let mut conn = lock_conn!(self.conn);
         let tx = conn
@@ -603,6 +613,24 @@ impl Database {
             ],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Update only the image preference so a concurrent provider edit keeps its other fields.
+    pub(crate) fn set_codex_image_choice(
+        &self,
+        id: &str,
+        choice: &serde_json::Value,
+    ) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        let changed = conn.execute(
+            "UPDATE providers SET settings_config = json_patch(settings_config, json_object(?1, json(?2)))
+             WHERE app_type = 'codex' AND id = ?3",
+            params![crate::aihubmix::image_models::CHOICE, choice.to_string(), id],
+        ).map_err(|e| AppError::Database(e.to_string()))?;
+        if changed != 1 {
+            return Err(AppError::Message("分组已移除，请刷新首页".into()));
+        }
         Ok(())
     }
 

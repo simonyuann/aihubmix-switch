@@ -97,7 +97,7 @@ impl LivePatch for DotenvPatch {
                 line.key.as_deref() != Some(key.as_str())
                     || !values
                         .iter()
-                        .any(|value| unquote(value_of(&line.raw)) == value)
+                        .any(|value| literal_value(value_of(&line.raw)) == value)
             });
         }
 
@@ -138,7 +138,10 @@ fn parse_key(raw: &str) -> Option<&str> {
     if line.starts_with('#') {
         return None;
     }
-    let line = line.strip_prefix("export ").unwrap_or(line);
+    let line = line
+        .strip_prefix("export")
+        .filter(|rest| rest.starts_with(char::is_whitespace))
+        .unwrap_or(line);
     let (key, _) = line.split_once('=')?;
     let key = key.trim();
     (!key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')).then_some(key)
@@ -148,16 +151,22 @@ fn value_of(raw: &str) -> &str {
     raw.split_once('=').map_or("", |(_, value)| value.trim())
 }
 
-fn unquote(value: &str) -> &str {
-    for quote in ['"', '\''] {
-        if let Some(inner) = value
-            .strip_prefix(quote)
-            .and_then(|rest| rest.strip_suffix(quote))
-        {
-            return inner;
+/// Shell-style comments are outside of the quoted value. Compare the actual
+/// credential, even when a user annotated the AIHub-managed assignment.
+pub(crate) fn literal_value(raw: &str) -> &str {
+    let raw = raw.trim();
+    for quote in ['"', '\'', '`'] {
+        if let Some(rest) = raw.strip_prefix(quote) {
+            if let Some((value, suffix)) = rest.split_once(quote) {
+                let suffix = suffix.trim_start();
+                if suffix.is_empty() || suffix.starts_with('#') {
+                    return value;
+                }
+            }
+            return raw;
         }
     }
-    value
+    raw.split('#').next().unwrap_or_default().trim_end()
 }
 
 #[cfg(test)]
@@ -223,6 +232,10 @@ mod tests {
             ..DotenvPatch::default()
         };
         assert_eq!(apply(&patch, Some("X=\"1\"\nY=2\n")), "Y=2\n");
-        assert_eq!(apply(&patch, Some("X=0\n")), "X=0\n");
+        assert_eq!(
+            apply(&patch, Some("export\tX='1' # account\nX=1 # key\nX=0\n")),
+            "X=0\n"
+        );
+        assert_eq!(literal_value("'key#number' # note"), "key#number");
     }
 }

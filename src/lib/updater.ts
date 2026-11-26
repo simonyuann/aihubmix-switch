@@ -39,12 +39,17 @@ export async function checkForUpdate(
     return { status: "up-to-date" };
   }
 
-  const info: UpdateInfo = {
-    currentVersion,
-    availableVersion: (update as any).version ?? "",
-    notes: (update as any).notes,
-    pubDate: (update as any).date,
-  };
-
-  return { status: "available", info };
+  try {
+    return {
+      status: "available",
+      info: {
+        currentVersion,
+        availableVersion: update.version,
+        notes: update.body,
+        pubDate: update.date,
+      },
+    };
+  } finally {
+    await update.close();
+  }
 }

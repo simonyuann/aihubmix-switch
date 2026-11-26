@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { DesktopProgramLocation } from "@/components/settings/DesktopProgramLocation";
-import { isWindows } from "@/lib/platform";
+import { isLinux, isWindows } from "@/lib/platform";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { CodexPluginMarketDialog } from "@/components/aihubmix/CodexPluginMarketDialog";
@@ -32,7 +32,6 @@ import {
 export function CodexDesktopSettings() {
   const preferences = useCodexDesktopPreferences();
   const [error, setError] = useState("");
-  const [showPlugins, setShowPlugins] = useState(false);
   const [pluginsBusy, setPluginsBusy] = useState(false);
   const [enablingPlugins, setEnablingPlugins] = useState(false);
   const [marketProgress, setMarketProgress] = useState<MarketProgress | null>(
@@ -56,15 +55,18 @@ export function CodexDesktopSettings() {
     setError("");
     setNotice("");
     try {
-      if (plugins) await codexPluginMarket.enable(setMarketProgress);
-      else await codexPluginMarket.disable();
+      const setup = plugins
+        ? await codexPluginMarket.enable(setMarketProgress)
+        : await codexPluginMarket.disable();
       if (!setCodexDesktopPreferences({ plugins })) {
         setError("偏好保存失败，请重试。");
       } else {
         setNotice(
-          plugins
-            ? "插件市场已开启，重启 Codex 后可在「插件 → 个人」中查看。"
-            : "插件市场已关闭。",
+          plugins && setup?.officialReady === false
+            ? "社区已开启。请在插件管理中重试同步官方插件。"
+            : plugins
+              ? "插件市场已开启。从 AIHub 启动桌面端后，可在「插件 → 个人」按需安装。"
+              : "插件市场已关闭。",
         );
       }
     } catch (cause) {
@@ -90,7 +92,7 @@ export function CodexDesktopSettings() {
           executablePath={preferences.executablePath}
           inspect={codexDesktop.status}
           onChange={(executablePath) => save({ executablePath })}
-          canChoose={isWindows()}
+          canChoose={isWindows() || isLinux()}
         />
         <SettingsRow
           label="Codex 界面语言"
@@ -119,14 +121,11 @@ export function CodexDesktopSettings() {
           label="社区插件市场"
           control={
             <>
-              <Button
-                variant="outline"
-                size="compact"
-                onClick={() => setShowPlugins(true)}
-                disabled={pluginsBusy}
-              >
-                管理插件
-              </Button>
+              <CodexPluginMarketDialog>
+                <Button variant="outline" size="compact" disabled={pluginsBusy}>
+                  管理插件
+                </Button>
+              </CodexPluginMarketDialog>
               <Switch
                 aria-label="社区插件市场"
                 checked={preferences.plugins}
@@ -147,9 +146,6 @@ export function CodexDesktopSettings() {
         <p role="status" className="text-caption text-fg-3">
           {notice}
         </p>
-      )}
-      {showPlugins && (
-        <CodexPluginMarketDialog onClose={() => setShowPlugins(false)} />
       )}
     </SettingsBlock>
   );

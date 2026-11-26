@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { DiagnosticReport } from "./DiagnosticReport";
-import { CircleHelp, MessageCircle } from "lucide-react";
+import { CircleHelp, Copy, MessageCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { Button } from "@/components/ui/button";
 import { dispatch } from "@/lib/api/aihubmix";
+import { copyText } from "@/lib/clipboard";
+import { toast } from "@/lib/toast";
+import groupQr from "@/assets/support/qq-group.png";
+
+const groupNumber = "1091823578";
 
 const questions = [
   [
@@ -49,39 +54,77 @@ export function HelpPage() {
         <div className="max-w-4xl space-y-8">
           <section>
             <h2 className="mb-3 text-lg font-semibold">联系方式</h2>
-            <div className="flex items-start gap-3 rounded-panel border border-border p-4">
-              <MessageCircle
-                className="mt-0.5 h-5 w-5 text-fg-3"
-                aria-hidden="true"
-              />
-              <div>
-                {contact.isPending ? (
-                  <p role="status" className="text-body text-fg-3">
-                    正在获取联系方式…
+            <div className="overflow-hidden rounded-panel border border-border bg-surface">
+              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 px-5 py-4">
+                <div className="min-w-0">
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-fg-1">
+                    <MessageCircle
+                      className="h-5 w-5 text-fg-2"
+                      aria-hidden="true"
+                    />
+                    AIHubMix 交流群
+                  </h3>
+                  <p className="mt-2 text-body text-fg-2">
+                    打开手机 QQ，扫一扫加入群聊。
                   </p>
-                ) : contact.isError ? (
-                  <div
-                    role="alert"
-                    className="flex flex-wrap items-center gap-3"
-                  >
-                    <span className="text-body text-fg-3">
-                      暂时无法获取联系方式，请检查网络后重试。
+                  <div className="mt-4 flex items-center gap-2 text-body">
+                    <span className="text-fg-3">群号</span>
+                    <span className="select-text font-medium tabular-nums text-fg-1">
+                      {groupNumber}
                     </span>
                     <Button
-                      variant="outline"
-                      onClick={() => void contact.refetch()}
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-fg-3"
+                      aria-label="复制群号"
+                      title="复制群号"
+                      onClick={() =>
+                        void copyText(groupNumber).then(
+                          () => toast.success("群号已复制"),
+                          () => toast.error("请选中群号并复制。"),
+                        )
+                      }
                     >
-                      重试
+                      <Copy className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
                   </div>
-                ) : contact.data?.contactInfo?.trim() ? (
-                  <p className="whitespace-pre-wrap break-words text-body text-fg-1">
-                    {contact.data.contactInfo}
-                  </p>
-                ) : (
-                  <p className="text-body text-fg-3">暂未公布联系方式。</p>
-                )}
+                </div>
+                <img
+                  src={groupQr}
+                  alt="AIHubMix QQ 交流群二维码"
+                  width={168}
+                  height={168}
+                  className="h-auto w-[168px] max-w-full rounded-lg"
+                />
               </div>
+              {(contact.data?.contactInfo?.trim() ||
+                contact.isError ||
+                contact.isFetching) && (
+                <div className="border-t border-border px-5 py-3">
+                  {contact.data?.contactInfo?.trim() ? (
+                    <p className="whitespace-pre-wrap break-words text-body text-fg-2">
+                      {contact.data.contactInfo}
+                    </p>
+                  ) : contact.isError ? (
+                    <div
+                      role="alert"
+                      className="flex flex-wrap items-center gap-2 text-body text-fg-3"
+                    >
+                      <span>其他联系方式暂时无法加载。</span>
+                      <Button
+                        variant="outline"
+                        onClick={() => void contact.refetch()}
+                      >
+                        重试
+                      </Button>
+                    </div>
+                  ) : (
+                    <p role="status" className="text-body text-fg-3">
+                      正在获取其他联系方式…
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </section>
           <section>

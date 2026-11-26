@@ -115,7 +115,7 @@ const OPENAI_ORDER: [(&str, &str); 10] = [
 ];
 const HIDDEN: [&str; 2] = ["gpt-reserve", "codex-auto-review"];
 
-fn is_image_model(id: &str) -> bool {
+pub(super) fn is_image_model(id: &str) -> bool {
     let id = id.rsplit('/').next().unwrap_or(id);
     id.starts_with("gpt-image-")
         || id.starts_with("grok-imagine-image")
@@ -489,6 +489,26 @@ mod tests {
         )
         .is_err());
     }
+    #[test]
+    fn codex_antigravity_keeps_the_relay_responses_route_and_gemini_model() {
+        let model = super::super::types::Model {
+            id: "gemini-3.5-flash".into(),
+            name: "Gemini 3.5 Flash".into(),
+            ..Default::default()
+        };
+        let provider = catalog("codex", "antigravity", "fixture-key", &[model], "fixture")
+            .expect("Antigravity model should use the native Codex provider configuration");
+        let config: toml::Value =
+            toml::from_str(provider.settings_config["config"].as_str().unwrap()).unwrap();
+        let route = &config["model_providers"]["custom"];
+        assert_eq!(route["base_url"].as_str(), Some("https://csmy.fun/v1"));
+        assert_eq!(route["wire_api"].as_str(), Some("responses"));
+        assert_eq!(
+            provider.settings_config["modelCatalog"]["models"][0]["model"],
+            "gemini-3.5-flash"
+        );
+    }
+
     #[test]
     fn codex_openai_group_projects_to_platform_api_key_mode() {
         use crate::live::project::codex::{CodexProjection, Route, RouteAuth, RowInput};

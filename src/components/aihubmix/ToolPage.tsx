@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import { Layers, Plus } from "lucide-react";
+import { ArrowLeftRight, Layers, Plus } from "lucide-react";
 import { APP_IDS } from "@/config/appConfig";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
@@ -22,8 +22,7 @@ import type { Provider } from "@/types";
 import { ApplyApiDialog } from "./ApplyApiDialog";
 import { groupBrandIcon } from "./groupBrandIcon";
 import { AnnouncementBanner } from "./Announcements";
-import { useWalletActions } from "./WalletPanel";
-import { HomeWalletBalance } from "./BalanceDisplay";
+import { HomeGroupRow } from "./HomeGroupRow";
 import { CodexDesktopControls } from "./CodexDesktopControls";
 import { ClaudeDesktopControls } from "./ClaudeDesktopControls";
 import { friendlyError } from "./friendlyError";
@@ -35,6 +34,7 @@ interface ToolCard {
   platform?: string;
   groupId?: number;
   selectedKeyId?: number | null;
+  imageModel?: string | null;
   inLive?: boolean | null;
 }
 interface ToolCards {
@@ -46,16 +46,17 @@ interface ToolCards {
 export function ToolPage({
   app,
   onOpenProviders,
+  onOpenAnnouncements,
   simple = false,
   onSelectApp,
 }: {
   app: AppId;
   onOpenProviders?: () => void;
+  onOpenAnnouncements?: () => void;
   simple?: boolean;
   onSelectApp?: (app: AppId) => void;
 }) {
   const client = useQueryClient();
-  const wallet = useWalletActions();
   const [selectingTool, setSelectingTool] = useState(false);
   const {
     data,
@@ -120,6 +121,12 @@ export function ToolPage({
     setError("");
     setEditing(card);
   }
+  function openAddGroup() {
+    setError("");
+    setGroupId(String(availableGroups[0]?.id ?? ""));
+    setAdding(true);
+    void refetch();
+  }
   async function createCard() {
     if (gate.current || !groupId) return;
     gate.current = true;
@@ -129,9 +136,12 @@ export function ToolPage({
     setImagegenNote("");
     try {
       await dispatch("create-tool-card", { app, groupId: Number(groupId) });
-      await refetch();
+      await Promise.all([
+        refetch(),
+        client.invalidateQueries({ queryKey: ["platform-keys"] }),
+      ]);
       setAdding(false);
-      setNotice("分组已添加，请选择此分组的 API Key。");
+      setNotice("分组已添加。");
     } catch (e) {
       setError(friendlyError(e, "添加分组失败，请重试。"));
     } finally {
@@ -169,6 +179,50 @@ export function ToolPage({
     } finally {
       await refetch();
       await client.invalidateQueries({ queryKey: ["providers", app] });
+      gate.current = false;
+      setBusy(false);
+    }
+  }
+  async function changeImageModel(card: ToolCard, model: string | null) {
+    if (gate.current || card.provider.id !== data?.currentProviderId) return;
+    gate.current = true;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await dispatch<{
+        model: string | null;
+        restartRequired: boolean;
+      }>("set-tool-image-model", {
+        app,
+        groupId: card.groupId,
+        providerId: card.provider.id,
+        model,
+      });
+      client.setQueryData<ToolCards>(
+        ["tool-cards", app],
+        (old) =>
+          old && {
+            ...old,
+            cards: old.cards.map((item) =>
+              item.provider.id === card.provider.id
+                ? { ...item, imageModel: result.model }
+                : item,
+            ),
+          },
+      );
+      setNotice(
+        result.restartRequired
+          ? "生图模型已保存。请重启 Codex，使连接设置生效。"
+          : "生图模型已保存。",
+      );
+    } catch (e) {
+      setError(friendlyError(e, "保存生图模型失败，请重试。"));
+      await client.invalidateQueries({
+        queryKey: ["tool-image-models", card.provider.id],
+      });
+    } finally {
+      await refetch();
       gate.current = false;
       setBusy(false);
     }
@@ -237,9 +291,9 @@ export function ToolPage({
   return (
     <>
       <AppPageHeader
-        title={simple ? "AIHub Switch" : APP_DISPLAY_NAME[app]}
+        className={simple ? "aihub-home-header" : undefined}
+        title={simple ? "首页" : APP_DISPLAY_NAME[app]}
         variant={simple ? "page" : "app"}
-        hideBalance={simple}
         icon={simple ? undefined : <AppGlyph app={app} size={22} />}
         actions={
           <>
@@ -252,12 +306,7 @@ export function ToolPage({
               <Button
                 variant="outline"
                 disabled={busy || isPending || !!loadError}
-                onClick={() => {
-                  setError("");
-                  setGroupId(String(availableGroups[0]?.id ?? ""));
-                  setAdding(true);
-                  void refetch();
-                }}
+                onClick={openAddGroup}
               >
                 添加分组
               </Button>
@@ -268,12 +317,13 @@ export function ToolPage({
           </>
         }
       />
-      {simple && <AnnouncementBanner />}
+      {simple && onOpenAnnouncements && (
+        <AnnouncementBanner onOpen={onOpenAnnouncements} />
+      )}
       <main
         id="main-content"
-        className="aihub-page-enter min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-6"
+        className={`aihub-page-enter min-h-0 flex-1 overflow-y-auto scroll-stable px-6 py-6${simple ? " aihub-home" : ""}`}
       >
-        {simple && <HomeWalletBalance onRecharge={wallet?.recharge} />}
         {app === "dsh" && (
           <p className="mb-4 text-body text-fg-3">
             DeepSeek Harness 支持同时启用多个分组，请在 DeepSeek Harness
@@ -281,34 +331,33 @@ export function ToolPage({
           </p>
         )}
         {simple && (
-          <div className="mb-6">
-            <h2 className="mb-3 text-title font-semibold">AI 工具</h2>
-            <button
-              type="button"
-              onClick={() => setSelectingTool(true)}
-              aria-label={`选择 AI 工具，当前为 ${APP_DISPLAY_NAME[app]}`}
-              className="flex w-full items-center gap-4 rounded-panel border border-action bg-action-soft px-5 py-4 text-start transition-colors hover:bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-            >
-              <AppGlyph app={app} size={32} />
-              <span className="flex-1 text-strong font-semibold">
-                {APP_DISPLAY_NAME[app]}
-              </span>
-              <span className="flex items-center gap-1 text-caption font-medium text-action-text">
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                切换工具
-              </span>
-            </button>
+          <section className="aihub-tool-panel" aria-labelledby="current-tool-name">
+            <div className="min-w-0">
+              <p className="text-caption font-medium text-fg-3">当前工具</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h2 id="current-tool-name" className="aihub-tool-name">
+                  <AppGlyph app={app} size={32} />
+                  {APP_DISPLAY_NAME[app]}
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  onClick={() => setSelectingTool(true)}
+                  aria-label={`选择 AI 工具，当前为 ${APP_DISPLAY_NAME[app]}`}
+                >
+                  <ArrowLeftRight aria-hidden="true" className="h-3.5 w-3.5" />
+                  切换工具
+                </Button>
+              </div>
+            </div>
             {app === "codex" && <CodexDesktopControls />}
             {app === "claude-desktop" && <ClaudeDesktopControls />}
-          </div>
+          </section>
         )}
         {simple && (
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-title font-semibold">模型分组</h2>
-              <p className="mt-1 text-caption text-fg-3">
-                选择当前工具使用的服务
-              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {officialCodex && (
@@ -330,23 +379,15 @@ export function ToolPage({
               <Button
                 variant="outline"
                 disabled={busy || isPending || !!loadError}
-                onClick={() => {
-                  setError("");
-                  if (!groups.length) {
-                    setApply(true);
-                  } else {
-                    setGroupId(String(availableGroups[0]?.id ?? ""));
-                    setAdding(true);
-                    void refetch();
-                  }
-                }}
+                onClick={openAddGroup}
               >
+                <Plus aria-hidden="true" className="h-4 w-4" />
                 添加分组
               </Button>
             </div>
           </div>
         )}
-        <div className="space-y-3">
+        <div className={simple ? "aihub-group-list" : "space-y-3"}>
           {isPending && (
             <p role="status" className="text-body text-fg-3">
               正在加载模型服务…
@@ -396,78 +437,70 @@ export function ToolPage({
                       card.platform,
                     );
               if (simple) {
+                // An offline card may omit its platform. The backend only includes
+                // imageModel on Codex cards that support image configuration.
+                const { groupId, imageModel } = card;
+                const hasImageSettings =
+                  current &&
+                  app === "codex" &&
+                  groupId != null &&
+                  imageModel !== undefined;
                 return (
-                  <article
-                    key={card.provider.id}
-                    className="flex flex-wrap items-center gap-4 rounded-panel border border-border bg-surface px-4 py-4 transition-colors hover:border-border-strong motion-reduce:transition-none"
+                  <HomeGroupRow
+                    key={`${card.provider.id}:${hasImageSettings}`}
+                    name={card.provider.name}
+                    icon={
+                      <ProviderIconBox
+                        icon={brandIcon ?? card.provider.icon}
+                        name={card.provider.name}
+                        color={brandIcon ? undefined : card.provider.iconColor}
+                        className="h-10 w-10"
+                      />
+                    }
+                    activeLabel={
+                      enabled ? "已启用" : current ? "使用中" : undefined
+                    }
+                    status={
+                      card.verificationPending
+                        ? "待联网验证"
+                        : card.configured
+                          ? "分组已就绪"
+                          : "切换时自动配置"
+                    }
+                    modelSettings={
+                      hasImageSettings
+                        ? {
+                            providerId: card.provider.id,
+                            groupId,
+                            keyId: card.selectedKeyId,
+                            model: imageModel,
+                            disabled: busy,
+                            onChange: (model) => void changeImageModel(card, model),
+                          }
+                        : undefined
+                    }
                   >
-                    <ProviderIconBox
-                      icon={brandIcon ?? card.provider.icon}
-                      name={card.provider.name}
-                      color={brandIcon ? undefined : card.provider.iconColor}
-                      className="h-10 w-10"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <h3 className="truncate font-semibold text-fg-1">
-                        {card.provider.name}
-                      </h3>
-                      <p className="mt-1 text-caption text-fg-3">
-                        {card.verificationPending
-                          ? "API 绑定待联网验证"
-                          : card.configured
-                            ? "API 已配置"
-                            : "选择 API 后即可使用"}
-                      </p>
-                    </div>
-                    {card.configured && (
-                      <Button
-                        variant="ghost"
-                        size="compact"
-                        disabled={busy}
-                        aria-label={`管理 ${card.provider.name} 的 API`}
-                        onClick={() => edit(card)}
-                      >
-                        管理 API
-                      </Button>
-                    )}
                     {current || enabled ? (
-                      <>
-                        <span className="rounded-full bg-success-soft px-3 py-1 text-caption font-medium text-success-text">
-                          {enabled ? "已启用" : "使用中"}
-                        </span>
-                        {canReapplyCodex && (
-                          <Button
-                            variant="outline"
-                            size="compact"
-                            disabled={busy}
-                            aria-label={`重新启用 ${card.provider.name}`}
-                            onClick={() =>
-                              card.configured
-                                ? void operate(card, true)
-                                : edit(card)
-                            }
-                          >
-                            重新启用
-                          </Button>
-                        )}
-                      </>
+                      canReapplyCodex && (
+                        <Button
+                          variant="outline"
+                          size="compact"
+                          disabled={busy}
+                          aria-label={`重新启用 ${card.provider.name}`}
+                          onClick={() => void operate(card, true)}
+                        >
+                          重新启用
+                        </Button>
+                      )
                     ) : (
                       <Button
                         variant="outline"
                         size="compact"
                         disabled={busy}
-                        aria-label={`${card.configured ? (app === "dsh" ? "启用" : "切换到") : app === "dsh" ? "选择 API 并启用" : "选择 API 并使用"} ${card.provider.name}`}
-                        onClick={() =>
-                          card.configured
-                            ? void operate(card, true)
-                            : edit(card)
-                        }
+                        aria-label={`${app === "dsh" ? "启用" : "切换到"} ${card.provider.name}`}
+                        onClick={() => void operate(card, true)}
                       >
-                        {card.configured
-                          ? app === "dsh"
-                            ? "启用"
-                            : "切换"
-                          : "选择 API"}
+                        {app === "dsh" ? "启用" : "切换"}
                       </Button>
                     )}
                     {card.groupId != null && (
@@ -484,7 +517,7 @@ export function ToolPage({
                     {dshUnknown && (
                       <span className="text-caption text-fg-3">状态未知</span>
                     )}
-                  </article>
+                  </HomeGroupRow>
                 );
               }
               return (
@@ -583,9 +616,8 @@ export function ToolPage({
                 <Layers className="h-8 w-8 text-fg-3" aria-hidden="true" />
                 <p className="font-semibold">还没有添加模型分组</p>
                 <p className="text-body text-fg-3">
-                  申请 API 后，即可在这里选择分组并开始使用。
+                  点「添加分组」选择要使用的模型分组。
                 </p>
-                <Button onClick={() => setApply(true)}>申请 API</Button>
               </div>
             )}
           {data && !simple && !data.cards.length && (
@@ -712,7 +744,7 @@ export function ToolPage({
             <DialogHeader>
               <DialogTitle>添加分组</DialogTitle>
               <DialogDescription>
-                选择已持有可用 API 的分组，卡片中只会显示此分组的 API Key。
+                此处显示当前工具支持的模型分组。添加后可随时切换。
               </DialogDescription>
             </DialogHeader>
             <form
@@ -754,7 +786,7 @@ export function ToolPage({
               </Button>
               {!availableGroups.length && (
                 <p className="text-body text-fg-3">
-                  暂无可添加的分组。请先申请对应分组的 API；已添加的分组已标记。
+                  当前工具暂无可添加的分组。
                 </p>
               )}
               {error && (

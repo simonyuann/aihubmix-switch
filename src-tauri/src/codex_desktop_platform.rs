@@ -1,12 +1,59 @@
 //! Desktop launch on non-macOS platforms. Never reads or changes user credentials.
 #[cfg(target_os = "windows")]
 use crate::codex_desktop::prepare_restart;
-use crate::codex_desktop::{apply_locale, outcome, reserve_port, DesktopStatus, LaunchOutcome};
+use crate::codex_desktop::{apply_locale, locale_ports, outcome, DesktopStatus, LaunchOutcome};
 use std::path::PathBuf;
 
 #[cfg(target_os = "linux")]
-fn linux_install() -> Option<PathBuf> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+fn protected_linux_file(path: &std::path::Path, executable: bool) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let path = path.canonicalize().ok()?;
+    let metadata = path.metadata().ok()?;
+    if !metadata.is_file()
+        || !path.ancestors().all(|ancestor| {
+            ancestor
+                .metadata()
+                .is_ok_and(|m| m.uid() == 0 && m.mode() & 0o022 == 0)
+        })
+    {
+        return None;
+    }
+    if executable {
+        use std::io::Read;
+        let mut magic = [0; 4];
+        if metadata.mode() & 0o111 == 0
+            || std::fs::File::open(&path)
+                .and_then(|mut f| f.read_exact(&mut magic))
+                .is_err()
+            || magic != *b"\x7fELF"
+        {
+            return None;
+        }
+    }
+    Some(path)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_install(selected: Option<&str>) -> Option<PathBuf> {
+    use std::path::Path;
+    let validate = |path: &Path| {
+        if !path.is_absolute() {
+            return None;
+        }
+        let exe = protected_linux_file(path, true)?;
+        if !matches!(
+            exe.file_name()?.to_str()?,
+            "ChatGPT" | "Codex" | "codex-desktop"
+        ) {
+            return None;
+        }
+        let root = exe.parent()?;
+        let archive = protected_linux_file(&root.join("resources/app.asar"), false)?;
+        archive.starts_with(root).then_some(exe)
+    };
+    if let Some(path) = selected.filter(|value| !value.trim().is_empty()) {
+        return validate(Path::new(path));
+    }
     [
         "/usr/lib/chatgpt/ChatGPT",
         "/opt/Codex/Codex",
@@ -14,26 +61,16 @@ fn linux_install() -> Option<PathBuf> {
         "/opt/ChatGPT/ChatGPT",
         "/usr/bin/codex-desktop",
     ]
-    .into_iter()
-    .filter_map(|p| std::fs::canonicalize(p).ok())
-    .find(|p| {
-        use std::io::Read;
-        let mut magic = [0; 4];
-        p.ancestors().all(|path| {
-            path.metadata()
-                .is_ok_and(|m| m.uid() == 0 && m.mode() & 0o022 == 0)
-        }) && p
-            .metadata()
-            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-            && std::fs::File::open(p)
-                .and_then(|mut f| f.read_exact(&mut magic))
-                .is_ok()
-            && magic == *b"\x7fELF"
-    })
+    .iter()
+    .find_map(|path| validate(Path::new(path)))
 }
 
 #[cfg(target_os = "linux")]
 fn linux_processes(exe: &std::path::Path) -> Result<Vec<u32>, String> {
+    use std::os::unix::fs::MetadataExt;
+    let uid = std::fs::metadata("/proc/self")
+        .map_err(|_| "无法检查 Codex 运行状态")?
+        .uid();
     let entries = std::fs::read_dir("/proc").map_err(|_| "无法检查 Codex 运行状态".to_string())?;
     let mut pids = Vec::new();
     for entry in entries.flatten() {
@@ -44,7 +81,9 @@ fn linux_processes(exe: &std::path::Path) -> Result<Vec<u32>, String> {
         else {
             continue;
         };
-        if std::fs::read_link(entry.path().join("exe")).is_ok_and(|path| path == exe) {
+        if entry.metadata().is_ok_and(|metadata| metadata.uid() == uid)
+            && std::fs::read_link(entry.path().join("exe")).is_ok_and(|path| path == exe)
+        {
             pids.push(pid);
         }
     }
@@ -52,8 +91,8 @@ fn linux_processes(exe: &std::path::Path) -> Result<Vec<u32>, String> {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn status(_executable_path: Option<&str>) -> Result<DesktopStatus, String> {
-    let exe = linux_install();
+pub(crate) fn status(executable_path: Option<&str>) -> Result<DesktopStatus, String> {
+    let exe = linux_install(executable_path);
     let running = match &exe {
         Some(p) => !linux_processes(p)?.is_empty(),
         None => false,
@@ -61,9 +100,9 @@ pub(crate) fn status(_executable_path: Option<&str>) -> Result<DesktopStatus, St
     Ok(DesktopStatus {
         installed: exe.is_some(),
         running,
-        supported: false,
+        supported: true,
         platform: "linux".into(),
-        message: "Linux 桌面程序来源尚无法验证，暂不支持增强启动。".into(),
+        message: String::new(),
         executable_path: exe
             .map(|path| path.to_string_lossy().into_owned())
             .unwrap_or_default(),
@@ -180,21 +219,158 @@ pub(crate) fn listener_owned_by(port: u16, pid: u32) -> bool {
 
 #[cfg(target_os = "linux")]
 pub(crate) async fn launch(
-    _language: &str,
-    _plugins: bool,
-    _executable_path: Option<&str>,
+    db: std::sync::Arc<crate::database::Database>,
+    language: &str,
+    plugins: bool,
+    executable_path: Option<&str>,
 ) -> Result<LaunchOutcome, String> {
+    use std::process::Stdio;
+    let selected = executable_path.map(str::to_owned);
+    let desktop = tokio::task::spawn_blocking(move || status(selected.as_deref()))
+        .await
+        .map_err(|_| "无法检查 Codex Desktop")??;
+    if !desktop.installed {
+        return Ok(outcome(
+            "not_installed",
+            "not_requested",
+            "not_supported",
+            "未找到受信任的 Codex Desktop，请在设置中选择程序路径。",
+        ));
+    }
+    if desktop.running {
+        return Ok(outcome(
+            "already_running",
+            "not_requested",
+            "not_confirmed",
+            "请保存工作并完全退出 Codex（包括托盘），再从 AIHub 启动。",
+        ));
+    }
+    let env_set = |name| std::env::var_os(name).is_some_and(|v| !v.is_empty());
+    let x11 = env_set("DISPLAY");
+    if !x11 && !env_set("WAYLAND_DISPLAY") {
+        return Err("请在 Linux 图形桌面中启动 Codex。".into());
+    }
+    let exe = std::path::Path::new(&desktop.executable_path);
+    let root = exe.parent().ok_or("无法启动 Codex Desktop")?;
+    let mut command = tokio::process::Command::new(exe);
+    command
+        .env("CODEX_HOME", crate::codex_config::get_codex_config_dir())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if plugins && crate::commands::codex_market::needs_private_runtime().await? {
+        let node = protected_linux_file(&root.join("resources/cua_node/bin/node"), true)
+            .filter(|node| node.starts_with(root))
+            .ok_or("当前桌面版缺少内置 Node，请更新桌面版或从 AIHub 管理插件")?;
+        command.env("PATH", crate::codex_plugin_runtime::launch_path(&node)?);
+    }
+    crate::codex_desktop::prepare_language_preference(db, language).await;
+    let (renderer, inspector) = locale_ports(language)?;
+    if let Some(port) = renderer {
+        // Use upstream's X11 mode when XWayland or X11 is available; preserve
+        // explicit input-method choices and support Wayland-only sessions.
+        if x11 {
+            command.arg("--ozone-platform=x11");
+            if !env_set("GTK_IM_MODULE")
+                && !env_set("XMODIFIERS")
+                && !env_set("QT_IM_MODULE")
+                && ["/usr/bin/fcitx5", "/usr/bin/fcitx"]
+                    .iter()
+                    .any(|path| std::path::Path::new(path).is_file())
+            {
+                command
+                    .env("GTK_IM_MODULE", "fcitx")
+                    .env("XMODIFIERS", "@im=fcitx");
+            }
+        }
+        command
+            .arg("--remote-debugging-address=127.0.0.1")
+            .arg(format!("--remote-debugging-port={port}"))
+            .arg(format!("--lang={language}"));
+    }
+    if let Some(port) = inspector {
+        command.arg(format!("--inspect=127.0.0.1:{port}"));
+    }
+    let mut child = command.spawn().map_err(|_| "无法启动 Codex Desktop")?;
+    let pid = child.id().ok_or("无法启动 Codex Desktop")?;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    if child
+        .try_wait()
+        .map_err(|_| "无法检查 Codex Desktop")?
+        .is_some()
+    {
+        return Err("无法启动 Codex Desktop".into());
+    }
+    let locale = if let Some(port) = renderer {
+        if apply_locale(port, inspector, pid, language, "linux")
+            .await
+            .unwrap_or(false)
+        {
+            "applied"
+        } else {
+            "not_confirmed"
+        }
+    } else {
+        "not_requested"
+    };
+    let partial = locale == "not_confirmed";
     Ok(outcome(
-        "unsupported",
-        "not_requested",
-        "not_supported",
-        "Linux 桌面程序来源尚无法验证，暂不支持增强启动。",
+        if partial { "partial" } else { "started" },
+        locale,
+        if plugins {
+            "configured"
+        } else {
+            "not_requested"
+        },
+        if partial {
+            "Codex 已启动，界面语言尚未确认。"
+        } else {
+            "Codex 已启动。"
+        },
     ))
 }
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+    #[test]
+    fn selected_linux_desktop_rejects_shells_and_user_writable_bundles() {
+        assert!(linux_install(Some("/bin/sh")).is_none());
+        assert!(linux_install(Some("Codex")).is_none());
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("ChatGPT");
+        std::fs::copy("/bin/true", &exe).unwrap();
+        std::fs::create_dir(dir.path().join("resources")).unwrap();
+        std::fs::write(dir.path().join("resources/app.asar"), b"fixture").unwrap();
+        let path = exe.to_str().unwrap();
+        assert!(!status(Some(path)).unwrap().installed);
+        assert!(detected_codex_cli(Some(path)).is_err());
+    }
+
+    #[tokio::test]
+    async fn invalid_selection_returns_before_launching_or_writing_preferences() {
+        let db = std::sync::Arc::new(crate::database::Database::memory().unwrap());
+        let result = launch(db, "zh-CN", false, Some("/bin/sh")).await.unwrap();
+        assert_eq!(result.status, "not_installed");
+        assert_eq!(result.locale, "not_requested");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an isolated Linux graphical desktop with Codex installed"]
+    async fn installed_linux_desktop_renders_chinese() {
+        let home =
+            std::env::var_os("CC_SWITCH_TEST_HOME").expect("set isolated CC_SWITCH_TEST_HOME");
+        assert_eq!(
+            Some(home),
+            std::env::var_os("HOME"),
+            "run under an isolated desktop account"
+        );
+        let db = std::sync::Arc::new(crate::database::Database::memory().unwrap());
+        let result = launch(db, "zh-CN", false, None).await.unwrap();
+        assert_eq!(result.status, "started", "{}", result.message);
+        assert_eq!(result.locale, "applied");
+    }
+
     #[test]
     fn parses_ownership_without_accepting_wildcard() {
         let prefix = " sl local_address rem_address st tx_queue tr tm retr uid timeout inode\n";
@@ -220,10 +396,20 @@ mod tests {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn detected_codex_cli(
-    _executable_path: Option<&str>,
-) -> Result<Option<PathBuf>, String> {
-    Ok(None)
+pub(crate) fn detected_codex_cli(executable_path: Option<&str>) -> Result<Option<PathBuf>, String> {
+    let selected = executable_path.filter(|path| !path.trim().is_empty());
+    let Some(exe) = linux_install(selected) else {
+        return if selected.is_some() {
+            Err("所选 Codex 路径不可用，请在设置中重新选择程序".into())
+        } else {
+            Ok(None)
+        };
+    };
+    let root = exe.parent().ok_or("无法检查 Codex Desktop")?;
+    Ok(["resources/codex", "resources/codex-cli/bin/codex"]
+        .iter()
+        .filter_map(|relative| protected_linux_file(&root.join(relative), true))
+        .find(|path| path.starts_with(root)))
 }
 
 #[cfg(target_os = "windows")]
@@ -231,6 +417,7 @@ pub(crate) fn detected_codex_cli(
 struct WindowsInstall {
     exe: String,
     app_id: String,
+    scoped_alias: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -297,7 +484,9 @@ if ($p) {
   if ($exe) {
     $id = 'App'
     try { [xml]$manifest = Get-Content -LiteralPath (Join-Path $p.InstallLocation 'AppxManifest.xml') -Raw; $entry = $manifest.Package.Applications.Application | Select-Object -First 1; if ($entry.Id) { $id = $entry.Id } } catch {}
-    @{exe=$exe;app_id=($p.PackageFamilyName + '!' + $id)} | ConvertTo-Json -Compress
+    $aliasPath = Join-Path $env:LOCALAPPDATA ("Microsoft\WindowsApps\" + $p.PackageFamilyName + "\chatgpt-desktop.exe")
+    $aliasExe = if (Test-Path -LiteralPath $aliasPath -PathType Leaf) { $aliasPath }
+    @{exe=$exe;app_id=($p.PackageFamilyName + '!' + $id);scoped_alias=$aliasExe} | ConvertTo-Json -Compress
     exit
   }
 }
@@ -320,6 +509,16 @@ fn windows_selected_install(path: Option<&str>) -> Option<WindowsInstall> {
     let Some(path) = path.filter(|p| !p.trim().is_empty()) else {
         return windows_install();
     };
+    // The settings picker can return the Store executable itself.
+    // Keep its package identity so a selected path cannot change launch mode.
+    if let Some(installed) = windows_install() {
+        if crate::commands::codex_market::paths_match_or_canonicalize(
+            std::path::Path::new(path),
+            std::path::Path::new(&installed.exe),
+        ) {
+            return Some(installed);
+        }
+    }
     let script = r#"$p=$env:AIHUB_CODEX_EXE; if (!(Test-Path -LiteralPath $p -PathType Leaf)) { exit 1 }; $name=[IO.Path]::GetFileName($p); if ($name -notin @('ChatGPT.exe','Codex.exe')) { exit 1 }; $s=Get-AuthenticodeSignature -LiteralPath $p; if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notin @('CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B','CN=OpenAI, L.L.C.','CN="OpenAI OpCo, LLC", O="OpenAI OpCo, LLC", L=San Francisco, S=California, C=US')) { exit 1 }; @{exe=(Resolve-Path -LiteralPath $p).Path;app_id=''} | ConvertTo-Json -Compress"#;
     let result = powershell_with_timeout(
         script,
@@ -334,13 +533,22 @@ fn windows_selected_install(path: Option<&str>) -> Option<WindowsInstall> {
 }
 
 #[cfg(target_os = "windows")]
+pub(crate) fn supports_custom_home(path: Option<&str>) -> bool {
+    windows_selected_install(path).is_some_and(|install| install.app_id.is_empty())
+}
+
+#[cfg(target_os = "windows")]
 fn windows_running(exe: &str) -> Result<bool, String> {
-    // Multiple Desktop installations can share the same user configuration.
-    // Refuse to start if another desktop instance is running or its path cannot
-    // be inspected, rather than attach to a stranger.
-    // The desktop app starts a separate codex.exe CLI, and users may run the
-    // same CLI independently. Neither is itself a desktop installation.
-    let script = r#"$p = @(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe'" -ErrorAction Stop | Where-Object { $process = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; $process -and ($_.Name -ieq 'ChatGPT.exe' -or !$_.ExecutablePath -or [string]::Equals($_.ExecutablePath, $env:AIHUB_CODEX_EXE, [StringComparison]::OrdinalIgnoreCase) -or $process.MainWindowHandle -ne 0) }); if ($p.Count -gt 0) { 'busy' } else { 'idle' }"#;
+    // Use the same installation and session boundaries as request_windows_quit.
+    let script = r#"
+$session = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
+$p = @(Get-CimInstance Win32_Process -Filter "Name='ChatGPT.exe' OR Name='Codex.exe'" -ErrorAction Stop | Where-Object {
+  $_.SessionId -eq $session -and $_.ExecutablePath -and
+    [string]::Equals($_.ExecutablePath, $env:AIHUB_CODEX_EXE, [StringComparison]::OrdinalIgnoreCase) -and
+    (!$_.CommandLine -or $_.CommandLine -notmatch '(^|\s)--type=')
+})
+if ($p.Count -gt 0) { 'busy' } else { 'idle' }
+"#;
     let result = powershell(script, &[("AIHUB_CODEX_EXE", exe.to_string())])?;
     if !result.status.success() {
         return Err("无法确认 Codex 是否正在运行".into());
@@ -480,7 +688,37 @@ pub(crate) fn listener_owned_by(port: u16, pid: u32) -> bool {
 }
 
 #[cfg(target_os = "windows")]
+fn spawn_windows_desktop(
+    executable: &str,
+    args: &[String],
+    plugin_path: Option<&str>,
+    profile: &std::path::Path,
+) -> Result<u32, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let mut command = Command::new(executable);
+    command
+        .args(args)
+        .env("CODEX_HOME", profile)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(path) = plugin_path {
+        command.env("PATH", path);
+    }
+    // The long-running desktop process must never inherit the launcher's
+    // output pipes. An inherited writer kept the PowerShell PID read open.
+    command
+        .spawn()
+        .map(|child| child.id())
+        .map_err(|_| "无法启动 Codex Desktop".into())
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) async fn launch(
+    db: std::sync::Arc<crate::database::Database>,
     language: &str,
     plugins: bool,
     executable_path: Option<&str>,
@@ -497,6 +735,29 @@ pub(crate) async fn launch(
             "not_supported",
             "未找到 Codex Desktop。",
         ));
+    };
+    let profile = crate::codex_config::get_codex_config_dir();
+    let default = crate::config::get_home_dir().join(".codex");
+    if !install.app_id.is_empty()
+        && !crate::commands::codex_market::paths_match_or_canonicalize(&profile, &default)
+    {
+        return Err("Microsoft Store 版 Codex 使用默认数据目录。请在 AIHub 设置中恢复默认 Codex 目录，或选择独立安装的 Codex Desktop。".into());
+    }
+    let plugin_path = if plugins && crate::commands::codex_market::needs_private_runtime().await? {
+        if !install.app_id.is_empty() && install.scoped_alias.is_none() {
+            return Err("未找到桌面插件启动入口，请在 Windows 设置中启用 ChatGPT 的应用执行别名，或从 AIHub 管理插件".into());
+        }
+        let node = std::path::Path::new(&install.exe)
+            .parent()
+            .ok_or("桌面程序路径无效")?
+            .join("resources/cua_node/bin/node.exe");
+        Some(
+            crate::codex_plugin_runtime::launch_path(&node)?
+                .into_string()
+                .map_err(|_| "桌面插件路径无效")?,
+        )
+    } else {
+        None
     };
     let exe_for_check = install.exe.clone();
     let stopped = tokio::task::spawn_blocking(move || {
@@ -517,26 +778,8 @@ pub(crate) async fn launch(
             "未能自动退出 Codex，请保存工作并手动退出后重试。",
         ));
     }
-    let renderer = if language != "system" {
-        Some(reserve_port()?)
-    } else {
-        None
-    };
-    let inspector = if language == "zh-CN" {
-        let mut port = reserve_port()?;
-        for _ in 0..8 {
-            if Some(port) != renderer {
-                break;
-            }
-            port = reserve_port()?;
-        }
-        if Some(port) == renderer {
-            return Err("无法分配独立的本地调试接口".into());
-        }
-        Some(port)
-    } else {
-        None
-    };
+    crate::codex_desktop::prepare_language_preference(db, language).await;
+    let (renderer, inspector) = locale_ports(language)?;
     let mut args = Vec::new();
     if let Some(port) = renderer {
         args.push("--remote-debugging-address=127.0.0.1".to_string());
@@ -548,9 +791,19 @@ pub(crate) async fn launch(
     if language != "system" {
         args.push(format!("--lang={language}"));
     }
-    // Activation is required for Store apps; the C# source contains no dynamic input.
-    let script = r#"
-if ($env:AIHUB_APP_ID) {
+    let pid = tokio::task::spawn_blocking(move || {
+        if let Some(path) = plugin_path.as_deref() {
+            // The package-scoped alias lets the desktop inherit the private npm PATH.
+            let executable = install.scoped_alias.as_deref().unwrap_or(&install.exe);
+            return spawn_windows_desktop(executable, &args, Some(path), &profile);
+        }
+        if install.app_id.is_empty() {
+            return spawn_windows_desktop(&install.exe, &args, None, &profile);
+        }
+
+        // The Store activation broker starts the app independently of PowerShell.
+        let script = r#"
+$ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -560,52 +813,46 @@ interface IApplicationActivationManager { [PreserveSig] int ActivateApplication(
 public class CodexActivation { public static uint Start(string id, string args) { uint pid; int hr = ((IApplicationActivationManager)new ApplicationActivationManager()).ActivateApplication(id, args, 2, out pid); if (hr < 0) Marshal.ThrowExceptionForHR(hr); return pid; } }
 '@
 [CodexActivation]::Start($env:AIHUB_APP_ID, $env:AIHUB_ARGS)
-} else {
-$p = if ($env:AIHUB_ARGS) { Start-Process -FilePath $env:AIHUB_CODEX_EXE -ArgumentList $env:AIHUB_ARGS -PassThru } else { Start-Process -FilePath $env:AIHUB_CODEX_EXE -PassThru }
-$p.Id
-}
 "#;
-    let result = tokio::task::spawn_blocking(move || {
-        powershell_with_timeout(
+        let result = powershell_with_timeout(
             script,
             &[
                 ("AIHUB_APP_ID", install.app_id),
-                ("AIHUB_CODEX_EXE", install.exe),
                 ("AIHUB_ARGS", args.join(" ")),
             ],
             std::time::Duration::from_secs(30),
-        )
-    })
-    .await
-    .map_err(|_| "无法启动 Codex Desktop".to_string())??;
-    let pid = if result.status.success() {
+        )?;
+        if !result.status.success() {
+            return Err("无法启动 Codex Desktop".into());
+        }
         String::from_utf8_lossy(&result.stdout)
             .trim()
             .parse::<u32>()
             .ok()
-    } else {
-        None
-    };
-    let Some(pid) = pid.filter(|p| *p > 0) else {
-        return Err("无法启动 Codex Desktop".into());
-    };
-    let locale = if let Some(port) = renderer.filter(|_| language != "system") {
-        match apply_locale(port, inspector, pid, language, "windows").await {
-            Ok(true) => "applied",
-            _ => "not_confirmed",
-        }
+            .filter(|pid| *pid > 0)
+            .ok_or_else(|| "无法启动 Codex Desktop".into())
+    })
+    .await
+    .map_err(|_| "无法启动 Codex Desktop".to_string())??;
+    let locale = if let Some(port) = renderer {
+        let language = language.to_owned();
+        tokio::spawn(async move {
+            if !matches!(
+                apply_locale(port, inspector, pid, &language, "windows").await,
+                Ok(true)
+            ) {
+                log::debug!("Codex Windows locale was not confirmed");
+            }
+        });
+        "scheduled"
     } else {
         "not_requested"
     };
     Ok(outcome(
-        if locale == "not_confirmed" || plugins {
-            "partial"
-        } else {
-            "started"
-        },
+        "started",
         locale,
         if plugins {
-            "not_supported"
+            "configured"
         } else {
             "not_requested"
         },

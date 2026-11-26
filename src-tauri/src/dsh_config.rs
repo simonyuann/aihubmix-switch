@@ -713,98 +713,6 @@ fn credential_document_from(text: &str) -> Result<Yaml, AppError> {
     Ok(document)
 }
 
-/// Key of the DeepSeek account login written by DSH's `deepseek-account-platform` provider.
-pub(crate) const ACCOUNT_RECORD: &str = "deepseek-account-platform/default";
-const ACCOUNT_DEVICE_RECORD: &str = "deepseek-account-platform/device";
-
-/// The shared DeepSeek account grant (`{version: 1, token, issuer}`), if signed in.
-pub(crate) fn account_grant() -> Result<Option<(String, String)>, AppError> {
-    let document = credential_document(&credentials_path())?;
-    let record = &document["records"][ACCOUNT_RECORD];
-    if record.is_null() {
-        return Ok(None);
-    }
-    let payload = &record["payload"];
-    match (
-        record["kind"].as_str(),
-        payload["token"].as_str(),
-        payload["issuer"].as_str(),
-    ) {
-        (Some("grant"), Some(token), Some(issuer)) if !token.is_empty() => {
-            Ok(Some((token.to_owned(), issuer.to_owned())))
-        }
-        _ => Err(AppError::Config(
-            "Unrecognized DeepSeek account login in .credentials.yaml".into(),
-        )),
-    }
-}
-
-/// DSH's per-install device id (`deepseek-account-platform/device`), created on first login
-/// exactly like DSH does so CC Switch and DSH report the same device to Platform.
-pub(crate) fn account_device_id() -> Result<String, AppError> {
-    let path = credentials_path();
-    let _lock = FileLock::acquire(&path)?;
-    let mut document = credential_document(&path)?;
-    if let Some(id) = document["records"][ACCOUNT_DEVICE_RECORD]["payload"]["id"].as_str() {
-        if uuid::Uuid::parse_str(id).is_ok() {
-            return Ok(id.to_owned());
-        }
-    }
-    let id = uuid::Uuid::new_v4().to_string();
-    set_record(
-        &mut document,
-        ACCOUNT_DEVICE_RECORD,
-        json!({"kind":"grant","payload":{"id":id}}),
-    )?;
-    write_credentials(&path, &document)?;
-    Ok(id)
-}
-
-/// Store a DeepSeek account login for both DSH Web and Desktop (DSH reloads the file).
-pub(crate) fn store_account_grant(token: &str, issuer: &str) -> Result<(), AppError> {
-    let path = credentials_path();
-    let _lock = FileLock::acquire(&path)?;
-    let mut document = credential_document(&path)?;
-    set_record(
-        &mut document,
-        ACCOUNT_RECORD,
-        json!({"kind":"grant","payload":{"version":1,"token":token,"issuer":issuer}}),
-    )?;
-    write_credentials(&path, &document)
-}
-
-fn set_record(document: &mut Yaml, key: &str, record: Value) -> Result<(), AppError> {
-    if !document["records"].is_mapping() {
-        document["records"] = Yaml::Mapping(Default::default());
-    }
-    document["records"][key] =
-        serde_yaml::to_value(record).map_err(|error| AppError::Config(error.to_string()))?;
-    Ok(())
-}
-
-fn write_credentials(path: &Path, document: &Yaml) -> Result<(), AppError> {
-    let yaml =
-        serde_yaml::to_string(document).map_err(|error| AppError::Config(error.to_string()))?;
-    atomic_write_private(path, yaml.as_bytes())
-}
-
-/// Sign out locally for Web and Desktop alike, under DSH's credentials lock. Returns the
-/// removed grant so the caller can revoke it remotely, as DSH does.
-pub(crate) fn remove_account_grant() -> Result<Option<(String, String)>, AppError> {
-    let path = credentials_path();
-    let _lock = FileLock::acquire(&path)?;
-    let grant = account_grant()?;
-    if grant.is_none() {
-        return Ok(None);
-    }
-    let mut document = credential_document(&path)?;
-    if let Some(records) = document["records"].as_mapping_mut() {
-        records.remove(Yaml::from(ACCOUNT_RECORD));
-    }
-    write_credentials(&path, &document)?;
-    Ok(grant)
-}
-
 /// Providers as shown in CC Switch: every initialized profile ([`read_paths`]), authoritative
 /// profile first, first occurrence of a key winning.
 fn redacted_profile_warning(_error: &AppError) -> &'static str {
@@ -1065,6 +973,7 @@ pub(crate) fn save_and_commit<T>(
     )
 }
 
+#[cfg(test)]
 fn save_paths_and_commit<T>(
     paths: &[PathBuf],
     credentials_path: &Path,
@@ -2035,7 +1944,7 @@ mod tests {
         let file = temp.path().join("profile.yml");
         fs::write(&file, "original").unwrap();
         let result = edit_files_and_commit(
-            &[file.clone()],
+            std::slice::from_ref(&file),
             |_| Ok(vec!["ours".into()]),
             || {
                 fs::write(&file, "external").unwrap();
@@ -2056,7 +1965,7 @@ mod tests {
         fs::write(&profile, "[]\n").unwrap();
         let _lock = FileLock::acquire(&home).unwrap();
         let result = save_paths_and_commit_with_home(
-            &[profile.clone()],
+            std::slice::from_ref(&profile),
             &creds,
             Some(&home),
             "gateway",
@@ -3098,7 +3007,7 @@ mod tests {
         let web = profile_path("web");
         // Existing users only had Web when these rows were written.
         save_paths_and_commit(
-            &[web.clone()],
+            std::slice::from_ref(&web),
             &credentials_path(),
             "gateway",
             Some(editor_config()),
@@ -3631,44 +3540,5 @@ mod tests {
         let text = "- id: a\n  config: &shared\n    x: 1\n- id: b\n  config: *shared\n";
         assert!(replace_entry(text, "a", None).is_err());
         assert!(replace_entry(text, "b", None).is_ok());
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn shared_account_grant_is_read_and_removed_without_touching_api_keys() {
-        let home = DshHome::new();
-        assert_eq!(account_grant().unwrap(), None);
-        let credentials = home.dir.path().join(".credentials.yaml");
-        fs::write(
-            &credentials,
-            concat!(
-                "version: 1\n",
-                "refs:\n",
-                "  DEEPSEEK_API_KEY: sk-test\n",
-                "records:\n",
-                "  deepseek-account-platform/default:\n",
-                "    kind: grant\n",
-                "    payload: {version: 1, token: tok, issuer: 'https://platform.deepseek.com'}\n",
-                "  deepseek-account-platform/device:\n",
-                "    kind: grant\n",
-                "    payload: {id: 00000000-0000-4000-8000-000000000000}\n",
-            ),
-        )
-        .unwrap();
-        assert_eq!(
-            account_grant().unwrap(),
-            Some(("tok".into(), "https://platform.deepseek.com".into()))
-        );
-
-        assert_eq!(
-            remove_account_grant().unwrap(),
-            Some(("tok".into(), "https://platform.deepseek.com".into()))
-        );
-        assert_eq!(account_grant().unwrap(), None);
-        let document: Yaml =
-            serde_yaml::from_str(&fs::read_to_string(&credentials).unwrap()).unwrap();
-        assert_eq!(document["refs"]["DEEPSEEK_API_KEY"], Yaml::from("sk-test"));
-        assert!(!document["records"]["deepseek-account-platform/device"].is_null());
-        assert_eq!(remove_account_grant().unwrap(), None);
     }
 }

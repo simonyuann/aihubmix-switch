@@ -418,6 +418,10 @@ pub fn commit_target(
         let app_type: crate::app_config::AppType = app.parse()?;
         crate::settings::set_current_provider(&app_type, Some(id))?;
         db.set_current_provider(app, id)?;
+    } else if target.clear_pointer {
+        let app_type = app.parse()?;
+        db.clear_current_provider(app)?;
+        crate::settings::set_current_provider(&app_type, None)?;
     }
     // 模式、写入记录和 Stack 模型在同一次状态文件写入里落定。
     if target.state.is_some() || target.written.is_some() || target.stack.is_some() {

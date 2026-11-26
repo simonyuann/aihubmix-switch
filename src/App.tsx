@@ -5,6 +5,9 @@ import { LoginPage } from "@/components/aihubmix/LoginPage";
 import { WalletActionsProvider } from "@/components/aihubmix/WalletPanel";
 import { AnnouncementProvider } from "@/components/aihubmix/Announcements";
 import CcWorkspace from "@/CcWorkspace";
+import { useTauriEvent } from "@/hooks/useTauriEvent";
+import { useTranslation } from "react-i18next";
+import { toast } from "@/lib/toast";
 
 function LoadingScreen() {
   return (
@@ -39,6 +42,20 @@ export function AccountBoundary({ children }: { children: React.ReactNode }) {
   );
 }
 export default function App() {
+  const { t } = useTranslation();
+  useTauriEvent<[string, string]>(
+    "codex-history-migration-deferred",
+    ([reason, detail]) => {
+      toast.warning(
+        t(
+          reason === "state_db_unlockable"
+            ? "settings.codexHistoryStorageUnavailable"
+            : "settings.codexHistoryMigrationDeferred",
+        ),
+        { description: detail || undefined },
+      );
+    },
+  );
   return (
     <AccountProvider>
       <AccountBoundary>

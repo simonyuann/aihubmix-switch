@@ -285,6 +285,7 @@ pub async fn send_request(
         proxy_url.map(super::http_client::mask_url),
     );
 
+    let started = tokio::time::Instant::now();
     let proxy_cases = OriginalHeaderCases::default();
     if let Some(original_cases) = original_cases
         .as_ref()
@@ -330,24 +331,27 @@ pub async fn send_request(
     *req.extensions_mut() = original_extensions;
 
     let client = global_hyper_client();
-    let resp = tokio::time::timeout(timeout, client.request(req))
-        .await
-        .map_err(|_| {
-            if read_only {
-                ProxyError::Timeout(format!("请求超时: {}s", timeout.as_secs()))
-            } else {
-                ProxyError::DeliveryUnknown
-            }
-        })?
-        .map_err(|e| {
-            if !read_only && !e.is_connect() {
-                return ProxyError::DeliveryUnknown;
-            }
-            ProxyError::ForwardFailed(format!(
-                "上游请求失败: {}",
-                super::error::describe_error_chain(&e)
-            ))
-        })?;
+    let resp = tokio::time::timeout(
+        timeout.saturating_sub(started.elapsed()),
+        client.request(req),
+    )
+    .await
+    .map_err(|_| {
+        if read_only {
+            ProxyError::Timeout(format!("请求超时: {}s", timeout.as_secs()))
+        } else {
+            ProxyError::DeliveryUnknown
+        }
+    })?
+    .map_err(|e| {
+        if !read_only && !e.is_connect() {
+            return ProxyError::DeliveryUnknown;
+        }
+        ProxyError::ForwardFailed(format!(
+            "上游请求失败: {}",
+            super::error::describe_error_chain(&e)
+        ))
+    })?;
 
     Ok(ProxyResponse::Hyper(resp))
 }

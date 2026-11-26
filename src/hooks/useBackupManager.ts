@@ -3,7 +3,7 @@ import { backupsApi } from "@/lib/api";
 
 const BACKUP_LOCATIONS_KEY = ["backup-locations"];
 
-export function useBackupManager() {
+export function useBackupManager(onRestored?: () => void | Promise<void>) {
   const queryClient = useQueryClient();
 
   const {
@@ -26,14 +26,27 @@ export function useBackupManager() {
     onSuccess: refreshAll,
   });
 
+  const refreshAfterRestore = async () => {
+    // Every query now describes a different database, including after partial projection.
+    await queryClient.invalidateQueries();
+    try {
+      await onRestored?.();
+    } catch (error) {
+      console.warn(
+        "Could not refresh the workspace after database restore",
+        error,
+      );
+    }
+  };
+
   const restoreMutation = useMutation({
     mutationFn: (filename: string) => backupsApi.restoreDbBackup(filename),
-    onSuccess: async () => {
-      // Invalidate all queries to refresh data from restored database
-      await queryClient.invalidateQueries();
-      // Refetch backup list
-      await refetch();
-    },
+    onSuccess: refreshAfterRestore,
+  });
+
+  const retrySyncMutation = useMutation({
+    mutationFn: () => backupsApi.retryDbRestoreSync(),
+    onSuccess: refreshAfterRestore,
   });
 
   const renameMutation = useMutation({
@@ -58,7 +71,8 @@ export function useBackupManager() {
     create: createMutation.mutateAsync,
     isCreating: createMutation.isPending,
     restore: restoreMutation.mutateAsync,
-    isRestoring: restoreMutation.isPending,
+    isRestoring: restoreMutation.isPending || retrySyncMutation.isPending,
+    retrySync: retrySyncMutation.mutateAsync,
     rename: renameMutation.mutateAsync,
     isRenaming: renameMutation.isPending,
     remove: deleteMutation.mutateAsync,

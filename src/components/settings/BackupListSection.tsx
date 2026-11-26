@@ -29,6 +29,7 @@ import {
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 interface BackupListSectionProps {
+  onRestored?: () => void | Promise<void>;
   backupIntervalHours?: number;
   backupRetainCount?: number;
   onSettingsChange: (updates: {
@@ -61,6 +62,7 @@ function getDisplayName(filename: string): string {
 }
 
 export function BackupListSection({
+  onRestored,
   backupIntervalHours,
   backupRetainCount,
   onSettingsChange,
@@ -78,22 +80,26 @@ export function BackupListSection({
     create,
     isCreating,
     restore,
+    retrySync,
     isRestoring,
     rename,
     isRenaming,
     remove,
     isDeleting,
-  } = useBackupManager();
+  } = useBackupManager(onRestored);
   const [confirmFilename, setConfirmFilename] = useState<string | null>(null);
   const [deleteFilename, setDeleteFilename] = useState<string | null>(null);
   const [editingFilename, setEditingFilename] = useState<string | null>(null);
+  const [restoreWarning, setRestoreWarning] = useState("");
   const [editValue, setEditValue] = useState("");
 
   const handleRestore = async () => {
     if (!confirmFilename) return;
     try {
-      const safetyId = await restore(confirmFilename);
+      const { backupId: safetyId, warning } = await restore(confirmFilename);
       setConfirmFilename(null);
+      setRestoreWarning(warning ?? "");
+      if (warning) return;
       toast.success(
         t("settings.backupManager.restoreSuccess", {
           defaultValue: "Restore successful! Safety backup created",
@@ -254,6 +260,34 @@ export function BackupListSection({
           </Select>
         </div>
       </div>
+
+      {restoreWarning && (
+        <div
+          role="alert"
+          className="space-y-2 rounded-lg bg-warning-soft p-3 text-sm text-warning-text"
+        >
+          <p className="font-medium">
+            {t("settings.backupManager.restorePartial")}
+          </p>
+          <p className="break-words">{restoreWarning}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={isRestoring}
+            onClick={async () => {
+              try {
+                await retrySync();
+                setRestoreWarning("");
+                toast.success(t("settings.backupManager.syncComplete"));
+              } catch (error) {
+                setRestoreWarning(extractErrorMessage(error) || String(error));
+              }
+            }}
+          >
+            {t("settings.backupManager.retrySync")}
+          </Button>
+        </div>
+      )}
 
       {/* Backup list */}
       <div>

@@ -224,6 +224,7 @@ export function RechargeDialog({
       const next = await dispatch<RechargeOrder>(command, payload);
       if (mounted.current) {
         apply(next);
+        if (next.checkoutWarning) setError(next.checkoutWarning);
         if (creation) {
           setUncertain(false);
           setHistoryOpen(false);

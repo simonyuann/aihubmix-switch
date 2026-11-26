@@ -307,6 +307,7 @@ fn command_allowed(command: &str, signed_in: bool, other_providers: bool) -> Res
                 | "upsert_universal_provider"
                 | "sync_universal_provider"
                 | "restore_db_backup"
+                | "retry_db_restore_sync"
                 | "set_app_config_dir_override"
                 | "update_providers_sort_order"
         )
@@ -579,6 +580,7 @@ mod tests {
             "update_provider",
             "import_config_from_file",
             "restore_db_backup",
+            "retry_db_restore_sync",
             "sync_universal_provider",
             "start_codex_oauth",
             "ensure_codex_official_provider",

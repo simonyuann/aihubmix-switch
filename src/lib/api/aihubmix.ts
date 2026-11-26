@@ -16,6 +16,10 @@ export interface LegacyMapping {
   appLabel: string;
   model: string;
 }
+export interface LogoutResult {
+  logoutNotice?: string;
+  revocationWarning?: string;
+}
 export interface AccountState {
   sessionOffline?: boolean;
   legacyMappings?: LegacyMapping[];
@@ -78,6 +82,7 @@ export interface RechargeOrder {
   createdAt: string;
   expiresAt: string;
   tradeNo: string;
+  checkoutWarning?: string;
   qrCode?: string;
   payUrl?: string;
 }

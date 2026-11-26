@@ -5,8 +5,10 @@
 //! This module never reads Codex credentials or modifies the installed app.
 
 use serde::{Deserialize, Serialize};
+#[cfg(any(target_os = "macos", test))]
+use std::path::Path;
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Mutex, OnceLock},
     time::Duration,
 };
@@ -62,6 +64,7 @@ pub(crate) fn outcome(status: &str, locale: &str, plugins: &str, message: &str) 
 
 /// Request a quit once, and never launch another instance until the previous
 /// one is actually gone. A visible window that refuses to close is not forced.
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 pub(crate) fn prepare_restart<C, Q>(
     mut running: C,
     mut request_quit: Q,
@@ -175,11 +178,6 @@ pub(crate) fn detected_codex_cli(executable_path: Option<&str>) -> Result<Option
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn find_install() -> Option<PathBuf> {
-    None
-}
-
 #[cfg(target_os = "macos")]
 fn executable(bundle: &Path) -> Option<PathBuf> {
     let name = read_plist(bundle, "CFBundleExecutable")?;
@@ -273,15 +271,11 @@ fn request_macos_quit() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
-fn running_processes(_bundle: &Path) -> Result<Vec<u32>, String> {
-    Ok(Vec::new())
-}
-
 #[tauri::command]
 pub async fn codex_desktop_status(
     executable_path: Option<String>,
 ) -> Result<DesktopStatus, String> {
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let platform = std::env::consts::OS.to_string();
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let _ = &executable_path;
@@ -330,13 +324,28 @@ pub async fn codex_desktop_status(
     }
 }
 
-pub(crate) fn reserve_port() -> Result<u16, String> {
-    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-        .map_err(|_| "无法分配本地调试端口")?;
-    Ok(listener
-        .local_addr()
-        .map_err(|_| "无法分配本地调试端口")?
-        .port())
+/// Keep both reservations open until their port numbers are known to be distinct.
+pub(crate) fn locale_ports(language: &str) -> Result<(Option<u16>, Option<u16>), String> {
+    if language == "system" {
+        return Ok((None, None));
+    }
+    let bind = || {
+        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .map_err(|_| "无法分配本地调试端口".to_string())
+    };
+    let port = |listener: &std::net::TcpListener| {
+        listener
+            .local_addr()
+            .map(|addr| addr.port())
+            .map_err(|_| "无法分配本地调试端口".to_string())
+    };
+    let renderer = bind()?;
+    let inspector = if language == "zh-CN" {
+        Some(port(&bind()?)?)
+    } else {
+        None
+    };
+    Ok((Some(port(&renderer)?), inspector))
 }
 
 #[cfg(target_os = "macos")]
@@ -603,6 +612,46 @@ fn menu_script(platform: &str) -> Result<String, String> {
         ))
 }
 
+// The current desktop reads this preference before creating its first window.
+fn desktop_language_patch(language: &str) -> Option<crate::live::patch::toml::TomlPatch> {
+    use crate::live::patch::{toml::TomlPatch, KeyPath};
+    matches!(language, "zh-CN" | "en-US").then(|| TomlPatch {
+        set: vec![(
+            KeyPath::new(&["desktop", "localeOverride"]),
+            toml_edit::value(language),
+        )],
+        ..TomlPatch::default()
+    })
+}
+
+pub(crate) async fn prepare_language_preference(
+    db: std::sync::Arc<crate::database::Database>,
+    language: &str,
+) {
+    use crate::live::engine::LiveFile;
+    use crate::mode::{
+        operation::{AppWrite, FileChange},
+        state::{op, PendingTarget},
+    };
+    let Some(patch) = desktop_language_patch(language) else {
+        return;
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        AppWrite::begin(&db, "codex")?.run(
+            op::APPLY,
+            &[FileChange {
+                file: LiveFile::private(crate::codex_config::get_codex_config_path()),
+                patch: &patch,
+            }],
+            PendingTarget::default(),
+        )
+    })
+    .await;
+    if !matches!(result, Ok(Ok(_))) {
+        log::debug!("Codex startup language preference unavailable");
+    }
+}
+
 async fn apply_locale_inner(
     port: u16,
     inspector: Option<u16>,
@@ -622,9 +671,10 @@ async fn apply_locale_inner(
         // All desktop platforms can read the language gate synchronously when
         // creating the client, before the bootstrap's polling timer fires.
         let bootstrap = format!(
-            "{}\n{}",
+            "{};\n{};\n{}",
             include_str!("../resources/codex_zh/linux-statsig-hook.js"),
-            include_str!("../resources/codex_zh/i18n-bootstrap.js")
+            include_str!("../resources/codex_zh/i18n-bootstrap.js"),
+            include_str!("../resources/codex_zh/balance-error.js")
         );
         cdp.call(
             "Page.addScriptToEvaluateOnNewDocument",
@@ -641,10 +691,10 @@ async fn apply_locale_inner(
         "__LOCALE_JSON__",
         &serde_json::to_string(language).map_err(|_| "语言配置无效")?,
     );
-    let setting = cdp.evaluate(&locale_js, true).await?;
-    if !script_status(&setting) {
-        return Ok(false);
-    }
+    // A successful locale write may reload the page before the reply arrives.
+    // Keep the registered Chinese bootstrap active through that reload and
+    // verify the rendered language independently below.
+    let _ = cdp.evaluate(&locale_js, true).await;
     if language == "zh-CN" {
         retain_registered_script_session(cdp);
     } else {
@@ -662,12 +712,16 @@ async fn apply_locale_inner(
     let verified = script_status(&cdp.evaluate(&verify, true).await?);
     if language == "zh-CN" {
         if let Some(inspector) = inspector {
-            // Menu translation is optional. A failure means partial success,
-            // not an inaccurate claim that every menu was translated.
-            let node_target = wait_target(&client, inspector, pid, "node").await?;
-            let mut node = CdpClient::connect(&node_target, inspector).await?;
-            let menu = node.evaluate(&menu_script(platform)?, false).await?;
-            return Ok(verified && script_status(&menu));
+            // Native menus are cosmetic and have a separate lifecycle.
+            let menu = async {
+                let target = wait_target(&client, inspector, pid, "node").await?;
+                let mut node = CdpClient::connect(&target, inspector).await?;
+                node.evaluate(&menu_script(platform)?, false).await
+            }
+            .await;
+            if !menu.as_ref().is_ok_and(script_status) {
+                log::debug!("Codex native menu translation was not confirmed");
+            }
         }
     }
     Ok(verified)
@@ -742,7 +796,11 @@ pub(crate) async fn install_renderer_bootstrap(
 }
 
 #[cfg(target_os = "macos")]
-async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, String> {
+async fn launch_macos(
+    db: std::sync::Arc<crate::database::Database>,
+    language: &str,
+    plugins: bool,
+) -> Result<LaunchOutcome, String> {
     let Some(bundle) = find_install() else {
         return Ok(outcome(
             "not_installed",
@@ -750,6 +808,13 @@ async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, St
             "not_supported",
             "未找到受信任的 Codex Desktop，请检查安装来源。",
         ));
+    };
+    let plugin_path = if plugins && crate::commands::codex_market::needs_private_runtime().await? {
+        Some(crate::codex_plugin_runtime::launch_path(
+            &bundle.join("Contents/Resources/cua_node/bin/node"),
+        )?)
+    } else {
+        None
     };
     let stopped = tokio::task::spawn_blocking(|| {
         prepare_restart(
@@ -769,36 +834,23 @@ async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, St
             "未能自动退出 Codex，请保存工作并手动退出后重试。",
         ));
     }
+    prepare_language_preference(db, language).await;
     // Plugin intent alone has no verified renderer adapter, so it must not
     // expose a debugging interface that would not perform any useful work.
     let enhanced = language != "system";
-    let (renderer, inspector) = if enhanced {
-        let renderer = reserve_port()?;
-        let inspector = if language == "zh-CN" {
-            let mut other = reserve_port()?;
-            for _ in 0..8 {
-                if other != renderer {
-                    break;
-                }
-                other = reserve_port()?;
-            }
-            if other == renderer {
-                return Err("无法分配独立的本地调试接口".into());
-            }
-            Some(other)
-        } else {
-            None
-        };
-        (Some(renderer), inspector)
-    } else {
-        (None, None)
-    };
+    let (renderer, inspector) = locale_ports(language)?;
     let mut command = std::process::Command::new("/usr/bin/open");
     // The marketplace installer and provider switcher both use this exact
     // Codex home. LaunchServices does not necessarily inherit our process
     // environment, so pass it explicitly to this child application only.
     let codex_home = codex_home_env_argument(&crate::codex_config::get_codex_config_dir());
-    command.arg("-n").arg("--env").arg(codex_home).arg(&bundle);
+    command.arg("-n").arg("--env").arg(codex_home);
+    if let Some(path) = plugin_path {
+        let mut value = std::ffi::OsString::from("PATH=");
+        value.push(path);
+        command.arg("--env").arg(value);
+    }
+    command.arg(&bundle);
     if let Some(renderer) = renderer {
         command
             .arg("--args")
@@ -853,18 +905,14 @@ async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, St
             Ok(false) | Err(_) => "not_confirmed",
         }
     };
-    // The plugin market agent can install a renderer adapter at this point.
-    // A local market configuration alone must not be presented as active.
     let plugin_status = if plugins {
-        "not_supported"
+        "configured"
     } else {
         "not_requested"
     };
-    let partial = locale == "not_confirmed" || plugins;
-    let message = if partial && enhanced {
-        "Codex 已启动，但部分增强未能确认；请查看 Codex 实际界面。本机其他进程可能访问增强调试接口，退出 Codex 后关闭。"
-    } else if partial {
-        "Codex 已启动，但当前版本尚未验证桌面插件增强。"
+    let partial = locale == "not_confirmed";
+    let message = if partial {
+        "Codex 已启动，界面语言尚未确认。本机其他进程可能访问增强调试接口，退出 Codex 后关闭。"
     } else if enhanced {
         "Codex 已启动并确认语言设置。本机其他进程可能访问增强调试接口，退出 Codex 后关闭。"
     } else {
@@ -880,22 +928,27 @@ async fn launch_macos(language: &str, plugins: bool) -> Result<LaunchOutcome, St
 
 #[tauri::command]
 pub async fn launch_codex_desktop(
+    state: tauri::State<'_, crate::store::AppState>,
     language: String,
     plugins: bool,
     executable_path: Option<String>,
 ) -> Result<LaunchOutcome, String> {
-    let _guard = gate().lock().await;
+    let _guard = gate().try_lock().map_err(|_| "Codex 正在启动。")?;
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let _ = &executable_path;
     if !matches!(language.as_str(), "system" | "zh-CN" | "en-US") {
         return Err("不支持的语言设置".into());
     }
     #[cfg(target_os = "macos")]
-    let result = launch_macos(&language, plugins).await?;
+    let result = launch_macos(state.db.clone(), &language, plugins).await?;
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    let result =
-        crate::codex_desktop_platform::launch(&language, plugins, executable_path.as_deref())
-            .await?;
+    let result = crate::codex_desktop_platform::launch(
+        state.db.clone(),
+        &language,
+        plugins,
+        executable_path.as_deref(),
+    )
+    .await?;
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     let result = {
         let _ = plugins;
@@ -913,6 +966,31 @@ pub async fn launch_codex_desktop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn debug_ports_match_the_language_request() {
+        assert_eq!(locale_ports("system").unwrap(), (None, None));
+        assert!(matches!(locale_ports("en-US").unwrap(), (Some(_), None)));
+        let (Some(renderer), Some(menu)) = locale_ports("zh-CN").unwrap() else {
+            panic!("Chinese renderer and menu each need a loopback port");
+        };
+        assert_ne!(renderer, menu);
+    }
+
+    #[test]
+    fn startup_language_is_available_before_rendering_and_preserves_other_settings() {
+        use crate::live::patch::LivePatch;
+        let before = b"# retained\n[desktop]\ncontrast = true\nlocaleOverride = \"en-US\" # mine\n";
+        let path = Path::new("config.toml");
+        let patch = desktop_language_patch("zh-CN").unwrap();
+        let written = patch.apply(path, Some(before)).unwrap();
+        let text = std::str::from_utf8(&written).unwrap();
+        assert!(text.contains("localeOverride = \"zh-CN\" # mine"));
+        assert!(text.contains("# retained\n[desktop]\ncontrast = true"));
+        assert_eq!(patch.apply(path, Some(&written)).unwrap(), written);
+        assert!(desktop_language_patch("system").is_none());
+        assert!(patch.apply(path, Some(b"[broken")).is_err());
+    }
+
     #[test]
     fn restart_does_not_request_quit_when_already_stopped() {
         let mut quits = 0;

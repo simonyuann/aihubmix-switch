@@ -235,6 +235,7 @@ fn package(_app: &tauri::AppHandle) -> Result<WindowsPackage, String> {
     unpack_windows_package()
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn home() -> Result<PathBuf, String> {
     dirs::home_dir().ok_or_else(|| "home_unavailable".into())
 }

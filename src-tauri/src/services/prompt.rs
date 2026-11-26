@@ -19,6 +19,30 @@ fn get_unix_timestamp() -> Result<i64, AppError> {
 
 pub struct PromptService;
 
+// Local state only: an unprojected restore must never be backfilled from an old native file,
+// including after a restart. The marker contains no prompt text or account information.
+fn projection_marker(app: &AppType) -> std::path::PathBuf {
+    crate::config::get_app_config_dir()
+        .join("pending-prompt-projections")
+        .join(app.as_str())
+}
+
+fn projection_is_pending(app: &AppType) -> Result<bool, AppError> {
+    let marker = projection_marker(app);
+    marker
+        .try_exists()
+        .map_err(|error| AppError::io(&marker, error))
+}
+
+fn clear_projection_marker(app: &AppType) -> Result<(), AppError> {
+    let marker = projection_marker(app);
+    match std::fs::remove_file(&marker) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(AppError::io(&marker, error)),
+    }
+}
+
 fn project_prompt_set_to_path(
     prompts: &IndexMap<String, Prompt>,
     target_path: &Path,
@@ -59,12 +83,28 @@ impl PromptService {
         if matches!(app, AppType::Pi) {
             return get_pi_prompts(state);
         }
+        let _guard = lock_file_prompts()?;
+        Self::get_file_prompts(state, app)
+    }
+
+    fn get_file_prompts(
+        state: &AppState,
+        app: AppType,
+    ) -> Result<IndexMap<String, Prompt>, AppError> {
         // A restore replaces the DB before projecting it to live files. Keep
         // backfill outside that window, including calls outside the UI command.
         let Ok(_sync_guard) = super::sync_protocol::sync_mutex().try_lock() else {
             return state.db.get_prompts(app.as_str());
         };
         let mut prompts = state.db.get_prompts(app.as_str())?;
+        if projection_is_pending(&app)? {
+            // A refreshed query can arrive immediately after a partial restore. Retry the
+            // pending projection and always return the restored database contents.
+            if let Err(error) = Self::project_file_prompts(&app, &prompts) {
+                log::warn!("Restored {} prompts still pending: {error}", app.as_str());
+            }
+            return Ok(prompts);
+        }
         // External editors change the live file without updating the saved
         // selection. Refresh only that selection; inactive templates are separate.
         if let Some(prompt) = prompts.values_mut().find(|prompt| prompt.enabled) {
@@ -94,48 +134,15 @@ impl PromptService {
             return upsert_pi_prompt(state, id, prompt);
         }
 
-        if app == AppType::Mcode {
-            return upsert_mcode_prompt(state, id, prompt, &prompt_file_path(&app)?);
-        }
-
-        validate_prompt_content(&app, &prompt.content)?;
-        let prompts = state.db.get_prompts(app.as_str())?;
-        // 只有停用最后一条启用中的提示词时才清空文件；新建、导入或重存
-        // 停用条目时，文件可能是用户自己写的，必须原样保留
-        let clear_live = !prompt.enabled
-            && prompts.get(id).is_some_and(|previous| previous.enabled)
-            && !prompts
-                .iter()
-                .any(|(key, prompt)| key != id && prompt.enabled);
-        state.db.save_prompt(app.as_str(), &prompt)?;
-
-        if prompt.enabled {
-            let target_path = prompt_file_path(&app)?;
-            write_text_file(&target_path, &prompt.content)?;
-        } else if clear_live {
-            let target_path = prompt_file_path(&app)?;
-            if target_path.exists() {
-                write_text_file(&target_path, "")?;
-            }
-        }
-
-        Ok(())
+        upsert_file_prompt(state, &app, id, prompt, prompt_file_path(&app))
     }
 
     pub fn delete_prompt(state: &AppState, app: AppType, id: &str) -> Result<(), AppError> {
         if matches!(app, AppType::Pi) {
             return delete_pi_prompt(state, id);
         }
-        let _guard = if app == AppType::Mcode {
-            Some(
-                MCODE_PROMPT_LOCK
-                    .lock()
-                    .map_err(|error| AppError::Message(error.to_string()))?,
-            )
-        } else {
-            None
-        };
-        let prompts = Self::get_prompts(state, app.clone())?;
+        let _guard = lock_file_prompts()?;
+        let prompts = Self::get_file_prompts(state, app.clone())?;
 
         if let Some(prompt) = prompts.get(id) {
             if prompt.enabled {
@@ -151,81 +158,7 @@ impl PromptService {
         if matches!(app, AppType::Pi) {
             return enable_pi_prompt(state, id);
         }
-        if app == AppType::Mcode {
-            return enable_mcode_prompt(state, id, &prompt_file_path(&app)?);
-        }
-
-        // 回填当前 live 文件内容到已启用的提示词，或创建备份
-        let target_path = prompt_file_path(&app)?;
-        if target_path.exists() {
-            if let Ok(live_content) = std::fs::read_to_string(&target_path) {
-                if !live_content.trim().is_empty() {
-                    let mut prompts = state.db.get_prompts(app.as_str())?;
-
-                    // 尝试回填到当前已启用的提示词
-                    if let Some((enabled_id, enabled_prompt)) = prompts
-                        .iter_mut()
-                        .find(|(_, p)| p.enabled)
-                        .map(|(id, p)| (id.clone(), p))
-                    {
-                        let timestamp = get_unix_timestamp()?;
-                        enabled_prompt.content = live_content.clone();
-                        enabled_prompt.updated_at = Some(timestamp);
-                        log::info!("回填 live 提示词内容到已启用项: {enabled_id}");
-                        state.db.save_prompt(app.as_str(), enabled_prompt)?;
-                    } else {
-                        // 没有已启用的提示词，则创建一次备份（避免重复备份）
-                        let content_exists = prompts
-                            .values()
-                            .any(|p| p.content.trim() == live_content.trim());
-                        if !content_exists {
-                            let timestamp = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs() as i64;
-                            let backup_id = format!("backup-{timestamp}");
-                            let backup_prompt = Prompt {
-                                id: backup_id.clone(),
-                                name: format!(
-                                    "原始提示词 {}",
-                                    chrono::Local::now().format("%Y-%m-%d %H:%M")
-                                ),
-                                content: live_content,
-                                description: Some("自动备份的原始提示词".to_string()),
-                                enabled: false,
-                                created_at: Some(timestamp),
-                                updated_at: Some(timestamp),
-                            };
-                            log::info!("回填 live 提示词内容，创建备份: {backup_id}");
-                            state.db.save_prompt(app.as_str(), &backup_prompt)?;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 启用目标提示词并写入文件
-        let mut prompts = state.db.get_prompts(app.as_str())?;
-
-        for prompt in prompts.values_mut() {
-            prompt.enabled = false;
-        }
-
-        if let Some(prompt) = prompts.get_mut(id) {
-            validate_prompt_content(&app, &prompt.content)?;
-            prompt.enabled = true;
-            write_text_file(&target_path, &prompt.content)?; // 原子写入
-            state.db.save_prompt(app.as_str(), prompt)?;
-        } else {
-            return Err(AppError::InvalidInput(format!("提示词 {id} 不存在")));
-        }
-
-        // Save all prompts to disable others
-        for (_, prompt) in prompts.iter() {
-            state.db.save_prompt(app.as_str(), prompt)?;
-        }
-
-        Ok(())
+        enable_file_prompt(state, &app, id, &prompt_file_path(&app)?)
     }
 
     pub fn import_from_file(state: &AppState, app: AppType) -> Result<String, AppError> {
@@ -285,24 +218,26 @@ impl PromptService {
             return Ok(());
         }
 
-        let _guard = if app == AppType::Mcode {
-            Some(
-                MCODE_PROMPT_LOCK
-                    .lock()
-                    .map_err(|error| AppError::Message(error.to_string()))?,
-            )
-        } else {
-            None
-        };
+        let _guard = lock_file_prompts()?;
         let prompts = state.db.get_prompts(app.as_str())?;
-        let target_path = prompt_file_path(&app)?;
-        if let Some(prompt) = prompts.values().find(|prompt| prompt.enabled) {
-            validate_prompt_content(&app, &prompt.content)?;
+        if prompts.values().any(|prompt| prompt.enabled) {
+            crate::config::atomic_write(&projection_marker(&app), b"")?;
         }
-        if let Some(warning) = project_prompt_set_to_path(&prompts, &target_path)? {
+        Self::project_file_prompts(&app, &prompts)
+    }
+
+    fn project_file_prompts(
+        app: &AppType,
+        prompts: &IndexMap<String, Prompt>,
+    ) -> Result<(), AppError> {
+        let target_path = prompt_file_path(app)?;
+        if let Some(prompt) = prompts.values().find(|prompt| prompt.enabled) {
+            validate_prompt_content(app, &prompt.content)?;
+        }
+        if let Some(warning) = project_prompt_set_to_path(prompts, &target_path)? {
             return Err(AppError::Message(warning));
         }
-        Ok(())
+        clear_projection_marker(app)
     }
 
     /// Best-effort projection for every Prompt-capable application.
@@ -334,6 +269,7 @@ impl PromptService {
         state: &AppState,
         app: AppType,
     ) -> Result<usize, AppError> {
+        let _guard = lock_file_prompts()?;
         // 幂等性保护：该应用已有提示词则跳过
         let existing = state.db.get_prompts(app.as_str())?;
         if !existing.is_empty() {
@@ -401,44 +337,54 @@ impl PromptService {
     }
 }
 
-static MCODE_PROMPT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn upsert_mcode_prompt(
-    state: &AppState,
-    id: &str,
-    prompt: Prompt,
-    target_path: &Path,
-) -> Result<(), AppError> {
-    let _guard = MCODE_PROMPT_LOCK
-        .lock()
-        .map_err(|error| AppError::Message(error.to_string()))?;
-    validate_prompt_content(&AppType::Mcode, &prompt.content)?;
-    let prompts = state.db.get_prompts("mcode")?;
-    let clear_live = !prompt.enabled
-        && prompts.get(id).is_some_and(|previous| previous.enabled)
-        && !prompts
-            .iter()
-            .any(|(key, prompt)| key != id && prompt.enabled)
-        && target_path.exists();
-    if !prompt.enabled && !clear_live {
-        return state.db.save_prompt("mcode", &prompt);
-    }
-    crate::mcode_config::write_and_commit(
-        target_path,
-        || write_text_file(target_path, if clear_live { "" } else { &prompt.content }),
-        || state.db.save_prompt("mcode", &prompt),
-    )
+fn lock_file_prompts() -> Result<std::sync::MutexGuard<'static, ()>, AppError> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock()
+        .map_err(|error| AppError::Message(error.to_string()))
 }
 
-fn enable_mcode_prompt(state: &AppState, id: &str, target_path: &Path) -> Result<(), AppError> {
-    let _guard = MCODE_PROMPT_LOCK
-        .lock()
-        .map_err(|error| AppError::Message(error.to_string()))?;
-    let mut prompts = state.db.get_prompts("mcode")?;
+fn upsert_file_prompt(
+    state: &AppState,
+    app: &AppType,
+    id: &str,
+    prompt: Prompt,
+    target_path: Result<std::path::PathBuf, AppError>,
+) -> Result<(), AppError> {
+    let _guard = lock_file_prompts()?;
+    validate_prompt_content(app, &prompt.content)?;
+    let prompts = state.db.get_prompts(app.as_str())?;
+    let clear_live = !prompt.enabled
+        && prompts.get(id).is_some_and(|previous| previous.enabled)
+        && !prompts.iter().any(|(key, p)| key != id && p.enabled);
+    let save = || state.db.save_prompt(app.as_str(), &prompt);
+    if !prompt.enabled && !clear_live {
+        return save();
+    }
+    let path = target_path?;
+    if clear_live && !path.try_exists().map_err(|e| AppError::io(&path, e))? {
+        save()?;
+        return clear_projection_marker(app);
+    }
+    crate::mcode_config::write_and_commit(
+        &path,
+        || write_text_file(&path, if clear_live { "" } else { &prompt.content }),
+        save,
+    )?;
+    clear_projection_marker(app)
+}
+
+fn enable_file_prompt(
+    state: &AppState,
+    app: &AppType,
+    id: &str,
+    target_path: &Path,
+) -> Result<(), AppError> {
+    let _guard = lock_file_prompts()?;
+    let mut prompts = state.db.get_prompts(app.as_str())?;
     let target = prompts
         .get(id)
         .ok_or_else(|| AppError::InvalidInput(format!("提示词 {id} 不存在")))?;
-    validate_prompt_content(&AppType::Mcode, &target.content)?;
+    validate_prompt_content(app, &target.content)?;
 
     let live_content = match std::fs::read_to_string(target_path) {
         Ok(content) => content,
@@ -447,7 +393,11 @@ fn enable_mcode_prompt(state: &AppState, id: &str, target_path: &Path) -> Result
     };
     if !live_content.trim().is_empty() {
         let timestamp = get_unix_timestamp()?;
-        if let Some(current) = prompts.values_mut().find(|prompt| prompt.enabled) {
+        let pending = projection_is_pending(app)?;
+        if let Some(current) = prompts
+            .values_mut()
+            .find(|prompt| prompt.enabled && !pending)
+        {
             current.content = live_content;
             current.updated_at = Some(timestamp);
         } else if !prompts
@@ -476,12 +426,13 @@ fn enable_mcode_prompt(state: &AppState, id: &str, target_path: &Path) -> Result
         prompt.enabled = key == id;
     }
     let content = &prompts[id].content;
-    validate_prompt_content(&AppType::Mcode, content)?;
+    validate_prompt_content(app, content)?;
     crate::mcode_config::write_and_commit(
         target_path,
         || write_text_file(target_path, content),
-        || state.db.save_mcode_prompts(&prompts),
-    )
+        || state.db.save_prompts(app.as_str(), &prompts),
+    )?;
+    clear_projection_marker(app)
 }
 
 fn pi_active_prompt_id(
@@ -642,7 +593,8 @@ mod tests {
 
     #[test]
     fn mcode_prompt_database_failure_restores_edits_disables_and_new_files() {
-        use super::upsert_mcode_prompt;
+        use super::upsert_file_prompt;
+        use crate::app_config::AppType;
         use crate::{database::Database, store::AppState};
         use std::sync::Arc;
 
@@ -665,16 +617,28 @@ mod tests {
             prompt("active", "edited", true),
             prompt("active", "original", false),
         ] {
-            assert!(upsert_mcode_prompt(&state, "active", changed, &path).is_err());
+            assert!(upsert_file_prompt(
+                &state,
+                &AppType::Mcode,
+                "active",
+                changed,
+                Ok(path.clone())
+            )
+            .is_err());
             assert_eq!(std::fs::read_to_string(&path).unwrap(), "native original");
             let saved = state.db.get_prompts("mcode").unwrap();
             assert!(saved["active"].enabled);
             assert_eq!(saved["active"].content, "original");
         }
         std::fs::remove_file(&path).unwrap();
-        assert!(
-            upsert_mcode_prompt(&state, "new", prompt("new", "new content", true), &path).is_err()
-        );
+        assert!(upsert_file_prompt(
+            &state,
+            &AppType::Mcode,
+            "new",
+            prompt("new", "new content", true),
+            Ok(path.clone())
+        )
+        .is_err());
         assert!(!path.exists());
         assert!(!state.db.get_prompts("mcode").unwrap().contains_key("new"));
         state
@@ -684,16 +648,63 @@ mod tests {
             .unwrap()
             .execute_batch("PRAGMA query_only = OFF")
             .unwrap();
-        upsert_mcode_prompt(&state, "active", prompt("active", "edited", true), &path).unwrap();
+        upsert_file_prompt(
+            &state,
+            &AppType::Mcode,
+            "active",
+            prompt("active", "edited", true),
+            Ok(path.clone()),
+        )
+        .unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "edited");
-        upsert_mcode_prompt(&state, "active", prompt("active", "edited", false), &path).unwrap();
+        upsert_file_prompt(
+            &state,
+            &AppType::Mcode,
+            "active",
+            prompt("active", "edited", false),
+            Ok(path.clone()),
+        )
+        .unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
         assert!(!state.db.get_prompts("mcode").unwrap()["active"].enabled);
     }
 
     #[test]
+    fn disabling_last_codex_prompt_can_retry_after_live_path_is_unwritable() {
+        use super::upsert_file_prompt;
+        use crate::{app_config::AppType, database::Database, store::AppState};
+        use std::sync::Arc;
+
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("AGENTS.md");
+        std::fs::create_dir(&path).unwrap();
+        let state = AppState::new(Arc::new(Database::memory().unwrap()));
+        state
+            .db
+            .save_prompt("codex", &prompt("active", "keep", true))
+            .unwrap();
+        let disable = || {
+            upsert_file_prompt(
+                &state,
+                &AppType::Codex,
+                "active",
+                prompt("active", "keep", false),
+                Ok(path.clone()),
+            )
+        };
+        assert!(disable().is_err());
+        assert!(state.db.get_prompts("codex").unwrap()["active"].enabled);
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, "keep").unwrap();
+        disable().unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        assert!(!state.db.get_prompts("codex").unwrap()["active"].enabled);
+    }
+
+    #[test]
     fn mcode_prompt_activation_rolls_back_partial_database_writes_and_retries() {
-        use super::enable_mcode_prompt;
+        use super::enable_file_prompt;
+        use crate::app_config::AppType;
         use crate::{database::Database, store::AppState};
         use std::sync::Arc;
 
@@ -720,7 +731,7 @@ mod tests {
              BEGIN SELECT RAISE(ABORT, 'test write failure'); END;",
             )
             .unwrap();
-        assert!(enable_mcode_prompt(&state, "z-target", &path).is_err());
+        assert!(enable_file_prompt(&state, &AppType::Mcode, "z-target", &path).is_err());
         let saved = state.db.get_prompts("mcode").unwrap();
         assert_eq!(saved["a-current"].content, "stored");
         assert!(saved["a-current"].enabled);
@@ -733,7 +744,7 @@ mod tests {
             .unwrap()
             .execute_batch("DROP TRIGGER reject_target;")
             .unwrap();
-        enable_mcode_prompt(&state, "z-target", &path).unwrap();
+        enable_file_prompt(&state, &AppType::Mcode, "z-target", &path).unwrap();
         let saved = state.db.get_prompts("mcode").unwrap();
         assert_eq!(saved["a-current"].content, "native edit");
         assert!(!saved["a-current"].enabled);
@@ -743,7 +754,8 @@ mod tests {
 
     #[test]
     fn mcode_prompt_activation_preserves_unmanaged_file_when_database_is_read_only() {
-        use super::enable_mcode_prompt;
+        use super::enable_file_prompt;
+        use crate::app_config::AppType;
         use crate::{database::Database, store::AppState};
         use std::sync::Arc;
 
@@ -762,7 +774,7 @@ mod tests {
             .unwrap()
             .execute_batch("PRAGMA query_only = ON")
             .unwrap();
-        assert!(enable_mcode_prompt(&state, "target", &path).is_err());
+        assert!(enable_file_prompt(&state, &AppType::Mcode, "target", &path).is_err());
         assert_eq!(state.db.get_prompts("mcode").unwrap().len(), 1);
         assert!(!state.db.get_prompts("mcode").unwrap()["target"].enabled);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "unmanaged");
@@ -773,7 +785,7 @@ mod tests {
             .unwrap()
             .execute_batch("PRAGMA query_only = OFF")
             .unwrap();
-        enable_mcode_prompt(&state, "target", &path).unwrap();
+        enable_file_prompt(&state, &AppType::Mcode, "target", &path).unwrap();
         let saved = state.db.get_prompts("mcode").unwrap();
         assert_eq!(saved.len(), 2);
         assert!(saved

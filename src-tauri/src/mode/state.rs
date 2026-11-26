@@ -253,6 +253,9 @@ pub struct PendingTarget {
     /// 直连指针：切换成功后当前供应商是谁。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pointer: Option<String>,
+    /// Clear both device and database pointers on account detachment.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub clear_pointer: bool,
     /// 模式状态：有值时整体替换这个应用的 mode、attached、proxy_route、contract。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<ModeState>,
@@ -286,6 +289,7 @@ impl PendingTarget {
 
     pub fn is_empty(&self) -> bool {
         self.pointer.is_none()
+            && !self.clear_pointer
             && self.state.is_none()
             && self.written.is_none()
             && self.stack.is_none()

@@ -341,6 +341,10 @@ pub struct CodexThirdPartyHistoryProviderBucketMigration {
     pub migrated_state_rows: usize,
     #[serde(default)]
     pub scanned_history_files: bool,
+    /// Codex home and the SQLite files actually present and lockable when completed.
+    /// Old markers omitted this information and may have skipped a WSL database.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified_storage: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -364,6 +368,10 @@ pub struct CodexOfficialHistoryUnifyMigration {
     /// 切换 codex_config_dir 后旧标记不会挡住新目录的迁移。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_config_dir: Option<String>,
+    /// Codex home and the SQLite files actually present and lockable when completed.
+    /// Old markers omitted this information and may have skipped a WSL database.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified_storage: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -378,6 +386,10 @@ pub struct CodexLegacyOfficialHistoryBucketMigration {
     /// 迁移时的规范化 Codex 目录，切换 codex_config_dir 后新目录照常迁移。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_config_dir: Option<String>,
+    /// Codex home and the SQLite files actually present and lockable when completed.
+    /// Old markers omitted this information and may have skipped a WSL database.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified_storage: Vec<String>,
 }
 
 /// 用量金额的显示方式。只影响显示：库里的费用一律是美元，按 `exchange_rates`
@@ -1077,44 +1089,30 @@ pub fn get_settings_for_frontend() -> AppSettings {
     settings
 }
 
-pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
-    new_settings.normalize_paths();
-    save_settings_file(&new_settings)?;
-
-    let mut guard = settings_store().write().unwrap_or_else(|e| {
-        log::warn!("设置锁已毒化，使用恢复值: {e}");
-        e.into_inner()
-    });
-    *guard = new_settings;
-    Ok(())
+pub fn update_settings(new_settings: AppSettings) -> Result<(), AppError> {
+    mutate_settings(|current| *current = new_settings)
 }
 
-fn mutate_settings<F>(mutator: F) -> Result<(), AppError>
+pub(crate) fn mutate_settings<F, T>(mutator: F) -> Result<T, AppError>
 where
-    F: FnOnce(&mut AppSettings),
+    F: FnOnce(&mut AppSettings) -> T,
 {
     let mut guard = settings_store().write().unwrap_or_else(|e| {
         log::warn!("设置锁已毒化，使用恢复值: {e}");
         e.into_inner()
     });
     let mut next = guard.clone();
-    mutator(&mut next);
+    let result = mutator(&mut next);
     next.normalize_paths();
     save_settings_file(&next)?;
     *guard = next;
-    Ok(())
+    Ok(result)
 }
 
-pub fn is_codex_third_party_history_provider_bucket_migrated() -> bool {
+pub fn codex_third_party_history_marker() -> Option<CodexThirdPartyHistoryProviderBucketMigration> {
     get_settings()
-        .local_migrations
-        .as_ref()
-        .and_then(|migrations| {
-            migrations
-                .codex_third_party_history_provider_bucket_v1
-                .as_ref()
-        })
-        .is_some_and(|m| m.scanned_history_files)
+        .local_migrations?
+        .codex_third_party_history_provider_bucket_v1
 }
 
 pub fn mark_codex_third_party_history_provider_bucket_migrated(
@@ -1149,12 +1147,19 @@ pub fn mark_codex_provider_template_migrated(
 
 /// 统一会话迁移标记是否覆盖指定目录。标记里没记目录（不应出现的旧格式）
 /// 视为不匹配——重跑迁移是幂等的，宁可重迁也不漏迁。
-pub fn is_codex_official_history_unify_migrated_for_dir(codex_dir: &str) -> bool {
+pub fn is_codex_official_history_unify_migrated_for_dir(
+    codex_dir: &str,
+    verified_storage: &[String],
+) -> bool {
     get_settings()
         .local_migrations
         .as_ref()
         .and_then(|migrations| migrations.codex_official_history_unify_v1.as_ref())
-        .is_some_and(|migration| migration.codex_config_dir.as_deref() == Some(codex_dir))
+        .is_some_and(|migration| {
+            migration.codex_config_dir.as_deref() == Some(codex_dir)
+                && migration.verified_storage == verified_storage
+                && !verified_storage.is_empty()
+        })
 }
 
 /// 条件写入迁移完成标记：仅当此刻开关仍开启且迁移意愿仍在时才写。
@@ -1187,12 +1192,19 @@ pub fn clear_codex_official_history_unify_migration() -> Result<(), AppError> {
     })
 }
 
-pub fn is_codex_legacy_official_history_bucket_migrated_for_dir(codex_dir: &str) -> bool {
+pub fn is_codex_legacy_official_history_bucket_migrated_for_dir(
+    codex_dir: &str,
+    verified_storage: &[String],
+) -> bool {
     get_settings()
         .local_migrations
         .as_ref()
         .and_then(|migrations| migrations.codex_legacy_official_history_bucket_v1.as_ref())
-        .is_some_and(|migration| migration.codex_config_dir.as_deref() == Some(codex_dir))
+        .is_some_and(|migration| {
+            migration.codex_config_dir.as_deref() == Some(codex_dir)
+                && migration.verified_storage == verified_storage
+                && !verified_storage.is_empty()
+        })
 }
 
 pub fn mark_codex_legacy_official_history_bucket_migrated(

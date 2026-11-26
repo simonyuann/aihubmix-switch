@@ -231,13 +231,13 @@ pub async fn ensure_remote_directories(
 }
 
 /// PUT bytes to a remote WebDAV URL.
-pub async fn put_bytes(
+async fn put_bytes(
+    client: &reqwest::Client,
     url: &str,
     auth: &WebDavAuth,
     bytes: Vec<u8>,
     content_type: &str,
 ) -> Result<(), AppError> {
-    let client = http_client::get();
     let resp = apply_auth(
         client
             .put(url)
@@ -254,6 +254,58 @@ pub async fn put_bytes(
         return Ok(());
     }
     Err(webdav_status_error("PUT", resp.status(), url))
+}
+
+/// Stage writes beside their destination. An interrupted PUT or failed MOVE
+/// leaves the published manifest and its referenced artifacts intact.
+pub async fn put_bytes_atomically(
+    url: &str,
+    auth: &WebDavAuth,
+    bytes: Vec<u8>,
+    content_type: &str,
+) -> Result<(), AppError> {
+    let mut staged = parse_base_url(url)?;
+    let filename = format!("aihub-upload-{}.tmp", uuid::Uuid::new_v4());
+    staged
+        .path_segments_mut()
+        .expect("validated HTTP URL")
+        .pop()
+        .push(&filename);
+    let client = http_client::get_for_url(url);
+    let result = async {
+        put_bytes(&client, staged.as_str(), auth, bytes, content_type).await?;
+        let method = Method::from_bytes(b"MOVE").expect("valid WebDAV method");
+        let response = apply_auth(
+            client
+                .request(method, staged.clone())
+                .header("Destination", url)
+                .header("Overwrite", "T")
+                .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
+            auth,
+        )
+        .send()
+        .await
+        .map_err(|e| {
+            webdav_transport_error("webdav.move_failed", "发布文件", "publish file", url, &e)
+        })?;
+        if !response.status().is_success() || response.status() == StatusCode::MULTI_STATUS {
+            return Err(webdav_status_error("MOVE", response.status(), url));
+        }
+        Ok(())
+    }
+    .await;
+    if result.is_err() {
+        // The staging name is private to this request; never remove a committed object.
+        let _ = apply_auth(
+            client
+                .delete(staged)
+                .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
+            auth,
+        )
+        .send()
+        .await;
+    }
+    result
 }
 
 /// GET bytes from a remote WebDAV URL. Returns `None` on 404.
@@ -403,6 +455,14 @@ pub fn webdav_status_error(op: &str, status: StatusCode, url: &str) -> AppError 
             zh.push_str("。请检查 WebDAV 用户名、密码及目录读写权限。");
             en.push_str(". Please check WebDAV username/password and directory permissions.");
         }
+    } else if op == "MOVE"
+        && matches!(
+            status,
+            StatusCode::METHOD_NOT_ALLOWED | StatusCode::NOT_IMPLEMENTED
+        )
+    {
+        zh.push_str("。发布备份需要 WebDAV 的 MOVE（移动）权限或支持，请检查服务器配置后重试。");
+        en.push_str(". Publishing a backup requires WebDAV MOVE support and permission. Check the server settings and retry.");
     } else if jgy && (status == StatusCode::NOT_FOUND || status.is_redirection()) {
         zh.push_str("。坚果云常见原因：地址不在 /dav/ 可写目录下。");
         en.push_str(". Common Jianguoyun cause: URL is outside a writable /dav/ directory.");
@@ -466,6 +526,55 @@ fn ensure_content_length_within_limit(
 mod tests {
     use super::*;
     use reqwest::header::{HeaderMap, HeaderValue, CONTENT_LENGTH};
+
+    #[tokio::test]
+    async fn failed_move_cleans_only_the_private_staging_object() {
+        use axum::extract::Request;
+        use std::sync::{Arc, Mutex};
+        let operations = Arc::new(Mutex::new(Vec::new()));
+        let seen = operations.clone();
+        let app = axum::Router::new().fallback(move |request: Request| {
+            let seen = seen.clone();
+            async move {
+                let method = request.method().clone();
+                let dest = request
+                    .headers()
+                    .get("destination")
+                    .map(|v| v.to_str().unwrap().to_owned());
+                seen.lock()
+                    .unwrap()
+                    .push((method.clone(), request.uri().path().to_owned(), dest));
+                if method.as_str() == "MOVE" {
+                    StatusCode::CONFLICT
+                } else {
+                    StatusCode::NO_CONTENT
+                }
+            }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!(
+            "http://{}/backup/manifest.json",
+            listener.local_addr().unwrap()
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let result =
+            put_bytes_atomically(&url, &None, b"new manifest".to_vec(), "application/json").await;
+        server.abort();
+        assert!(result.is_err());
+        let ops = operations.lock().unwrap();
+        assert_eq!(ops.len(), 3);
+        assert!(ops[0].1.starts_with("/backup/aihub-upload-"));
+        assert_eq!(ops[0].0, Method::PUT);
+        assert_eq!(
+            ops[1],
+            (
+                Method::from_bytes(b"MOVE").unwrap(),
+                ops[0].1.clone(),
+                Some(url)
+            )
+        );
+        assert_eq!(ops[2], (Method::DELETE, ops[0].1.clone(), None));
+    }
 
     #[test]
     fn build_remote_url_encodes_path_segments() {

@@ -107,7 +107,10 @@ export function CodexAuthSettings({
     if (saved === false) return;
     // 不再以探测结果短路：还原命令会在迁移锁上排队，等到迁移落盘后
     // 拿到完整账本；确实无账本时由 skippedReason 提示。
-    if (!restoreBackup) return;
+    if (restoreBackup) await restoreHistory();
+  };
+
+  const restoreHistory = async () => {
     try {
       const result = await settingsApi.restoreCodexUnifiedHistory();
       if (result.skippedReason) {
@@ -115,7 +118,9 @@ export function CodexAuthSettings({
         toast.info(
           result.skippedReason === "unify_toggle_on"
             ? t("settings.unifyCodexHistoryRestoreSkippedToggleOn")
-            : t("settings.unifyCodexHistoryRestoreNothing"),
+            : result.skippedReason === "state_db_unlockable"
+              ? t("settings.codexHistoryStorageUnavailable")
+              : t("settings.unifyCodexHistoryRestoreNothing"),
         );
         return;
       }
@@ -127,7 +132,13 @@ export function CodexAuthSettings({
       );
     } catch (error) {
       console.error("Failed to restore codex unified history:", error);
-      toast.error(t("settings.unifyCodexHistoryRestoreFailed"));
+      toast.error(t("settings.unifyCodexHistoryRestoreFailed"), {
+        description: String(error),
+        action: {
+          label: t("common.retry"),
+          onClick: () => void restoreHistory(),
+        },
+      });
     }
   };
 

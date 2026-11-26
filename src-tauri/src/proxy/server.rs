@@ -102,15 +102,20 @@ impl ProxyServer {
     }
 
     pub async fn start(&self) -> Result<ProxyServerInfo, ProxyError> {
+        let mut handle_slot = self.server_handle.write().await;
         // 检查是否已在运行
         if self.shutdown_tx.read().await.is_some() {
             return Err(ProxyError::AlreadyRunning);
         }
 
-        let addr: SocketAddr =
-            format!("{}:{}", self.config.listen_address, self.config.listen_port)
-                .parse()
-                .map_err(|e| ProxyError::BindFailed(format!("无效的地址: {e}")))?;
+        let host = self.config.listen_address.as_str();
+        let ip = host
+            .strip_prefix('[')
+            .and_then(|s| s.strip_suffix(']'))
+            .unwrap_or(host)
+            .parse()
+            .map_err(|e| ProxyError::BindFailed(format!("无效的地址: {e}")))?;
+        let addr = SocketAddr::new(ip, self.config.listen_port);
 
         // 创建关闭通道
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -150,8 +155,13 @@ impl ProxyServer {
         let state = self.state.clone();
         let handle = tokio::spawn(async move {
             let mut shutdown_rx = shutdown_rx;
+            // Dropping this sender stops admission on every connection. In-flight
+            // responses may finish even after the listener has been stopped.
+            let (admission, draining) = tokio::sync::watch::channel(());
             loop {
                 tokio::select! {
+                    biased;
+                    _ = &mut shutdown_rx => break,
                     result = listener.accept() => {
                         let (stream, _remote_addr) = match result {
                             Ok(v) => v,
@@ -163,12 +173,18 @@ impl ProxyServer {
                         };
 
                         let app = app.clone();
+                        let mut draining = draining.clone();
                         tokio::spawn(async move {
                             // Peek raw TCP bytes to capture original header casing
                             // before hyper parses (and lowercases) the header names.
                             let original_cases = {
                                 let mut peek_buf = vec![0u8; 8192];
-                                match stream.peek(&mut peek_buf).await {
+                                let peek = tokio::select! {
+                                    biased;
+                                    _ = draining.changed() => return,
+                                    result = stream.peek(&mut peek_buf) => result,
+                                };
+                                match peek {
                                     Ok(n) => {
                                         let cases = super::hyper_client::OriginalHeaderCases::from_raw_bytes(&peek_buf[..n]);
                                         log::debug!(
@@ -185,10 +201,18 @@ impl ProxyServer {
                             };
 
                             // service_fn 将 axum Router（tower::Service）桥接到 hyper
+                            let gate = draining.clone();
                             let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
                                 let mut router = app.clone();
                                 let cases = original_cases.clone();
+                                let stopped = gate.has_changed().is_err();
                                 async move {
+                                    if stopped {
+                                        return Ok(axum::response::Response::builder()
+                                            .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                                            .header(http::header::CONNECTION, "close")
+                                            .body(axum::body::Body::empty()).expect("static response"));
+                                    }
                                     // 将 hyper::body::Incoming 转为 axum::body::Body，保留 extensions
                                     let (mut parts, body) = req.into_parts();
 
@@ -201,29 +225,37 @@ impl ProxyServer {
                                 }
                             });
 
-                            if let Err(e) = hyper::server::conn::http1::Builder::new()
+                            let conn = hyper::server::conn::http1::Builder::new()
                                 .preserve_header_case(true)
-                                .serve_connection(TokioIo::new(stream), service)
-                                .await
-                            {
+                                .serve_connection(TokioIo::new(stream), service);
+                            tokio::pin!(conn);
+                            let result = tokio::select! {
+                                biased;
+                                _ = draining.changed() => {
+                                    conn.as_mut().graceful_shutdown();
+                                    conn.await
+                                }
+                                result = &mut conn => result,
+                            };
+                            if let Err(e) = result {
                                 // Connection reset / broken pipe 等在代理场景下很常见，debug 级别
                                 log::debug!("[{SRV}] connection error: {e}", SRV = log_srv::CONN_ERR);
                             }
                         });
                     }
-                    _ = &mut shutdown_rx => {
-                        break;
-                    }
+
                 }
             }
 
+            drop(listener);
+            drop(admission);
             // 服务器停止后更新状态
             state.status.write().await.running = false;
             *state.start_time.write().await = None;
         });
 
         // 保存服务器任务句柄
-        *self.server_handle.write().await = Some(handle);
+        *handle_slot = Some(handle);
 
         Ok(ProxyServerInfo {
             address: self.config.listen_address.clone(),
@@ -233,6 +265,7 @@ impl ProxyServer {
     }
 
     pub async fn stop(&self) -> Result<(), ProxyError> {
+        let mut handle_slot = self.server_handle.write().await;
         // 1. 发送关闭信号
         if let Some(tx) = self.shutdown_tx.write().await.take() {
             let _ = tx.send(());
@@ -241,7 +274,7 @@ impl ProxyServer {
         }
 
         // 2. 等待服务器任务结束（带 5 秒超时保护）
-        if let Some(handle) = self.server_handle.write().await.take() {
+        if let Some(handle) = handle_slot.take() {
             match tokio::time::timeout(std::time::Duration::from_secs(5), handle).await {
                 Ok(Ok(())) => {
                     log::info!("[{}] 代理服务器已完全停止", log_srv::STOPPED);
@@ -480,6 +513,35 @@ mod tests {
         path_and_query: String,
         authorization: Option<String>,
         body: Value,
+    }
+
+    #[tokio::test]
+    async fn ipv6_proxy_stops_serving_pooled_and_idle_connections() {
+        use tokio::io::AsyncReadExt;
+        let proxy = ProxyServer::new(
+            ProxyConfig {
+                listen_address: "::1".into(),
+                listen_port: 0,
+                ..ProxyConfig::default()
+            },
+            Arc::new(Database::memory().unwrap()),
+            None,
+        );
+        let info = proxy.start().await.unwrap();
+        let url = format!("http://[::1]:{}/health", info.port);
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let first = client.get(&url).send().await.unwrap();
+        assert_eq!(first.status(), StatusCode::OK);
+        first.bytes().await.unwrap();
+        let mut idle = tokio::net::TcpStream::connect(("::1", info.port))
+            .await
+            .unwrap();
+        proxy.stop().await.unwrap();
+        if let Ok(response) = client.get(&url).send().await {
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
+        let read = tokio::time::timeout(std::time::Duration::from_secs(2), idle.read_u8()).await;
+        assert!(read.unwrap().is_err());
     }
 
     /// Windows 上监听 socket 不能被子进程继承：从 CC Switch 拉起的终端、CLI 一旦继承它，
@@ -987,6 +1049,11 @@ mod tests {
         });
         db.save_provider("codex", &full_url_provider)
             .expect("save full URL images provider");
+        db.set_codex_image_choice(
+            &full_url_provider.id,
+            &json!({"model":"gpt-image-2.6-sunburst"}),
+        )
+        .unwrap();
         db.set_current_provider("codex", &full_url_provider.id)
             .expect("select full URL images provider");
 
@@ -997,7 +1064,7 @@ mod tests {
             ))
             .header(header::AUTHORIZATION, "Bearer client-secret")
             .json(&json!({
-                "model": "gpt-image-1",
+                "model": "gpt-image-2",
                 "prompt": "image generation full URL"
             }))
             .send()
@@ -1037,7 +1104,7 @@ mod tests {
             full_url_request.authorization.as_deref(),
             Some("Bearer full-url-secret")
         );
-        assert_eq!(full_url_request.body["model"], "gpt-image-1");
+        assert_eq!(full_url_request.body["model"], "gpt-image-2.6-sunburst");
         assert_eq!(full_url_request.body["prompt"], "image generation full URL");
 
         proxy.stop().await.expect("stop test proxy");
@@ -1200,6 +1267,11 @@ mod tests {
         });
         db.save_provider("codex", &full_url_provider)
             .expect("save full URL images edit provider");
+        db.set_codex_image_choice(
+            &full_url_provider.id,
+            &json!({"model":"gpt-image-2.6-flare"}),
+        )
+        .unwrap();
         db.set_current_provider("codex", &full_url_provider.id)
             .expect("select full URL images edit provider");
 
@@ -1254,7 +1326,7 @@ mod tests {
             full_url_request.authorization.as_deref(),
             Some("Bearer full-url-secret")
         );
-        assert_eq!(full_url_request.body["model"], "gpt-image-2");
+        assert_eq!(full_url_request.body["model"], "gpt-image-2.6-flare");
         assert_eq!(full_url_request.body["prompt"], "image edit full URL");
         assert_eq!(
             full_url_request.body["images"][0]["image_url"],

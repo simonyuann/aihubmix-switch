@@ -44,6 +44,35 @@ fn merge_settings_for_save(
         }
         _ => {}
     }
+    // The provider switch transaction owns these device-local selections.
+    incoming
+        .current_provider_claude
+        .clone_from(&existing.current_provider_claude);
+    incoming
+        .current_provider_claude_desktop
+        .clone_from(&existing.current_provider_claude_desktop);
+    incoming
+        .current_provider_codex
+        .clone_from(&existing.current_provider_codex);
+    incoming
+        .current_provider_gemini
+        .clone_from(&existing.current_provider_gemini);
+    incoming
+        .current_provider_grokbuild
+        .clone_from(&existing.current_provider_grokbuild);
+    incoming
+        .current_provider_opencode
+        .clone_from(&existing.current_provider_opencode);
+    incoming
+        .current_provider_openclaw
+        .clone_from(&existing.current_provider_openclaw);
+    incoming
+        .current_provider_hermes
+        .clone_from(&existing.current_provider_hermes);
+    incoming
+        .current_provider_agy
+        .clone_from(&existing.current_provider_agy);
+    incoming.webdav_backup.clone_from(&existing.webdav_backup);
     // local_migrations 是纯后端状态（迁移完成标记），前端没有合法的修改场景，
     // 无条件取现有值。若按 incoming 透传：后端清掉 marker（如关闭统一会话
     // 开关）后、前端 query 缓存刷新前的一次全量保存会把旧 marker 重放回来，
@@ -70,15 +99,23 @@ pub async fn save_settings(
     state: tauri::State<'_, crate::store::AppState>,
     settings: crate::settings::AppSettings,
 ) -> Result<bool, String> {
-    let existing = crate::settings::get_settings();
-    let merged = merge_settings_for_save(settings, &existing);
-    let providers_mode_changed = merged.enable_other_providers != existing.enable_other_providers;
-    if providers_mode_changed && merged.enable_other_providers {
+    // Serialize form saves and their live projections. Backend writers such as
+    // tray switches still update the device settings independently.
+    static FORM_SAVE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _save = FORM_SAVE.lock().await;
+    if settings.enable_other_providers && !crate::settings::get_settings().enable_other_providers {
         state
             .db
             .init_default_official_providers()
             .map_err(|e| e.to_string())?;
     }
+    let (existing, merged) = crate::settings::mutate_settings(|current| {
+        let merged = merge_settings_for_save(settings, current);
+        let previous = std::mem::replace(current, merged.clone());
+        (previous, merged)
+    })
+    .map_err(|e| e.to_string())?;
+    let providers_mode_changed = merged.enable_other_providers != existing.enable_other_providers;
     let unify_codex_changed =
         merged.unify_codex_session_history != existing.unify_codex_session_history;
     let unify_codex_enabled = merged.unify_codex_session_history;
@@ -91,7 +128,6 @@ pub async fn save_settings(
             != existing.codex_stack_subagent_reasoning_effort
         || merged.codex_stack_auto_review_model != existing.codex_stack_auto_review_model;
     let tray_style_changed = merged.native_tray_menu != existing.native_tray_menu;
-    crate::settings::update_settings(merged).map_err(|e| e.to_string())?;
     if providers_mode_changed {
         crate::tray::refresh_tray_menu(&app);
     }
@@ -105,13 +141,14 @@ pub async fn save_settings(
     if stack_settings_changed {
         if let Err(err) = crate::mode::controller::resync_codex_stack_catalog(state.inner()).await {
             log::warn!("Codex 聚合设置变更后重写客户端配置失败，回滚设置: {err}");
-            let mut rollback = crate::settings::get_settings();
-            rollback.codex_stack_classic_tools = existing.codex_stack_classic_tools;
-            rollback.codex_stack_subagent_model = existing.codex_stack_subagent_model.clone();
-            rollback.codex_stack_subagent_reasoning_effort =
-                existing.codex_stack_subagent_reasoning_effort.clone();
-            rollback.codex_stack_auto_review_model = existing.codex_stack_auto_review_model.clone();
-            if let Err(rollback_err) = crate::settings::update_settings(rollback) {
+            if let Err(rollback_err) = crate::settings::mutate_settings(|rollback| {
+                rollback.codex_stack_classic_tools = existing.codex_stack_classic_tools;
+                rollback.codex_stack_subagent_model = existing.codex_stack_subagent_model.clone();
+                rollback.codex_stack_subagent_reasoning_effort =
+                    existing.codex_stack_subagent_reasoning_effort.clone();
+                rollback.codex_stack_auto_review_model =
+                    existing.codex_stack_auto_review_model.clone();
+            }) {
                 log::error!("回滚 Codex 聚合设置失败: {rollback_err}");
             }
             return Err(format!(
@@ -126,13 +163,15 @@ pub async fn save_settings(
         // live 重写失败时回滚设置并把保存整体报失败：若设置保持已切换状态，
         // live 仍跑旧桶，后续的历史迁移/还原会让会话再次分裂（开启=历史
         // 迁走而新会话仍写 openai 桶；关闭=会话还原而 live 仍写 custom）。
-        // 报错让前端 saved=false 短路还原；回滚是整次保存的事务语义
-        // （本开关的保存只携带开关相关字段）。
+        // 报错让前端 saved=false 短路还原，并只回滚此次会话开关。
         if let Err(err) =
             crate::services::provider::reapply_current_codex_official_live(state.inner())
         {
             log::warn!("统一 Codex 会话历史开关变更后重写 live 配置失败，回滚设置: {err}");
-            if let Err(rollback_err) = crate::settings::update_settings(existing) {
+            if let Err(rollback_err) = crate::settings::mutate_settings(|rollback| {
+                rollback.unify_codex_session_history = existing.unify_codex_session_history;
+                rollback.unify_codex_migrate_existing = existing.unify_codex_migrate_existing;
+            }) {
                 log::error!("回滚统一会话开关设置失败: {rollback_err}");
             }
             return Err(format!(
@@ -144,10 +183,14 @@ pub async fn save_settings(
             // 后台执行存量迁移（openai 桶 → custom 桶；仅当用户勾选了迁入既有
             // 会话，函数内部自门控）。大会话目录可能要读数秒，不能阻塞设置保存；
             // 失败时不写完成标记，下次启动自动重试。
-            tauri::async_runtime::spawn_blocking(|| {
+            let migration_app = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
                 match crate::codex_history_migration::maybe_migrate_codex_official_history_to_unified_bucket() {
                     Ok(outcome) => {
                         if let Some(reason) = outcome.skipped_reason {
+                            if reason == "state_db_unlockable" {
+                                let _ = migration_app.emit("codex-history-migration-deferred", (reason.as_str(), ""));
+                            }
                             log::debug!("○ Codex official history unify migration skipped: {reason}");
                         } else {
                             log::info!(
@@ -158,6 +201,7 @@ pub async fn save_settings(
                         }
                     }
                     Err(e) => {
+                        let _ = migration_app.emit("codex-history-migration-deferred", ("retry", e.to_string()));
                         log::warn!("✗ Codex official history unify migration failed: {e}");
                     }
                 }
@@ -435,6 +479,24 @@ mod tests {
     };
 
     #[test]
+    fn stale_form_cannot_reactivate_a_previous_provider_or_undo_its_removal() {
+        let current = crate::settings::AppSettings {
+            current_provider_codex: Some("new-group".into()),
+            ..Default::default()
+        };
+        let form = crate::settings::AppSettings {
+            current_provider_codex: Some("old-group".into()),
+            current_provider_gemini: Some("removed-group".into()),
+            language: Some("en".into()),
+            ..Default::default()
+        };
+        let saved = merge_settings_for_save(form, &current);
+        assert_eq!(saved.current_provider_codex.as_deref(), Some("new-group"));
+        assert_eq!(saved.current_provider_gemini, None);
+        assert_eq!(saved.language.as_deref(), Some("en"));
+    }
+
+    #[test]
     fn save_settings_should_keep_the_existing_lightweight_mode() {
         let existing = AppSettings {
             lightweight_mode: true,
@@ -648,6 +710,7 @@ mod tests {
                         migrated_jsonl_files: 2,
                         migrated_state_rows: 3,
                         scanned_history_files: true,
+                        verified_storage: vec![],
                     },
                 ),
                 codex_provider_template_v1: Some(CodexProviderTemplateMigration {
@@ -660,6 +723,7 @@ mod tests {
                     migrated_jsonl_files: 5,
                     migrated_state_rows: 7,
                     codex_config_dir: None,
+                    verified_storage: vec![],
                 }),
                 ..LocalMigrations::default()
             }),
@@ -714,6 +778,7 @@ mod tests {
                     migrated_jsonl_files: 1,
                     migrated_state_rows: 2,
                     codex_config_dir: None,
+                    verified_storage: vec![],
                 }),
                 ..LocalMigrations::default()
             }),
@@ -748,6 +813,7 @@ mod tests {
                     migrated_jsonl_files: 1,
                     migrated_state_rows: 2,
                     codex_config_dir: None,
+                    verified_storage: vec![],
                 }),
                 ..LocalMigrations::default()
             }),

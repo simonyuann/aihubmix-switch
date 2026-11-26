@@ -10,6 +10,7 @@ from contextlib import ExitStack
 from pathlib import Path, PurePosixPath
 
 from sync_plugin_market import verify_archive
+from native_plugin_registry import publish_registry
 
 
 def sha256(path):
@@ -74,6 +75,7 @@ def publish(source, destination):
         else:
             stage.chmod(0o755)
             os.rename(stage, live)
+        publish_registry(destination, index)
         pending = Path(temp) / "latest.json"
         pending.write_text(json.dumps(manifest, ensure_ascii=False, separators=(",", ":")))
         os.replace(pending, destination / "latest.json")

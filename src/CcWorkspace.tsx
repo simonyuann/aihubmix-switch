@@ -147,6 +147,7 @@ import type { PiFamilyAppId } from "@/lib/api/pi";
 
 // Keep the upstream CC workspace intact; platform pages are additive entry points.
 import { AccountPage } from "@/components/aihubmix/AccountPage";
+import { AnnouncementPage } from "@/components/aihubmix/Announcements";
 import { ToolPage } from "@/components/aihubmix/ToolPage";
 import { HelpPage } from "@/components/aihubmix/HelpPage";
 import {
@@ -1654,6 +1655,7 @@ function CcWorkspace() {
           app={activeApp}
           simple={!advancedInterface}
           onSelectApp={selectApp}
+          onOpenAnnouncements={() => openPage("announcements")}
           onOpenProviders={
             advancedInterface && settingsData?.enableOtherProviders
               ? () => setShowPlatformGroups(false)
@@ -1735,6 +1737,8 @@ function CcWorkspace() {
         return <HelpPage />;
       case "aihubmix":
         return <AccountPage />;
+      case "announcements":
+        return <AnnouncementPage />;
       case "usage":
         return (
           <UsagePage
@@ -1828,6 +1832,7 @@ function CcWorkspace() {
           appConfigScrollTarget={appConfigScrollTarget}
           onImportSuccess={handleImportSuccess}
           onOpenApps={() => setCurrentView("apps")}
+          onOpenApiManagement={() => openPage("aihubmix")}
           onOpenApp={selectApp}
         />
       );
@@ -1900,7 +1905,7 @@ function CcWorkspace() {
             className="flex min-h-0 flex-1 flex-col"
           >
             <HeaderBalanceContext.Provider
-              value={!advancedInterface || currentView !== "settings"}
+              value={advancedInterface && currentView !== "settings"}
             >
               {renderContent()}
             </HeaderBalanceContext.Provider>

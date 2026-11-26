@@ -564,6 +564,19 @@ impl LivePatch for LegacyAuthLogoutPatch {
     }
 }
 
+// An upgraded live config can already use HTTPS 443 while the saved card
+// still names port 23457. Ownership and credentials are checked separately.
+fn logout_endpoint_matches(table: &dyn TableLike, expected: &str) -> bool {
+    table
+        .get("base_url")
+        .and_then(Item::as_str)
+        .is_some_and(|live| {
+            live == expected
+                || (crate::product_policy::is_platform_v1_url(expected)
+                    && crate::product_policy::is_platform_v1_url(live))
+        })
+}
+
 /// Detach the active route only when it still points to the matching platform.
 struct LegacyConfigLogoutPatch {
     expected_url: String,
@@ -590,7 +603,7 @@ impl LivePatch for LegacyConfigLogoutPatch {
             .and_then(Item::as_table_like_mut)
             .ok_or_else(invalid)?;
         if has_alternate_auth(table)
-            || table.get("base_url").and_then(Item::as_str) != Some(self.expected_url.as_str())
+            || !logout_endpoint_matches(table, &self.expected_url)
             || table
                 .get("experimental_bearer_token")
                 .is_some_and(|token| token.as_str() != Some(self.expected_token.as_str()))
@@ -641,7 +654,7 @@ impl LivePatch for LogoutPatch {
             return Ok(doc.to_string().into_bytes());
         };
         if has_alternate_auth(table)
-            || table.get("base_url").and_then(Item::as_str) != Some(self.expected_url.as_str())
+            || !logout_endpoint_matches(table, &self.expected_url)
             || table
                 .get("experimental_bearer_token")
                 .and_then(Item::as_str)
@@ -1323,7 +1336,7 @@ mod tests {
             expected_url: "https://csmy.fun:23457/v1".into(),
             expected_token: "fixture-key".into(),
         };
-        let before = "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\n";
+        let before = "model_provider = 'custom'\n[model_providers.custom]\nbase_url = 'https://csmy.fun/v1'\n";
         assert!(!String::from_utf8(
             config
                 .apply(Path::new("config.toml"), Some(before.as_bytes()))
@@ -1344,7 +1357,7 @@ mod tests {
             expected_token: "fixture-key".into(),
             legacy_auth_path: None,
         };
-        let input = "model_provider = 'custom'\ncli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:keyring]\n[model_providers.custom]\nbase_url = 'https://csmy.fun:23457/v1'\nexperimental_bearer_token = 'fixture-key'\n[mcp_servers.example]\ncommand = 'keep'\n";
+        let input = "model_provider = 'custom'\ncli_auth_credentials_store = 'ephemeral' # [aihubmix-previous-auth-store:keyring]\n[model_providers.custom]\nbase_url = 'https://csmy.fun/v1'\nexperimental_bearer_token = 'fixture-key'\n[mcp_servers.example]\ncommand = 'keep'\n";
         let output = String::from_utf8(
             patch
                 .apply(Path::new("config.toml"), Some(input.as_bytes()))
@@ -1357,7 +1370,9 @@ mod tests {
         assert!(output.contains("command = 'keep'"));
         for modified in [
             input.replace("fixture-key", "other-key"),
-            input.replace("https://csmy.fun:23457/v1", "https://other.example/v1"),
+            input.replace("https://csmy.fun/v1", "https://other.example/v1"),
+            input.replace("https://csmy.fun/v1", "https://csmy.fun:8443/v1"),
+            input.replace("https://csmy.fun/v1", "https://csmy.fun/v1?custom=yes"),
             format!("profile = 'work'\n{input}"),
             input.replace(
                 "experimental_bearer_token = 'fixture-key'",

@@ -30,8 +30,8 @@ import { orderAppIds } from "@/config/appConfig";
 import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
-import { WalletPanel } from "@/components/aihubmix/WalletPanel";
-import { useAnnouncements } from "@/components/aihubmix/Announcements";
+import { useWalletActions, WalletPanel } from "@/components/aihubmix/WalletPanel";
+import { SidebarWalletCard } from "@/components/aihubmix/BalanceDisplay";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
 import { useMoneyFormat } from "@/hooks/useMoneyFormat";
@@ -90,6 +90,7 @@ export function Sidebar(props: SidebarProps) {
       ref={navRef}
       aria-label={t("nav.mainLabel")}
       className={cn(
+        props.simple && "aihub-simple-sidebar",
         "relative flex h-full shrink-0 flex-col overflow-hidden whitespace-nowrap border-e border-border bg-sidebar text-body text-fg-1",
       )}
       style={{ width: sidebarWidth(collapsed) }}
@@ -121,10 +122,10 @@ function SimpleDirectory({
   settingsSection,
   onSelectSettingsSection,
 }: DirectoryProps) {
-  const announcements = useAnnouncements();
   const { hasUpdate } = useUpdate();
+  const wallet = useWalletActions();
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pt-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto pt-3">
       <NavItem
         collapsed={collapsed}
         selected={view === "providers"}
@@ -134,19 +135,13 @@ function SimpleDirectory({
       />
       <NavItem
         collapsed={collapsed}
-        selected={view === "aihubmix"}
-        icon={KeyRound}
-        label="API 管理"
-        onClick={() => onSelectPage("aihubmix")}
-      />
-      <NavItem
-        collapsed={collapsed}
-        selected={false}
+        selected={view === "announcements"}
         icon={Megaphone}
         label="公告"
-        dot={!!announcements?.unread}
-        onClick={() => announcements?.open()}
+        onClick={() => onSelectPage("announcements")}
       />
+      <div className="min-h-4 flex-1" />
+      <SidebarWalletCard collapsed={collapsed} onRecharge={wallet?.recharge} />
       <NavItem
         collapsed={collapsed}
         selected={view === "help"}
@@ -232,7 +227,7 @@ function SidebarTopBar({
             className="pointer-events-none h-5 w-5 shrink-0 rounded-md"
           />
           <span className="pointer-events-none me-auto min-w-0 leading-tight text-fg-1">
-            <span className="block text-body font-semibold">AIHub</span>
+            <span className="aihub-wordmark block text-body font-semibold">AIHub</span>
             <span className="block text-caption text-fg-3">Switch</span>
           </span>
           {toggleButton}
@@ -278,7 +273,7 @@ function SidebarTopBar({
             className="h-[22px] w-[22px] shrink-0 rounded-md"
           />
           <span className="min-w-0 leading-tight text-fg-1">
-            <span className="block text-body font-semibold">AIHub</span>
+            <span className="aihub-wordmark block text-body font-semibold">AIHub</span>
             <span className="block text-caption text-fg-3">Switch</span>
           </span>
         </span>
@@ -377,6 +372,7 @@ function MainDirectory({
       trailing: todayTrailing,
       trailingLabel: todayText,
     },
+    { page: "announcements", label: "公告", icon: Megaphone },
   ];
 
   const isGlobalSelected = (page: GlobalPage) =>
@@ -418,13 +414,8 @@ function MainDirectory({
 
       <div className="flex shrink-0 flex-col">
         <WalletPanel
-          onOpenAccount={() => onSelectPage("aihubmix")}
           renderItem={(item) => (
-            <NavItem
-              {...item}
-              collapsed={collapsed}
-              selected={item.label === "API 管理" && view === "aihubmix"}
-            />
+            <NavItem {...item} collapsed={collapsed} selected={false} />
           )}
         />
         {globals.map((item) => (

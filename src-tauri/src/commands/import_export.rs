@@ -6,7 +6,8 @@ use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::commands::sync_support::{
-    post_sync_warning_from_result, run_post_import_sync, success_payload_with_warning,
+    attach_warning, post_sync_warning_from_result, run_post_import_sync,
+    success_payload_with_warning,
 };
 use crate::database::backup::BackupEntry;
 use crate::database::Database;
@@ -171,7 +172,8 @@ pub fn list_db_backups() -> Result<Vec<BackupEntry>, String> {
 pub async fn restore_db_backup(
     state: State<'_, AppState>,
     filename: String,
-) -> Result<String, String> {
+    include_details: Option<bool>,
+) -> Result<Value, String> {
     let app_state_for_sync = state.inner().clone();
     let db = app_state_for_sync.db.clone();
     run_with_database_restore_lock(move || {
@@ -182,17 +184,44 @@ pub async fn restore_db_backup(
             };
             let warning =
                 post_sync_warning_from_result(Ok(run_post_import_sync(&app_state_for_sync)));
-            if let Some(message) = warning {
-                // This legacy command returns only the restored filename, so keep
-                // restore success and surface incomplete projection in the log.
+            if let Some(message) = &warning {
                 log::warn!("[Restore] post-import sync warning: {message}");
             }
-            Ok::<_, AppError>(restored)
+            Ok::<_, AppError>(restore_result(
+                restored,
+                warning,
+                include_details.unwrap_or(false),
+            ))
         })
     })
     .await
     .map_err(|e| format!("Restore failed: {e}"))?
     .map_err(|e: AppError| e.to_string())
+}
+
+fn restore_result(
+    safety_backup_id: String,
+    warning: Option<String>,
+    include_details: bool,
+) -> Value {
+    // Older IPC callers expect the safety-backup ID as a string.
+    if include_details {
+        attach_warning(json!({ "backupId": safety_backup_id }), warning)
+    } else {
+        Value::String(safety_backup_id)
+    }
+}
+
+/// Reapply the already restored database without importing the backup a second time.
+#[tauri::command]
+pub async fn retry_db_restore_sync(state: State<'_, AppState>) -> Result<(), String> {
+    let app_state = state.inner().clone();
+    run_with_database_restore_lock(move || {
+        tauri::async_runtime::spawn_blocking(move || run_post_import_sync(&app_state))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 /// Rename a database backup file
@@ -247,6 +276,21 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
+
+    #[test]
+    fn restore_returns_partial_success_and_preserves_legacy_result() {
+        let warning = Some("prompts: cannot write AGENTS.md".to_string());
+        let result = super::restore_result("safety.db".into(), warning.clone(), true);
+        assert_eq!(result["backupId"], "safety.db");
+        assert_eq!(result["warning"], warning.as_deref().unwrap());
+        assert_eq!(
+            super::restore_result("safety.db".into(), warning, false),
+            "safety.db"
+        );
+        assert!(super::restore_result("safety.db".into(), None, true)
+            .get("warning")
+            .is_none());
+    }
 
     #[tokio::test]
     async fn manual_restore_starts_blocking_work_after_global_lock_acquisition() {

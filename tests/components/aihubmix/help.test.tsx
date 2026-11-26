@@ -1,12 +1,19 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ dispatch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ dispatch: vi.fn(), copyText: vi.fn() }));
 vi.mock("@/lib/api/aihubmix", () => ({ dispatch: mocks.dispatch }));
 vi.mock("@/components/shell/AppPageHeader", () => ({
   AppPageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
 }));
+vi.mock("@/lib/clipboard", () => ({ copyText: mocks.copyText }));
 import { HelpPage } from "@/components/aihubmix/HelpPage";
 
 function showHelp() {
@@ -37,12 +44,26 @@ describe("support contact", () => {
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValue({ contactInfo: "QQ: 123" });
     showHelp();
-    fireEvent.click(await screen.findByRole("button", { name: "重试" }));
+    const retry = await screen.findByRole("button", { name: "重试" });
+    expect(
+      screen.getByRole("img", { name: "AIHubMix QQ 交流群二维码" }),
+    ).toBeVisible();
+    fireEvent.click(retry);
     expect(await screen.findByText("QQ: 123")).toBeInTheDocument();
   });
-  it("explains when no contact has been published", async () => {
+  it("shows the bundled QR and copies the group number when the platform contact is empty", async () => {
     mocks.dispatch.mockResolvedValue({ contactInfo: "" });
+    mocks.copyText.mockResolvedValue(undefined);
     showHelp();
-    expect(await screen.findByText("暂未公布联系方式。")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "AIHubMix QQ 交流群二维码" }),
+    ).toBeVisible();
+    expect(screen.getByText("1091823578")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
+    expect(mocks.copyText).toHaveBeenCalledWith("1091823578");
+    await waitFor(() =>
+      expect(screen.queryByRole("status")).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText("暂未公布联系方式。")).not.toBeInTheDocument();
   });
 });

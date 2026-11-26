@@ -2,7 +2,6 @@ import { createContext, useContext, type ReactNode } from "react";
 import { DRAG_REGION_ATTR, DRAG_REGION_STYLE } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { BalanceDisplay } from "@/components/aihubmix/BalanceDisplay";
-import { AnnouncementBell } from "@/components/aihubmix/Announcements";
 
 /** 由外壳提供：Linux 自绘窗口按钮要接在每一屏页头的最右端。 */
 export const WindowControlsContext = createContext<ReactNode>(null);
@@ -25,8 +24,6 @@ interface AppPageHeaderProps {
   actions?: ReactNode;
   /** 标题可能很长（如会话阅读页的会话名）：标题占满剩余宽度，放不下就截断 */
   truncateTitle?: boolean;
-  /** The simple home displays its balance in the content area instead. */
-  hideBalance?: boolean;
   className?: string;
 }
 
@@ -42,7 +39,6 @@ export function AppPageHeader({
   titleExtra,
   actions,
   truncateTitle = false,
-  hideBalance = false,
   className,
 }: AppPageHeaderProps) {
   const windowControls = useContext(WindowControlsContext);
@@ -103,8 +99,7 @@ export function AppPageHeader({
         )}
       </div>
       {!truncateTitle && <div {...dragRegionAttr} className="flex-1" />}
-      <AnnouncementBell />
-      {showBalance && !hideBalance && <BalanceDisplay />}
+      {showBalance && <BalanceDisplay />}
       {actions && (
         <div
           className="flex min-w-0 shrink items-center justify-end gap-2"

@@ -11,7 +11,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
-use crate::config::atomic_write;
+use crate::config::{stage_write, StagedWrite};
 use crate::error::AppError;
 
 const COMPRESSED_SUFFIX: &str = ".zst";
@@ -89,24 +89,32 @@ pub fn read_to_string(path: &Path) -> io::Result<String> {
 ///
 /// 压缩形态还保留原 mtime：会话列表不解压结尾，压缩会话的最后活跃时间就是 mtime
 /// （Codex 压缩时也保留了它），改写元数据不该让老会话显示成刚刚活跃。
-pub fn write_rollout(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
+pub(crate) fn stage_rollout(path: &Path, bytes: &[u8]) -> Result<StagedWrite, AppError> {
     if !is_compressed(path) {
-        return atomic_write(path, bytes);
+        return stage_write(path, bytes, None, true);
     }
     let modified = std::fs::metadata(path)
         .and_then(|meta| meta.modified())
         .ok();
     let encoded =
         zstd::stream::encode_all(bytes, WRITE_LEVEL).map_err(|error| AppError::io(path, error))?;
-    atomic_write(path, &encoded)?;
+    let staged = stage_write(path, &encoded, None, true)?;
     if let Some(modified) = modified {
-        File::options()
+        if let Err(error) = File::options()
             .write(true)
-            .open(path)
+            .open(staged.tmp_path())
             .and_then(|file| file.set_times(std::fs::FileTimes::new().set_modified(modified)))
-            .map_err(|error| AppError::io(path, error))?;
+        {
+            let _ = std::fs::remove_file(staged.tmp_path());
+            return Err(AppError::io(path, error));
+        }
     }
-    Ok(())
+    Ok(staged)
+}
+
+#[cfg(test)]
+fn write_rollout(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
+    stage_rollout(path, bytes)?.commit()
 }
 
 /// 逻辑文件名（去掉 `.zst`）。`path` 可以是任意平台的路径字符串（游标里存的原样）。

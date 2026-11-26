@@ -14,6 +14,8 @@ mod codex_desktop;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 mod codex_desktop_platform;
 mod codex_history_migration;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
+mod codex_plugin_runtime;
 mod codex_rollout_file;
 mod codex_state_db;
 mod commands;
@@ -1758,6 +1760,7 @@ pub fn run() {
             commands::delete_backup_location,
             commands::reveal_backup_location,
             commands::restore_db_backup,
+            commands::retry_db_restore_sync,
             commands::rename_db_backup,
             commands::delete_db_backup,
             commands::sync_current_providers_live,

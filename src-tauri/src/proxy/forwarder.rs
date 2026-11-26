@@ -2762,6 +2762,14 @@ impl RequestForwarder {
             is_copilot,
         );
 
+        let header_timeout = if request_is_streaming && !self.streaming_first_byte_timeout.is_zero()
+        {
+            self.streaming_first_byte_timeout
+        } else {
+            timeout
+        };
+        let started = tokio::time::Instant::now();
+
         // 发送请求
         let response = if is_socks_proxy || !preserve_exact_header_case {
             // OpenAI / Copilot / Codex 类后端不依赖原始 header 大小写；走 reqwest
@@ -2783,11 +2791,6 @@ impl RequestForwarder {
             }
             let send = request.body(body_bytes).send();
             let send_result = if request_is_streaming {
-                let header_timeout = if self.streaming_first_byte_timeout.is_zero() {
-                    timeout
-                } else {
-                    self.streaming_first_byte_timeout
-                };
                 tokio::time::timeout(header_timeout, send)
                     .await
                     .map_err(|_| {
@@ -2823,7 +2826,7 @@ impl RequestForwarder {
                 ordered_headers,
                 extensions.clone(),
                 body_bytes,
-                timeout,
+                header_timeout,
                 upstream_proxy_url.as_deref(),
             )
             .await?
@@ -2856,7 +2859,7 @@ impl RequestForwarder {
         };
         if status.is_success() {
             let mut response = self
-                .prepare_success_response_for_failover(response, request_is_streaming)
+                .prepare_success_response_for_failover(response, request_is_streaming, started)
                 .await
                 .map_err(response_read_error)?;
             // Streaming requests normally return SSE. If a compatible gateway
@@ -2885,7 +2888,7 @@ impl RequestForwarder {
                     // either productive output or a valid non-failure terminal event.
                     // A response.failed/error before output remains failover-safe.
                     response = self
-                        .validate_responses_stream_start(response)
+                        .validate_responses_stream_start(response, started)
                         .await
                         .map_err(response_read_error)?;
                 }
@@ -2909,10 +2912,30 @@ impl RequestForwarder {
             // 自动解压 feature，这里拿到的是原始字节；不解压的话，压缩过的错误体会
             // 在 from_utf8 处变成非 UTF-8 而被丢弃，隐藏掉上游的限流/鉴权等详情。
             let encoding = get_content_encoding(response.headers());
-            let raw = response
-                .bytes_with_limit(MAX_RESPONSE_BODY_BYTES)
-                .await
-                .map_err(response_read_error)?;
+            // Error details are diagnostic. Do not start another full wait just
+            // because the upstream managed to send an HTTP status.
+            let remaining = header_timeout.saturating_sub(started.elapsed());
+            let read = tokio::time::timeout(
+                remaining,
+                response.bytes_with_limit(MAX_RESPONSE_BODY_BYTES),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                log::warn!("[{tag}] Timed out reading the body of upstream HTTP {status_code}");
+                Err(ProxyError::Timeout(format!(
+                    "HTTP {status_code} error body timed out"
+                )))
+            });
+            let raw = match read {
+                // A transport may report its own timeout or disconnect first.
+                Err(ProxyError::ForwardFailed(_) | ProxyError::Timeout(_)) if method.is_safe() => {
+                    return Err(ProxyError::UpstreamError {
+                        status: status_code,
+                        body: None,
+                    });
+                }
+                result => result.map_err(response_read_error)?,
+            };
             let decoded = match encoding {
                 Some(encoding) => {
                     match decompress_body_with_limit(&encoding, &raw, MAX_RESPONSE_BODY_BYTES) {
@@ -2941,9 +2964,10 @@ impl RequestForwarder {
         &self,
         response: ProxyResponse,
         request_is_streaming: bool,
+        started: tokio::time::Instant,
     ) -> Result<ProxyResponse, ProxyError> {
         if request_is_streaming {
-            return self.prime_streaming_response(response).await;
+            return self.prime_streaming_response(response, started).await;
         }
 
         if self.non_streaming_timeout.is_zero() {
@@ -3028,6 +3052,7 @@ impl RequestForwarder {
     async fn validate_responses_stream_start(
         &self,
         response: ProxyResponse,
+        started: tokio::time::Instant,
     ) -> Result<ProxyResponse, ProxyError> {
         const MAX_PRIME_BYTES: usize = 256 * 1024;
 
@@ -3035,21 +3060,30 @@ impl RequestForwarder {
         let headers = response.headers().clone();
         let mut stream = Box::pin(response.bytes_stream());
         let mut replay_chunks: Vec<Bytes> = Vec::new();
+        let mut held_bytes = 0usize;
         let mut parse_buffer = String::new();
         let mut utf8_remainder = Vec::new();
 
+        // With failover disabled there is no request deadline. Only bound how
+        // long this validator can withhold a healthy upstream's heartbeats.
+        let budget = if self.streaming_first_byte_timeout.is_zero() {
+            std::time::Duration::from_secs(10)
+        } else {
+            self.streaming_first_byte_timeout
+        };
+        let deadline = started + budget;
         loop {
-            let next = if self.streaming_first_byte_timeout.is_zero() {
-                stream.next().await
-            } else {
-                tokio::time::timeout(self.streaming_first_byte_timeout, stream.next())
-                    .await
-                    .map_err(|_| {
-                        ProxyError::Timeout(format!(
-                            "Responses stream produced no semantic output within {}s",
-                            self.streaming_first_byte_timeout.as_secs()
-                        ))
-                    })?
+            let next = tokio::select! {
+                biased;
+                _ = tokio::time::sleep_until(deadline) => {
+                    if self.streaming_first_byte_timeout.is_zero() {
+                        break;
+                    }
+                    return Err(ProxyError::Timeout(format!(
+                        "Responses stream produced no semantic output within {}s", budget.as_secs()
+                    )));
+                }
+                chunk = stream.next() => chunk,
             };
 
             let Some(chunk) = next else {
@@ -3076,6 +3110,7 @@ impl RequestForwarder {
                 ))
             })?;
             crate::proxy::sse::append_utf8_safe(&mut parse_buffer, &mut utf8_remainder, &chunk);
+            held_bytes += chunk.len();
             replay_chunks.push(chunk);
 
             // Some compatible gateways ignore `stream:true` and return a complete
@@ -3097,14 +3132,15 @@ impl RequestForwarder {
                 }
             }
 
-            if replay_chunks.iter().map(Bytes::len).sum::<usize>() >= MAX_PRIME_BYTES {
+            if held_bytes >= MAX_PRIME_BYTES {
                 log::warn!(
                     "[Claude/Responses] semantic stream priming exceeded {MAX_PRIME_BYTES} bytes; committing buffered stream"
                 );
-                let replay = futures::stream::iter(replay_chunks.into_iter().map(Ok)).chain(stream);
-                return Ok(ProxyResponse::streamed(status, headers, replay));
+                break;
             }
         }
+        let replay = futures::stream::iter(replay_chunks.into_iter().map(Ok)).chain(stream);
+        Ok(ProxyResponse::streamed(status, headers, replay))
     }
 
     /// 原样转发的 Responses 请求末尾是一条带密文的子 agent 任务时（见
@@ -3170,6 +3206,7 @@ impl RequestForwarder {
     async fn prime_streaming_response(
         &self,
         response: ProxyResponse,
+        started: tokio::time::Instant,
     ) -> Result<ProxyResponse, ProxyError> {
         if self.streaming_first_byte_timeout.is_zero() {
             return Ok(response);
@@ -3180,7 +3217,7 @@ impl RequestForwarder {
         let timeout = self.streaming_first_byte_timeout;
         let mut stream = Box::pin(response.bytes_stream());
 
-        let first = tokio::time::timeout(timeout, stream.next())
+        let first = tokio::time::timeout(timeout.saturating_sub(started.elapsed()), stream.next())
             .await
             .map_err(|_| {
                 ProxyError::Timeout(format!(
@@ -5122,7 +5159,7 @@ mod tests {
         );
 
         let prepared = forwarder
-            .prepare_success_response_for_failover(response, false)
+            .prepare_success_response_for_failover(response, false, tokio::time::Instant::now())
             .await
             .expect("response should be buffered");
 
@@ -5147,7 +5184,7 @@ mod tests {
         );
 
         let err = match forwarder
-            .prepare_success_response_for_failover(response, false)
+            .prepare_success_response_for_failover(response, false, tokio::time::Instant::now())
             .await
         {
             Ok(_) => panic!("body read errors should fail the attempt"),
@@ -5155,6 +5192,53 @@ mod tests {
         };
 
         assert!(matches!(err, ProxyError::ForwardFailed(_)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn disabled_failover_returns_heartbeats_without_aborting_slow_generation() {
+        let forwarder = test_forwarder(Duration::ZERO, Duration::ZERO);
+        let started = tokio::time::Instant::now();
+        let body = futures::stream::unfold(0u8, |n| async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let bytes = match n {
+                0..=10 => Bytes::from_static(b": ping\n\n"),
+                11 => Bytes::from_static(b"data: done\n\n"),
+                _ => return None,
+            };
+            Some((Ok::<_, std::io::Error>(bytes), n + 1))
+        });
+        let response = ProxyResponse::streamed(StatusCode::OK, HeaderMap::new(), body);
+        let response = forwarder
+            .validate_responses_stream_start(response, started)
+            .await
+            .unwrap();
+        assert_eq!(started.elapsed(), Duration::from_secs(10));
+        let bytes = response.bytes_with_limit(1024).await.unwrap();
+        assert_eq!(
+            bytes.as_ref(),
+            format!("{}data: done\n\n", ": ping\n\n".repeat(11)).as_bytes()
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn heartbeats_do_not_extend_the_first_output_deadline() {
+        let forwarder = test_forwarder(Duration::from_secs(30), Duration::from_secs(3));
+        let started = tokio::time::Instant::now();
+        // The headers already consumed the first second of this request.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let heartbeats = futures::stream::unfold((), |_| async {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            Some((
+                Ok::<_, std::io::Error>(Bytes::from_static(b": ping\n\n")),
+                (),
+            ))
+        });
+        let response = ProxyResponse::streamed(StatusCode::OK, HeaderMap::new(), heartbeats);
+        let result = forwarder
+            .validate_responses_stream_start(response, started)
+            .await;
+        assert!(matches!(result, Err(ProxyError::Timeout(_))));
+        assert_eq!(started.elapsed(), Duration::from_secs(3));
     }
 
     #[tokio::test]
@@ -5170,7 +5254,7 @@ mod tests {
         );
 
         let prepared = forwarder
-            .prepare_success_response_for_failover(response, true)
+            .prepare_success_response_for_failover(response, true, tokio::time::Instant::now())
             .await
             .expect("stream should be primed");
 
@@ -5195,7 +5279,7 @@ mod tests {
         );
 
         let err = match forwarder
-            .prepare_success_response_for_failover(response, true)
+            .prepare_success_response_for_failover(response, true, tokio::time::Instant::now())
             .await
         {
             Ok(_) => panic!("first chunk errors should fail the attempt"),
@@ -8003,6 +8087,112 @@ mod tests {
             forwarder.max_attempts = max_attempts;
             forwarder.current_provider_id_at_start = provider_at_start.to_string();
             forwarder
+        }
+
+        #[tokio::test]
+        async fn streaming_headers_use_the_first_byte_budget_on_the_native_transport() {
+            let received = Arc::new(Mutex::new(Vec::new()));
+            let requests = received.clone();
+            let app = axum::Router::new().fallback(move |body: axum::Json<Value>| {
+                let requests = requests.clone();
+                async move {
+                    requests.lock().await.push(body.0);
+                    futures::future::pending::<String>().await
+                }
+            });
+            let first = Upstream {
+                base_url: serve_upstream(app).await,
+                requests: received,
+            };
+            let next = upstream(vec![ok()]).await;
+            let mut fwd = forwarder(2, "p1");
+            fwd.non_streaming_timeout = Duration::from_secs(30);
+            fwd.streaming_first_byte_timeout = Duration::from_millis(500);
+            let mut body = plain_body();
+            body["stream"] = json!(true);
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                send(
+                    &fwd,
+                    vec![provider("p1", &first), provider("p2", &next)],
+                    body,
+                ),
+            )
+            .await
+            .expect("streaming request must not wait for the non-streaming timeout");
+            assert!(matches!(
+                expect_err(result).error,
+                ProxyError::DeliveryUnknown
+            ));
+            assert_eq!(first.requests.lock().await.len(), 1);
+            assert!(next.requests.lock().await.is_empty());
+        }
+
+        #[tokio::test]
+        async fn stalled_error_body_preserves_read_status_and_never_replays_generation() {
+            let received = Arc::new(Mutex::new(Vec::new()));
+            let requests = received.clone();
+            let app = axum::Router::new().fallback(move |method: http::Method| {
+                let requests = requests.clone();
+                async move {
+                    requests.lock().await.push(json!(method.as_str()));
+                    let partial =
+                        futures::stream::iter([Ok::<_, std::io::Error>(Bytes::from_static(b"{"))]);
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        axum::body::Body::from_stream(partial.chain(futures::stream::pending())),
+                    )
+                }
+            });
+            let first = Upstream {
+                base_url: serve_upstream(app).await,
+                requests: received,
+            };
+            let next = upstream(vec![ok()]).await;
+            let mut fwd = forwarder(2, "p1");
+            fwd.non_streaming_timeout = Duration::from_secs(30);
+            fwd.streaming_first_byte_timeout = Duration::from_millis(500);
+            let mut body = plain_body();
+            body["stream"] = json!(true);
+            let post = send(
+                &fwd,
+                vec![provider("p1", &first), provider("p2", &next)],
+                body,
+            );
+            let err = expect_err(
+                tokio::time::timeout(Duration::from_secs(5), post)
+                    .await
+                    .unwrap(),
+            );
+            assert!(matches!(err.error, ProxyError::DeliveryUnknown));
+            assert!(next.requests.lock().await.is_empty());
+
+            fwd.non_streaming_timeout = Duration::from_millis(500);
+            let get = fwd.forward_with_retry(
+                &AppType::Claude,
+                http::Method::GET,
+                "/v1/messages",
+                plain_body(),
+                HeaderMap::new(),
+                Extensions::new(),
+                vec![provider("p1", &first)],
+            );
+            let err = expect_err(
+                tokio::time::timeout(Duration::from_secs(5), get)
+                    .await
+                    .unwrap(),
+            );
+            assert!(matches!(
+                err.error,
+                ProxyError::UpstreamError {
+                    status: 503,
+                    body: None
+                }
+            ));
+            assert_eq!(
+                *first.requests.lock().await,
+                vec![json!("POST"), json!("GET")]
+            );
         }
 
         #[tokio::test]

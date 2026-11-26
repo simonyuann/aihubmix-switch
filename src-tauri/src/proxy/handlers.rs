@@ -1318,7 +1318,7 @@ async fn handle_codex_standalone_passthrough(
     let extensions = parts.extensions;
     let body_bytes = read_request_body(req_body).await?;
     let body_bytes = decode_codex_request_body(&mut headers, body_bytes)?;
-    let body: Value = serde_json::from_slice(&body_bytes)
+    let mut body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::InvalidRequest(format!("Failed to parse request body: {e}")))?;
 
     let mut ctx = RequestContext::new(
@@ -1333,6 +1333,21 @@ async fn handle_codex_standalone_passthrough(
     .await?;
     let endpoint = endpoint_with_query(&uri, canonical_endpoint);
 
+    if matches!(canonical_endpoint, "/images/generations" | "/images/edits")
+        && body["model"].as_str() == Some(crate::aihubmix::image_models::GATEWAY_MODEL)
+    {
+        // Pin the active group's choice for the entire request, including provider retries.
+        let active = state
+            .db
+            .get_provider_by_id(&ctx.current_provider_id, "codex")
+            .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
+        if let Some(model) = active
+            .as_ref()
+            .and_then(crate::aihubmix::image_models::selected)
+        {
+            body["model"] = Value::String(model.to_owned());
+        }
+    }
     let forwarder = ctx.create_forwarder(&state);
     let mut result = match forwarder
         .forward_with_retry(

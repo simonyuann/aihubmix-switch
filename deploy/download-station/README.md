@@ -2,13 +2,15 @@
 
 ## 社区插件镜像
 
-`sync_plugin_market.py` 在 NAS 上同步社区插件快照，逐项验证 Git 树和大小，再以原子方式更新 `latest.json`。客户端只访问 `https://dl.csmy.fun:23457/files/manual/aihub-plugin-market/`；同步过程访问上游，客户端准备本地插件后 Codex 不需要 Git。运行示例：
+`sync_plugin_market.py` 在 NAS 上同步社区插件快照，逐项验证 Git 树和大小，再以原子方式更新 `latest.json`。新版客户端通过 `https://dl.csmy.fun/files/manual/aihub-plugin-market/` 获取插件，旧版继续使用同一路径的 23457 端口。同步脚本负责访问上游。运行示例：
 
 ```sh
 python3 sync_plugin_market.py /srv/hdd/download-station/data/persistent/manual/aihub-plugin-market
 ```
 
 NAS 的 `simon` 用户定时任务每天 04:17 执行 `/srv/hdd/download-station/aihub-plugin-market/sync_plugin_market.py`，日志写入同目录的 `sync.log`；同步失败时保留上一版。发布客户端前应确认公网目录、完整快照及 Windows 安装均通过验证。插件库约 375 MiB 下载、509 MiB 解压；旧版用户需要重新启用市场以切换本地来源。历史快照不会自动删除，需按需检查磁盘使用情况。
+
+桌面端按需安装使用标准 HTTPS 端口的 `packages/npm-v1/<revision>/`。同一快照的每个插件有一份 npm 元数据和一个带 SHA-512 校验的安装包。同步时将 `sync_plugin_market.py`、`package_plugins.py` 和 `native_plugin_registry.py` 放在同一目录。已有单包可用 `python3 native_plugin_registry.py <packages目录>` 补齐，确认新版本目录完整后再同步对外的 `packages/latest.json`。AIHub 启动的 Windows 和 macOS 桌面进程使用私有 npm 和桌面应用自带的 Node.js。
 
 ## 2026-10-27 下载站改版后的入口
 
@@ -47,3 +49,9 @@ AIhubMix 的受管应用 ID 为 `gh-2dfe2a292f49bc85`，入口为 `https://dl.cs
 部署前确认当前已验证的 1.0.x 快照含 `updater.json`、原始清单、签名和六种包；同步器按已验证快照选取最高 1.0.x，清理保留该目录。若镜像尚无此快照，应先从已发布的 1.0.x 用相同 `sync_once` 校验流程导入；不得复制一份未验证清单充作兼容源。未完成引导时旧路径安全返回 404，不允许重定向到 GitHub latest 或重构版。`node scripts/verify-mirror.mjs <版本>` 检查四种重构版更新格式的签名，并要求旧路径返回 1.0.x 或 404。发布前部署并核验路由，再由完整 Release 触发自动同步。
 
 1.1.0+ 当前仅要求 macOS arm64 / x64 App 更新归档、Windows x64 NSIS 与便携版四种格式和各自签名，并保留两种 macOS DMG；不等待 Linux。1.0.x 兼容快照仍要求原六种格式全部有效。缺失任何本轮必需格式或签名时保持原 current。
+
+### OpenAI 公开插件目录
+
+AIHubMix 社区同时读取 OpenAI 的公开插件清单和 API Key 兼容清单。客户端从 OpenAI 的固定 Git 提交下载原包，逐个校验 Git 目录树；同名插件只显示一次。Figma、Canva 等远程服务的连接配置随客户端提供，服务商账号由用户自行授权。仅列入 ChatGPT 清单的条目在 AIHub 中提供官方入口。原生目录由「同步官方插件」刷新。
+
+`sync_openai_catalog.py <openai/plugins 本地检出目录>` 从该检出的 HEAD 生成版本快照。GitHub 工作流每周检查上游并提出更新 PR，合并并打包后进入下一版客户端。

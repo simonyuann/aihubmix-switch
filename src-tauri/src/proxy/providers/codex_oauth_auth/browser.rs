@@ -110,6 +110,7 @@ async fn callback(
                 [
                     (header::CACHE_CONTROL, "no-store"),
                     (header::REFERRER_POLICY, "no-referrer"),
+                    (header::CONNECTION, "close"),
                 ],
                 "Invalid login callback. Return to AIHubMix Switch and try again.",
             )
@@ -123,6 +124,7 @@ async fn callback(
             [
                 (header::CACHE_CONTROL, "no-store"),
                 (header::REFERRER_POLICY, "no-referrer"),
+                (header::CONNECTION, "close"),
             ],
             "This login callback has already been received.",
         );
@@ -133,6 +135,7 @@ async fn callback(
         [
             (header::CACHE_CONTROL, "no-store"),
             (header::REFERRER_POLICY, "no-referrer"),
+            (header::CONNECTION, "close"),
         ],
         if success {
             "Authorization received. Return to AIHubMix Switch to finish signing in."
@@ -603,6 +606,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(old.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(old.headers()[header::CONNECTION], "close");
         old.bytes().await.unwrap();
         let response = manager
             .start_browser_flow_at_port(None, port, Duration::from_secs(LOGIN_LIFETIME))

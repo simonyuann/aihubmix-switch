@@ -285,6 +285,23 @@ class CodexImagegenTests(unittest.TestCase):
         self.assertEqual(len(Capture.requests), before)
         self.assertNotIn("stale-secret", missing_key.stdout + missing_key.stderr)
 
+    def test_saved_image_model_and_explicit_cli_model(self):
+        base = f"http://127.0.0.1:{self.server.server_address[1]}/v1"
+        self.save("a", base, "fixture")
+        self.select("a")
+        with closing(sqlite3.connect(self.db)) as conn:
+            conn.execute("""UPDATE providers SET settings_config =
+                json_set(settings_config, '$.aihubImageChoice.model', 'gpt-image-2.6-sunburst') WHERE id = 'a'""")
+            conn.commit()
+        self.script.write_text("import json,sys;print(json.dumps(sys.argv[1:]))", encoding="utf-8")
+        command = [sys.executable, str(HELPER), "--data-dir", str(self.data),
+                   "--device-dir", str(self.device), "--", sys.executable, str(self.script)]
+        for operation in ["generate", "edit"]:
+            actual = subprocess.check_output([*command, operation], text=True)
+            self.assertEqual(json.loads(actual), [operation, "--model", "gpt-image-2.6-sunburst"])
+        explicit = subprocess.check_output([*command, "generate", "--model=gpt-image-1"], text=True)
+        self.assertEqual(json.loads(explicit), ["generate", "--model=gpt-image-1"])
+
     def test_proxy_route_and_sub2api_url(self):
         self.save("a", "https://csmy.fun:23457", "sub2api-secret")
         self.save("b", "https://other.example/v1/responses", "other-secret")

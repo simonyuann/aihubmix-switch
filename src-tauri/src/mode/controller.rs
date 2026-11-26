@@ -801,6 +801,70 @@ pub async fn enter_with_route(
     result
 }
 
+/// A direct Codex client fixes the Images API model in its request body. Attach the
+/// existing local route on opt-in, and restore it only if this picker owned the change.
+pub(crate) async fn set_codex_image_choice(
+    state: &AppState,
+    checked: &Provider,
+    model: Option<&str>,
+) -> Result<bool, String> {
+    use crate::aihubmix::image_models::CHOICE;
+
+    let app = &AppType::Codex;
+    let guard = lock_settled(state, app).await.map_err(err)?;
+    let active = current::provider_in_use(&state.db, app)
+        .map_err(err)?
+        .filter(|p| {
+            p.id == checked.id
+                && p.settings_config["auth"] == checked.settings_config["auth"]
+                && crate::aihubmix::native_imagegen::supported(p)
+        })
+        .ok_or("当前分组或 API Key 已变更，请刷新首页")?;
+    let mode = current::mode_state(app);
+    let old = active.settings_config[CHOICE].clone();
+    let enter = model.is_some() && (!mode.is_proxy() || !mode.attached);
+    let owns_route = old["returnToDirect"].as_bool() == Some(true);
+    let leave = model.is_none()
+        && owns_route
+        && mode.is_proxy()
+        && mode.attached
+        && !settled_stack(app)?.enabled
+        && current::provider_for(&state.db, app, Purpose::Direct)
+            .map_err(err)?
+            .as_deref()
+            == Some(&active.id);
+    let next = model
+        .map(|model| json!({"model":model, "returnToDirect":owns_route || !mode.is_proxy()}))
+        .unwrap_or(Value::Null);
+    if enter {
+        if let Err(error) = enter_locked(state, app, op::ENTER, Some(false), Some(active)).await {
+            drop(guard);
+            stop_server_if_unused(state).await;
+            return Err(error);
+        }
+    }
+    if let Err(error) = state.db.set_codex_image_choice(&checked.id, &next) {
+        if enter {
+            exit_locked(state, app, mode.is_proxy())?;
+            drop(guard);
+            stop_server_if_unused(state).await;
+        }
+        return Err(error.to_string());
+    }
+    if leave {
+        if let Err(error) = exit_locked(state, app, false) {
+            state
+                .db
+                .set_codex_image_choice(&checked.id, &old)
+                .map_err(err)?;
+            return Err(error);
+        }
+        drop(guard);
+        stop_server_if_unused(state).await;
+    }
+    Ok(enter || leave)
+}
+
 async fn try_enter_with_route(
     state: &AppState,
     app: &AppType,
@@ -2776,6 +2840,79 @@ mod mode_tests {
         AppState::new(db)
     }
 
+    fn native_image_card(group: i64) -> Provider {
+        let mut own = Provider::with_id(
+            format!("aihubmix-codex-account-17-service-{group}"),
+            "AIHubMix · OpenAI".into(),
+            json!({"auth":{"OPENAI_API_KEY":"fixture-own"},
+                "modelCatalog":{"models":[{"model":"gpt-5.5"},{"model":"gpt-image-2.5-sunburst"}]},
+                "config":"model_provider = 'custom'\nmodel = 'gpt-5.5'\n[model_providers.custom]\nname = 'AIHubMix'\nbase_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\nrequires_openai_auth = true\n"}),
+            Some(crate::product_policy::ORIGIN.into()),
+        );
+        own.category = Some("custom".into());
+        own
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn home_image_choice_follows_the_group_and_restores_direct_mode() {
+        let _home = Home::new();
+        let first = native_image_card(4);
+        let mut second = native_image_card(18);
+        second.settings_config["auth"]["OPENAI_API_KEY"] = json!("other-group-key");
+        let state = state_with(AppType::Codex, &[first.clone(), second.clone()], &first.id).await;
+        let switch = |p: &Provider| ProviderService::switch(&state, AppType::Codex, &p.id).unwrap();
+        let selected = || {
+            let active = current::provider_in_use(&state.db, &AppType::Codex)
+                .unwrap()
+                .unwrap();
+            crate::aihubmix::image_models::selected(&active).map(str::to_owned)
+        };
+
+        switch(&first);
+        assert_eq!(selected(), None);
+        assert!(
+            set_codex_image_choice(&state, &first, Some("gpt-image-2.6-sunburst"))
+                .await
+                .unwrap()
+        );
+        assert!(current::is_proxy(&AppType::Codex));
+        let config = crate::codex_config::get_codex_config_path();
+        assert!(fs::read_to_string(&config)
+            .unwrap()
+            .contains(PROXY_TOKEN_PLACEHOLDER));
+        assert!(
+            !set_codex_image_choice(&state, &first, Some("gpt-image-2.6-flare"))
+                .await
+                .unwrap()
+        );
+
+        switch(&second);
+        assert_eq!(selected(), None);
+        assert!(set_codex_image_choice(&state, &first, None).await.is_err());
+        assert!(
+            !set_codex_image_choice(&state, &second, Some("gpt-image-1"))
+                .await
+                .unwrap()
+        );
+        assert_eq!(selected().as_deref(), Some("gpt-image-1"));
+        switch(&first);
+        assert_eq!(selected().as_deref(), Some("gpt-image-2.6-flare"));
+        assert!(set_codex_image_choice(&state, &first, None).await.unwrap());
+        assert!(!current::is_proxy(&AppType::Codex));
+        assert!(fs::read_to_string(config).unwrap().contains("fixture-own"));
+        assert_eq!(selected(), None);
+        let other = state
+            .db
+            .get_provider_by_id(&second.id, "codex")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            crate::aihubmix::image_models::selected(&other),
+            Some("gpt-image-1")
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
     async fn native_image_route_is_confined_to_its_own_provider_in_both_modes() {
@@ -2790,15 +2927,7 @@ mod mode_tests {
             ..Default::default()
         })
         .unwrap();
-        let mut own = Provider::with_id(
-            "aihubmix-codex-account-17-service-5".into(),
-            "AIHubMix · OpenAI".into(),
-            json!({"auth":{"OPENAI_API_KEY":"fixture-own"},
-                "modelCatalog":{"models":[{"model":"gpt-5.5"},{"model":"gpt-image-2.5-sunburst"}]},
-                "config":"model_provider = 'custom'\nmodel = 'gpt-5.5'\n[model_providers.custom]\nname = 'AIHubMix'\nbase_url = 'https://csmy.fun:23457/v1'\nwire_api = 'responses'\nrequires_openai_auth = true\n"}),
-            Some(crate::product_policy::ORIGIN.into()),
-        );
-        own.category = Some("custom".into());
+        let own = native_image_card(5);
         let mut other = Provider::with_id(
             "other".into(),
             "Other".into(),

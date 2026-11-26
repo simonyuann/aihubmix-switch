@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { SettingsBlock, SettingsCard, SettingsRow } from "./SettingsLayout";
 import { friendlyError } from "@/components/aihubmix/friendlyError";
 
-export function AccountSettings() {
+export function AccountSettings({
+  onOpenApiManagement,
+}: {
+  onOpenApiManagement?: () => void;
+}) {
   const account = useOptionalAccount();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -32,7 +36,7 @@ export function AccountSettings() {
       <SettingsCard>
         <SettingsRow
           label="当前账号"
-          description={`${account.state.account.email ?? ""}。退出或换号后，请关闭并重新打开 Codex 和 DeepSeek Harness；已运行的进程可能继续使用旧凭据。为保护自定义配置，DSH 凭据文件可能保留旧引用。`}
+          description={account.state.account.email ?? ""}
           control={
             <Button
               variant="outline"
@@ -50,6 +54,21 @@ export function AccountSettings() {
             </p>
           )}
         </SettingsRow>
+        {onOpenApiManagement && (
+          <SettingsRow
+            label="API Key"
+            control={
+              <Button
+                variant="outline"
+                aria-label="管理 API Key"
+                disabled={busy}
+                onClick={onOpenApiManagement}
+              >
+                管理
+              </Button>
+            }
+          />
+        )}
       </SettingsCard>
     </SettingsBlock>
   );

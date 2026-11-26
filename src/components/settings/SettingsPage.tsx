@@ -73,12 +73,13 @@ interface SettingsPageProps {
   onImportSuccess?: () => void | Promise<void>;
   /** 「在侧栏显示哪些应用」跳到「应用」页 */
   onOpenApps: () => void;
+  onOpenApiManagement?: () => void;
   /** 本地路由 →「正在使用路由的应用」的「前往」 */
   onOpenApp: (app: AppId) => void;
 }
 
 /**
- * 设置（v7）：侧栏换成设置目录，这里只渲染当前分组。设置里只放偏好，功能页都在侧栏。
+ * 设置（v7）：侧栏换成设置目录，这里只渲染当前分组。
  * 开关类即时保存；路径类改完点本节的「保存」。
  */
 export function SettingsPage({
@@ -86,6 +87,7 @@ export function SettingsPage({
   appConfigScrollTarget,
   onImportSuccess,
   onOpenApps,
+  onOpenApiManagement,
   onOpenApp,
 }: SettingsPageProps) {
   const { t } = useTranslation();
@@ -373,7 +375,7 @@ export function SettingsPage({
       case "general":
         return (
           <>
-            <AccountSettings />
+            <AccountSettings onOpenApiManagement={onOpenApiManagement} />
             <GeneralSection
               dedicatedClient={!settings.enableOtherProviders}
               settings={settings}
@@ -497,6 +499,7 @@ export function SettingsPage({
             >
               <div className="rounded-panel border border-border bg-surface p-5">
                 <BackupListSection
+                  onRestored={onImportSuccess}
                   backupIntervalHours={settings.backupIntervalHours}
                   backupRetainCount={settings.backupRetainCount}
                   onSettingsChange={(updates) => handleAutoSave(updates)}

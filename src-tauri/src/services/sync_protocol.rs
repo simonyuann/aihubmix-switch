@@ -27,7 +27,8 @@ pub(crate) use super::webdav_sync::archive::{
 /// Wire-format identifier stored in remote manifests.
 /// Retains historic "webdav" naming for backward compatibility with existing remotes.
 pub(crate) const PROTOCOL_FORMAT: &str = "cc-switch-webdav-sync";
-pub(crate) const PROTOCOL_VERSION: u32 = 2;
+pub(crate) const PROTOCOL_VERSION: u32 = 3;
+const PREVIOUS_PROTOCOL_VERSION: u32 = 2;
 pub(crate) const DB_COMPAT_VERSION: u32 = 6;
 pub(crate) const LEGACY_DB_COMPAT_VERSION: u32 = 5;
 pub(crate) const REMOTE_DB_SQL: &str = "db.sql";
@@ -144,23 +145,30 @@ pub(crate) struct ArtifactMeta {
 }
 
 pub(crate) struct LocalSnapshot {
-    pub db_sql: Vec<u8>,
-    pub skills_zip: Vec<u8>,
-    pub manifest_bytes: Vec<u8>,
-    pub manifest_hash: String,
+    db_sql: Vec<u8>,
+    skills_zip: Vec<u8>,
+    manifest: SyncManifest,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RemoteLayout {
     Current,
+    V2Database,
     Legacy,
 }
 
 impl RemoteLayout {
+    pub(crate) fn version(self) -> u32 {
+        match self {
+            Self::Current => PROTOCOL_VERSION,
+            Self::V2Database | Self::Legacy => PREVIOUS_PROTOCOL_VERSION,
+        }
+    }
+
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Current => "current",
-            Self::Legacy => "legacy",
+            Self::V2Database | Self::Legacy => "legacy",
         }
     }
 }
@@ -191,43 +199,94 @@ pub(crate) fn build_local_snapshot(
     zip_skills_ssot(&skills_zip_path)?;
     let skills_zip = fs::read(&skills_zip_path).map_err(|e| AppError::io(&skills_zip_path, e))?;
 
-    // Build artifact map and compute hashes
-    let mut artifacts = BTreeMap::new();
-    artifacts.insert(
-        REMOTE_DB_SQL.to_string(),
-        ArtifactMeta {
-            sha256: sha256_hex(&db_sql),
-            size: db_sql.len() as u64,
-        },
-    );
-    artifacts.insert(
-        REMOTE_SKILLS_ZIP.to_string(),
-        ArtifactMeta {
-            sha256: sha256_hex(&skills_zip),
-            size: skills_zip.len() as u64,
-        },
-    );
+    Ok(LocalSnapshot::from_artifacts(db_sql, skills_zip))
+}
 
-    let snapshot_id = compute_snapshot_id(&artifacts);
-    let manifest = SyncManifest {
-        format: PROTOCOL_FORMAT.to_string(),
-        version: PROTOCOL_VERSION,
-        db_compat_version: Some(DB_COMPAT_VERSION),
-        device_name: detect_system_device_name().unwrap_or_else(|| "Unknown Device".to_string()),
-        created_at: Utc::now().to_rfc3339(),
-        artifacts,
-        snapshot_id,
-    };
-    let manifest_bytes =
-        serde_json::to_vec_pretty(&manifest).map_err(|e| AppError::JsonSerialize { source: e })?;
-    let manifest_hash = sha256_hex(&manifest_bytes);
+impl LocalSnapshot {
+    fn from_artifacts(db_sql: Vec<u8>, skills_zip: Vec<u8>) -> Self {
+        // Build artifact map and compute hashes
+        let mut artifacts = BTreeMap::new();
+        artifacts.insert(
+            REMOTE_DB_SQL.to_string(),
+            ArtifactMeta {
+                sha256: sha256_hex(&db_sql),
+                size: db_sql.len() as u64,
+            },
+        );
+        artifacts.insert(
+            REMOTE_SKILLS_ZIP.to_string(),
+            ArtifactMeta {
+                sha256: sha256_hex(&skills_zip),
+                size: skills_zip.len() as u64,
+            },
+        );
 
-    Ok(LocalSnapshot {
-        db_sql,
-        skills_zip,
-        manifest_bytes,
-        manifest_hash,
-    })
+        let snapshot_id = compute_snapshot_id(&artifacts);
+        let manifest = SyncManifest {
+            format: PROTOCOL_FORMAT.to_string(),
+            version: PROTOCOL_VERSION,
+            db_compat_version: Some(DB_COMPAT_VERSION),
+            device_name: detect_system_device_name()
+                .unwrap_or_else(|| "Unknown Device".to_string()),
+            created_at: Utc::now().to_rfc3339(),
+            artifacts,
+            snapshot_id,
+        };
+        Self {
+            db_sql,
+            skills_zip,
+            manifest,
+        }
+    }
+
+    /// A committed manifest always points at two complete immutable artifacts.
+    /// Concurrent clients can publish independently; only their final pointer competes.
+    pub(crate) async fn publish<F, Fut>(
+        self,
+        manifest_type: &'static str,
+        mut put: F,
+    ) -> Result<String, AppError>
+    where
+        F: FnMut(String, Vec<u8>, &'static str) -> Fut,
+        Fut: Future<Output = Result<(), AppError>>,
+    {
+        let manifest_bytes = serde_json::to_vec_pretty(&self.manifest)
+            .map_err(|e| AppError::JsonSerialize { source: e })?;
+        let manifest_hash = sha256_hex(&manifest_bytes);
+        let (db_object, _) = self.manifest.artifact(REMOTE_DB_SQL)?;
+        let (skills_object, _) = self.manifest.artifact(REMOTE_SKILLS_ZIP)?;
+        put(db_object, self.db_sql, "application/sql").await?;
+        put(skills_object, self.skills_zip, "application/zip").await?;
+        put(REMOTE_MANIFEST.to_string(), manifest_bytes, manifest_type).await?;
+        Ok(manifest_hash)
+    }
+}
+
+impl SyncManifest {
+    pub(crate) fn artifact(&self, name: &str) -> Result<(String, &ArtifactMeta), AppError> {
+        let meta = self.artifacts.get(name).ok_or_else(|| {
+            localized(
+                "sync.manifest_missing_artifact",
+                format!("manifest 中缺少文件 {name}"),
+                format!("Manifest is missing {name}"),
+            )
+        })?;
+        validate_artifact_size_limit(name, meta.size)?;
+        // Only locally selected artifact names and a validated digest enter the remote path.
+        let object = if self.version == PROTOCOL_VERSION {
+            if meta.sha256.len() != 64 || !meta.sha256.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Err(localized(
+                    "sync.manifest_invalid_digest",
+                    "备份清单中的 SHA-256 无效",
+                    "Invalid SHA-256 in backup manifest",
+                ));
+            }
+            format!("{}-{name}", meta.sha256)
+        } else {
+            name.to_string()
+        };
+        Ok((object, meta))
+    }
 }
 
 // ─── Manifest handling ───────────────────────────────────────
@@ -266,7 +325,7 @@ pub(crate) fn validate_manifest_compat(
             ),
         ));
     }
-    if manifest.version != PROTOCOL_VERSION {
+    if manifest.version != layout.version() {
         return Err(localized(
             "sync.manifest_version_incompatible",
             format!(
@@ -287,7 +346,9 @@ pub(crate) fn validate_manifest_compat(
         ));
     };
     match layout {
-        RemoteLayout::Current if db_compat_version != DB_COMPAT_VERSION => {
+        RemoteLayout::Current | RemoteLayout::V2Database
+            if db_compat_version != DB_COMPAT_VERSION =>
+        {
             return Err(localized(
                 "sync.manifest_db_version_incompatible",
                 format!(
@@ -547,6 +608,63 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn interrupted_upload_preserves_both_files_of_the_published_backup() {
+        let mut remote = BTreeMap::<String, Vec<u8>>::new();
+        let previous = LocalSnapshot::from_artifacts(b"old db".to_vec(), b"old skills".to_vec());
+        previous
+            .publish("application/json", |name, bytes, _| {
+                remote.insert(name, bytes);
+                std::future::ready(Ok(()))
+            })
+            .await
+            .unwrap();
+        let published = remote[REMOTE_MANIFEST].clone();
+
+        for fail_at in 1..=3 {
+            let mut writes = 0;
+            let replacement =
+                LocalSnapshot::from_artifacts(b"new db".to_vec(), b"new skills".to_vec());
+            let result = replacement
+                .publish("application/json", |name, bytes, _| {
+                    writes += 1;
+                    let result = if writes == fail_at {
+                        Err(AppError::Message("interrupted upload".into()))
+                    } else {
+                        remote.insert(name, bytes);
+                        Ok(())
+                    };
+                    std::future::ready(result)
+                })
+                .await;
+            assert!(result.is_err());
+            assert_eq!(remote[REMOTE_MANIFEST], published);
+            let manifest: SyncManifest = serde_json::from_slice(&published).unwrap();
+            for (name, expected) in [
+                (REMOTE_DB_SQL, &b"old db"[..]),
+                (REMOTE_SKILLS_ZIP, &b"old skills"[..]),
+            ] {
+                let (object, meta) = manifest.artifact(name).unwrap();
+                verify_artifact(&remote[&object], name, meta).unwrap();
+                assert_eq!(remote[&object], expected);
+            }
+        }
+    }
+
+    #[test]
+    fn v2_database_snapshots_keep_fixed_names_and_v3_rejects_invalid_object_names() {
+        let mut legacy = manifest_with(
+            PROTOCOL_FORMAT,
+            PREVIOUS_PROTOCOL_VERSION,
+            Some(DB_COMPAT_VERSION),
+        );
+        validate_manifest_compat(&legacy, RemoteLayout::V2Database).unwrap();
+        assert_eq!(legacy.artifact(REMOTE_DB_SQL).unwrap().0, REMOTE_DB_SQL);
+        legacy.version = PROTOCOL_VERSION;
+        legacy.artifacts.get_mut(REMOTE_DB_SQL).unwrap().sha256 = "../other".into();
+        assert!(legacy.artifact(REMOTE_DB_SQL).is_err());
+    }
+
     #[test]
     fn snapshot_id_is_stable() {
         let mut artifacts = BTreeMap::new();
@@ -641,7 +759,7 @@ mod tests {
 
     #[test]
     fn validate_manifest_compat_accepts_legacy_manifest_without_db_compat() {
-        let manifest = manifest_with(PROTOCOL_FORMAT, PROTOCOL_VERSION, None);
+        let manifest = manifest_with(PROTOCOL_FORMAT, PREVIOUS_PROTOCOL_VERSION, None);
         assert!(validate_manifest_compat(&manifest, RemoteLayout::Legacy).is_ok());
     }
 
@@ -659,7 +777,7 @@ mod tests {
     fn validate_manifest_compat_rejects_legacy_manifest_from_newer_db_generation() {
         let manifest = manifest_with(
             PROTOCOL_FORMAT,
-            PROTOCOL_VERSION,
+            PREVIOUS_PROTOCOL_VERSION,
             Some(DB_COMPAT_VERSION + 1),
         );
         assert!(validate_manifest_compat(&manifest, RemoteLayout::Legacy).is_err());

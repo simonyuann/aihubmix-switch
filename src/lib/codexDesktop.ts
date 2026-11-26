@@ -24,7 +24,14 @@ export interface CodexDesktopLaunchResult {
     | "not_installed"
     | "unsupported"
     | "partial";
-  locale: "applied" | "partial" | "not_requested" | "unsupported" | "failed";
+  locale:
+    | "applied"
+    | "scheduled"
+    | "partial"
+    | "not_confirmed"
+    | "not_requested"
+    | "unsupported"
+    | "failed";
   plugins: string;
   message?: string;
 }
