@@ -41,6 +41,7 @@ pub mod subscription_agy;
 pub mod subscription_grok;
 pub mod sync_protocol;
 pub(crate) mod tool_lifecycle;
+pub mod tool_versions;
 pub mod usage_cache;
 pub mod usage_stats;
 pub mod webdav;
