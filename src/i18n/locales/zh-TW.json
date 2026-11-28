@@ -5558,5 +5558,38 @@
     "action": {
       "cancel": "取消"
     }
+  },
+  "applyApiDialog": {
+    "title": "申请 API",
+    "description": "为当前账号申请平台 Key，随后在对应分组卡片中选择此 Key。",
+    "label": {
+      "name": "名称",
+      "apiName": "API 名称",
+      "modelService": "模型服务"
+    },
+    "placeholder": {
+      "nameExample": "例如：我的开发工具"
+    },
+    "empty": {
+      "noServices": "当前暂无可申请的模型服务，请联系平台客服。"
+    },
+    "action": {
+      "backToKeys": "返回查看 Key",
+      "cancel": "取消",
+      "confirm": "确认申请",
+      "open": "申请 API"
+    },
+    "status": {
+      "applying": "正在申请…"
+    },
+    "error": {
+      "loadGroups": "加载分组失败，请重试。",
+      "credentialSaveFailed": "本机凭据保存失败，请返回 API 列表查看。",
+      "unconfirmed": "申请结果未能确认",
+      "refreshKeysFirst": "请先刷新 Key 列表确认结果，再决定是否重新申请。"
+    },
+    "success": {
+      "applied": "API 已申请成功。"
+    }
   }
 }

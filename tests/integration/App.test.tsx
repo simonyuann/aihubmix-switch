@@ -222,7 +222,7 @@ describe("dedicated client account boundary", () => {
     for (const name of ["授权中心", "添加供应商"])
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     expect(
-      within(nav).queryByRole("button", { name: "API 管理" }),
+      within(nav).queryByRole("button", { name: "accountPage.title" }),
     ).not.toBeInTheDocument();
     expect(
       screen.getAllByRole("button", { name: "toolPage.action.addGroup" })
@@ -266,13 +266,19 @@ describe("dedicated client account boundary", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "管理 API Key" }),
     );
-    await screen.findByRole("heading", { name: "API 管理" });
+    await screen.findByRole("heading", { name: "accountPage.title" });
     expect(await screen.findByText("USD 12.34")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("button", { name: "申请 API" })[0]);
-    expect(await screen.findByRole("dialog")).toHaveTextContent("申请 API");
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "applyApiDialog.action.open" })[0],
+    );
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "applyApiDialog.title",
+    );
     await screen.findByRole("option", { name: "平台服务 · openai" });
-    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "applyApiDialog.action.cancel" }),
+    );
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );
@@ -351,7 +357,7 @@ describe("dedicated client account boundary", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "管理 API Key" }),
     );
-    await screen.findByRole("heading", { name: "API 管理" });
+    await screen.findByRole("heading", { name: "accountPage.title" });
     expect(
       screen.queryByRole("button", { name: "退出登录" }),
     ).not.toBeInTheDocument();

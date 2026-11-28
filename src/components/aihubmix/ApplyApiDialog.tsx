@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { friendlyError } from "./friendlyError";
+import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { dispatch, type GroupInfo } from "@/lib/api/aihubmix";
 export function ApplyApiDialog({
@@ -17,6 +18,7 @@ export function ApplyApiDialog({
   onClose: () => void;
   onCreated?: () => void;
 }) {
+  const { t } = useTranslation();
   const [groups, setGroups] = useState<GroupInfo[]>([]);
   const [group, setGroup] = useState("");
   const [name, setName] = useState("");
@@ -37,7 +39,7 @@ export function ApplyApiDialog({
       })
       .catch((e) => {
         if (active.current)
-          setError(friendlyError(e, "加载分组失败，请重试。"));
+          setError(friendlyError(e, t("applyApiDialog.error.loadGroups")));
       })
       .finally(() => {
         if (active.current) setLoading(false);
@@ -61,15 +63,15 @@ export function ApplyApiDialog({
       if (result.warning) {
         const warning = friendlyError(
           result.warning,
-          "本机凭据保存失败，请返回 API 列表查看。",
+          t("applyApiDialog.error.credentialSaveFailed"),
         );
-        setError(`API 已申请成功。${warning}`);
+        setError(`${t("applyApiDialog.success.applied")}${warning}`);
         setUncertain(true);
       } else onClose();
     } catch (e) {
       if (active.current) {
         setError(
-          `${friendlyError(e, "申请结果未能确认")}。请先刷新 Key 列表确认结果，再决定是否重新申请。`,
+          `${friendlyError(e, t("applyApiDialog.error.unconfirmed"))}。${t("applyApiDialog.error.refreshKeysFirst")}`,
         );
         setUncertain(true);
       }
@@ -87,9 +89,9 @@ export function ApplyApiDialog({
     >
       <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden">
         <DialogHeader>
-          <DialogTitle>申请 API</DialogTitle>
+          <DialogTitle>{t("applyApiDialog.title")}</DialogTitle>
           <DialogDescription>
-            为当前账号申请平台 Key，随后在对应分组卡片中选择此 Key。
+            {t("applyApiDialog.description")}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -100,19 +102,19 @@ export function ApplyApiDialog({
           }}
         >
           <label className="block space-y-2 text-body">
-            <span>名称</span>
+            <span>{t("applyApiDialog.label.name")}</span>
             <Input
-              aria-label="API 名称"
-              placeholder="例如：我的开发工具"
+              aria-label={t("applyApiDialog.label.apiName")}
+              placeholder={t("applyApiDialog.placeholder.nameExample")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={busy}
             />
           </label>
           <label className="block space-y-2 text-body">
-            <span>模型服务</span>
+            <span>{t("applyApiDialog.label.modelService")}</span>
             <select
-              aria-label="模型服务"
+              aria-label={t("applyApiDialog.label.modelService")}
               className="h-10 w-full rounded-control border border-border bg-surface px-3"
               value={group}
               onChange={(e) => setGroup(e.target.value)}
@@ -127,7 +129,7 @@ export function ApplyApiDialog({
           </label>
           {!loading && !groups.length && (
             <p className="text-body text-fg-3">
-              当前暂无可申请的模型服务，请联系平台客服。
+              {t("applyApiDialog.empty.noServices")}
             </p>
           )}
           {error && (
@@ -142,10 +144,14 @@ export function ApplyApiDialog({
               onClick={onClose}
               disabled={busy}
             >
-              {uncertain ? "返回查看 Key" : "取消"}
+              {uncertain
+                ? t("applyApiDialog.action.backToKeys")
+                : t("applyApiDialog.action.cancel")}
             </Button>
             <Button disabled={busy || loading || !group || uncertain}>
-              {busy ? "正在申请…" : "确认申请"}
+              {busy
+                ? t("applyApiDialog.status.applying")
+                : t("applyApiDialog.action.confirm")}
             </Button>
           </div>
         </form>

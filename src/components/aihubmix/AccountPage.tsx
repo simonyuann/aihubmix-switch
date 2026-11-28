@@ -93,7 +93,7 @@ export function AccountPage() {
         actions={
           <Button disabled={busy} onClick={() => setApply(true)}>
             <Plus className="me-2 h-4 w-4" />
-            申请 API
+            {t("applyApiDialog.action.open")}
           </Button>
         }
       />
@@ -140,7 +140,7 @@ export function AccountPage() {
                 </p>
                 {!busy && (
                   <Button className="mt-4" onClick={() => setApply(true)}>
-                    申请 API
+                    {t("applyApiDialog.action.open")}
                   </Button>
                 )}
               </div>
