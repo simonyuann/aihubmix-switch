@@ -54,9 +54,13 @@ describe("Codex Desktop controls", () => {
           }),
     );
     render(<CodexDesktopControls />);
-    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+    );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+      ).toBeEnabled(),
     );
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
@@ -77,9 +81,13 @@ describe("Codex Desktop controls", () => {
           }),
     );
     render(<CodexDesktopControls />);
-    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+    );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+      ).toBeEnabled(),
     );
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
@@ -116,7 +124,9 @@ describe("Codex Desktop controls", () => {
         : Promise.reject(message),
     );
     render(<CodexDesktopControls />);
-    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+    );
     expect(await screen.findByRole("status")).toHaveTextContent(message);
   });
 
@@ -132,9 +142,13 @@ describe("Codex Desktop controls", () => {
         : Promise.reject(message),
     );
     render(<CodexDesktopControls />);
-    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+    );
     expect(await screen.findByText(message)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+    ).toBeEnabled();
   });
 
   it("shows actual download progress and the verification phase", async () => {
@@ -247,7 +261,9 @@ describe("Codex Desktop controls", () => {
       throw new Error("Unexpected command");
     });
     render(<CodexDesktopControls />);
-    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+    );
     await waitFor(() =>
       expect(backend.invoke).toHaveBeenCalledWith("launch_codex_desktop", {
         language: "zh-CN",
@@ -256,7 +272,9 @@ describe("Codex Desktop controls", () => {
       }),
     );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+      ).toBeEnabled(),
     );
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
@@ -272,9 +290,11 @@ describe("Codex Desktop controls", () => {
           }),
     );
     render(<CodexDesktopControls />);
-    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+    );
     expect(
-      await screen.findByText(/未能自动退出 Codex，请保存工作并手动退出后重试/),
+      await screen.findByText(/codexDesktop\.launch\.manualQuitRetry/),
     ).toBeInTheDocument();
     expect(screen.queryByText(/已生效/)).not.toBeInTheDocument();
   });
@@ -290,7 +310,9 @@ describe("Codex Desktop controls", () => {
         : Promise.reject("检查 Codex Desktop 超时"),
     );
     render(<CodexDesktopControls />);
-    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+    );
     expect(
       await screen.findByText("检查 Codex Desktop 超时"),
     ).toBeInTheDocument();
@@ -307,8 +329,12 @@ describe("Codex Desktop controls", () => {
         : Promise.reject("secret-api-key"),
     );
     render(<CodexDesktopControls />);
-    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
-    expect(await screen.findByText(/启动失败，请检查/)).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "codexDesktop.action.launch" }),
+    );
+    expect(
+      await screen.findByText(/codexDesktop.launch.failedFallback/),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/secret-api-key/)).not.toBeInTheDocument();
   });
 

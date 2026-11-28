@@ -37,7 +37,7 @@ describe("API management", () => {
   it("copies the selected API Key without exposing the secret in the list", async () => {
     render(<AccountPage />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "复制 开发工具" }),
+      await screen.findByRole("button", { name: "accountPage.aria.copyKey" }),
     );
     await screen.findByText("accountPage.notice.keyCopied");
     expect(mocks.dispatch).toHaveBeenCalledWith("get-key", { id: 7 });
@@ -54,9 +54,13 @@ describe("API management", () => {
         : Promise.resolve([key]),
     );
     render(<AccountPage />);
-    const remove = await screen.findByRole("button", { name: "删除 开发工具" });
+    const remove = await screen.findByRole("button", {
+      name: "accountPage.aria.deleteKey",
+    });
     fireEvent.click(remove);
-    expect(screen.getByRole("dialog")).toHaveTextContent("此操作无法撤销");
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "accountPage.dialog.deleteBody",
+    );
     expect(mocks.dispatch.mock.calls.some(([c]) => c === "delete-key")).toBe(
       false,
     );
@@ -77,11 +81,11 @@ describe("API management", () => {
     await act(async () => complete());
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "删除 开发工具" }),
+        screen.queryByRole("button", { name: "accountPage.aria.deleteKey" }),
       ).not.toBeInTheDocument(),
     );
     expect(screen.getByRole("status")).toHaveTextContent(
-      "已删除 API Key「开发工具」",
+      "accountPage.notice.keyDeleted",
     );
   });
   it("keeps the Key visible when deletion fails and asks for a list refresh", async () => {
@@ -92,15 +96,17 @@ describe("API management", () => {
     );
     render(<AccountPage />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "删除 开发工具" }),
+      await screen.findByRole("button", { name: "accountPage.aria.deleteKey" }),
     );
     fireEvent.click(
       screen.getByRole("button", { name: "accountPage.dialog.confirmDelete" }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "请刷新列表确认删除结果",
+      "accountPage.error.deleteUnconfirmedDetail",
     );
-    expect(screen.getByRole("button", { name: "删除 开发工具" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "accountPage.aria.deleteKey" }),
+    ).toBeEnabled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

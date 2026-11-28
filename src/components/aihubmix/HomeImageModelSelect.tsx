@@ -123,11 +123,11 @@ export function HomeImageModelSelect({
         </p>
       ) : model ? (
         <p className="mt-1 text-caption text-fg-3">
-          生图和改图使用此型号。请保持 AIHub 运行。
+          {t("imageModelSelect.hint.keepRunning")}
         </p>
       ) : catalogReady && !options.length ? (
         <p className="mt-1 text-caption text-fg-3">
-          当前分组仅提供网关默认选项。
+          {t("imageModelSelect.hint.gatewayOnly")}
         </p>
       ) : null}
     </div>

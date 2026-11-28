@@ -71,13 +71,15 @@ export function AccountPage() {
       await dispatch("delete-key", { id: deleting.id });
       if (rev !== revision.current) return;
       setKeys((current) => current.filter((key) => key.id !== deleting.id));
-      setNotice(`已删除 API Key「${deleting.name}」`);
+      setNotice(t("accountPage.notice.keyDeleted", { name: deleting.name }));
       setDeleting(null);
     } catch (e) {
       if (rev === revision.current) {
         setDeleting(null);
         setError(
-          `${friendlyError(e, t("accountPage.error.deleteUnconfirmed"))}。请刷新列表确认删除结果后再重试。`,
+          t("accountPage.error.deleteUnconfirmedDetail", {
+            detail: friendlyError(e, t("accountPage.error.deleteUnconfirmed")),
+          }),
         );
       }
     } finally {
@@ -104,7 +106,9 @@ export function AccountPage() {
         <div className="max-w-4xl space-y-6">
           <section className="flex items-center justify-between gap-4 rounded-panel border border-border p-5">
             <div>
-              <p className="text-caption text-fg-3">当前账号</p>
+              <p className="text-caption text-fg-3">
+                {t("accountPage.label.currentAccount")}
+              </p>
               <p className="mt-1 text-strong font-medium">
                 {state?.account.email}
               </p>
@@ -112,13 +116,15 @@ export function AccountPage() {
           </section>
           <section className="rounded-panel border border-border">
             <div className="flex items-center justify-between border-b border-border p-4">
-              <h2 className="font-semibold">我的 API Keys</h2>
+              <h2 className="font-semibold">
+                {t("accountPage.section.myKeys")}
+              </h2>
               <Button
                 variant="ghost"
                 disabled={busy}
                 onClick={() => void load()}
               >
-                刷新
+                {t("accountPage.action.refresh")}
               </Button>
             </div>
             {error && (
@@ -165,33 +171,36 @@ export function AccountPage() {
                   <Button
                     variant="outline"
                     disabled={busy}
-                    aria-label={`复制 ${k.name}`}
+                    aria-label={t("accountPage.aria.copyKey", { name: k.name })}
                     onClick={() => void copyKey(k)}
                   >
-                    复制 Key
+                    {t("accountPage.action.copyKey")}
                   </Button>
                   <Button
                     variant="destructive"
                     disabled={busy}
-                    aria-label={`删除 ${k.name}`}
+                    aria-label={t("accountPage.aria.deleteKey", {
+                      name: k.name,
+                    })}
                     onClick={() => setDeleting(k)}
                   >
-                    删除
+                    {t("accountPage.action.deleteKey")}
                   </Button>
                 </div>
               </div>
             ))}
           </section>
           <p className="text-caption leading-6 text-fg-3">
-            在首页选择工具并添加模型分组，AIHub 会自动绑定可用的 API
-            Key。模型可在 Agent 中通过 /model 切换。
+            {t("accountPage.empty.bindHint")}
           </p>
         </div>
       </main>
       <ConfirmDialog
         isOpen={deleting !== null}
         title={t("accountPage.dialog.deleteTitle")}
-        message={`确定删除「${deleting?.name ?? ""}」？删除后，使用此 Key 的工具将无法继续调用 API，此操作无法撤销。`}
+        message={t("accountPage.dialog.deleteBody", {
+          name: deleting?.name ?? "",
+        })}
         confirmText={t("accountPage.dialog.confirmDelete")}
         cancelText={t("accountPage.action.cancel")}
         pending={busy}

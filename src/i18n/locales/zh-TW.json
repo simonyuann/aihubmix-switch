@@ -5540,23 +5540,40 @@
     "error": {
       "loadKeys": "加载 API 列表失败，请重试。",
       "copyFailed": "复制失败，请重试。",
-      "deleteUnconfirmed": "删除未能确认"
+      "deleteUnconfirmed": "删除未能确认",
+      "deleteUnconfirmedDetail": "{{detail}}。請重新整理列表確認刪除結果後再重試。"
     },
     "notice": {
-      "keyCopied": "API Key 已复制"
+      "keyCopied": "API Key 已复制",
+      "keyDeleted": "已刪除 API Key「{{name}}」"
     },
     "status": {
       "loading": "正在加载…"
     },
     "empty": {
-      "noKeys": "还没有 API Key"
+      "noKeys": "还没有 API Key",
+      "bindHint": "在首頁選擇工具並新增模型分組，AIHub 會自動綁定可用的 API Key。模型可在 Agent 中透過 /model 切換。"
     },
     "dialog": {
       "deleteTitle": "删除 API Key",
-      "confirmDelete": "确认删除"
+      "confirmDelete": "确认删除",
+      "deleteBody": "確定刪除「{{name}}」？刪除後，使用此 Key 的工具將無法繼續呼叫 API，此操作無法撤銷。"
     },
     "action": {
-      "cancel": "取消"
+      "cancel": "取消",
+      "refresh": "重新整理",
+      "copyKey": "複製 Key",
+      "deleteKey": "刪除"
+    },
+    "label": {
+      "currentAccount": "目前帳號"
+    },
+    "section": {
+      "myKeys": "我的 API Keys"
+    },
+    "aria": {
+      "copyKey": "複製 {{name}}",
+      "deleteKey": "刪除 {{name}}"
     }
   },
   "applyApiDialog": {
@@ -5607,7 +5624,8 @@
     },
     "hint": {
       "modelInUse": "生图和改图使用此型号。请保持 AIHub 运行。",
-      "gatewayOnly": "当前分组仅提供网关默认选项。"
+      "gatewayOnly": "目前分組僅提供閘道預設選項。",
+      "keepRunning": "生圖和改圖使用此型號。請保持 AIHub 運行。"
     }
   },
   "codexMarket": {
@@ -5636,6 +5654,49 @@
   "homeGroupRow": {
     "aria": {
       "imageModel": "{{name}} 的生图模型"
+    }
+  },
+  "codexDesktop": {
+    "launch": {
+      "restartAfterQuit": "請儲存工作並完全退出 Codex（包括系統匣），再重新啟動。",
+      "manualQuitRetry": "未能自動退出 Codex，請儲存工作並手動退出後重試。",
+      "notFoundTrusted": "未找到受信任的 Codex Desktop，請在設定中選擇程式路徑。",
+      "unsupported": "目前系統或 Codex 版本暫不支援從這裡啟動。",
+      "localeUnconfirmed": "介面語言未能確認，請在 Codex 中檢查。",
+      "failedFallback": "啟動失敗，請檢查 Codex Desktop 是否已安裝後重試。"
+    },
+    "idle": {
+      "notInstalled": "未找到 Codex，請在設定中選擇程式。"
+    },
+    "action": {
+      "launch": "啟動 Codex",
+      "launching": "正在啟動",
+      "managePlugins": "管理外掛"
+    }
+  },
+  "announcements": {
+    "banner": {
+      "new": "新公告",
+      "unreadCount": "{{count}} 則未讀"
+    },
+    "error": {
+      "badPayload": "公告資料格式異常",
+      "loadFailed": "公告載入失敗，請重試。",
+      "saveStateFailed": "公告狀態儲存失敗，請重試。"
+    },
+    "title": "公告",
+    "action": {
+      "backToList": "返回公告列表",
+      "refresh": "重新整理公告"
+    },
+    "aria": {
+      "unread": "（未讀）"
+    },
+    "status": {
+      "loading": "正在載入公告…"
+    },
+    "empty": {
+      "none": "暫無公告"
     }
   }
 }

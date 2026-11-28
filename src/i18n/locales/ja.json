@@ -5540,23 +5540,40 @@
     "error": {
       "loadKeys": "加载 API 列表失败，请重试。",
       "copyFailed": "复制失败，请重试。",
-      "deleteUnconfirmed": "删除未能确认"
+      "deleteUnconfirmed": "删除未能确认",
+      "deleteUnconfirmedDetail": "{{detail}}。一覧を更新して結果を確認してから、再試行してください。"
     },
     "notice": {
-      "keyCopied": "API Key 已复制"
+      "keyCopied": "API Key 已复制",
+      "keyDeleted": "API Key「{{name}}」を削除しました"
     },
     "status": {
       "loading": "正在加载…"
     },
     "empty": {
-      "noKeys": "还没有 API Key"
+      "noKeys": "还没有 API Key",
+      "bindHint": "ホームでツールを選びモデルグループを追加すると、AIHub が利用可能な API Key を自動的に紐付けます。モデルは Agent 内で /model で切り替えられます。"
     },
     "dialog": {
       "deleteTitle": "删除 API Key",
-      "confirmDelete": "确认删除"
+      "confirmDelete": "确认删除",
+      "deleteBody": "「{{name}}」を削除しますか？この Key を使うツールは API を呼び出せなくなります。取り消せません。"
     },
     "action": {
-      "cancel": "取消"
+      "cancel": "取消",
+      "refresh": "更新",
+      "copyKey": "Key をコピー",
+      "deleteKey": "削除"
+    },
+    "label": {
+      "currentAccount": "現在のアカウント"
+    },
+    "section": {
+      "myKeys": "マイ API Keys"
+    },
+    "aria": {
+      "copyKey": "{{name}} をコピー",
+      "deleteKey": "{{name}} を削除"
     }
   },
   "applyApiDialog": {
@@ -5607,7 +5624,8 @@
     },
     "hint": {
       "modelInUse": "生图和改图使用此型号。请保持 AIHub 运行。",
-      "gatewayOnly": "当前分组仅提供网关默认选项。"
+      "gatewayOnly": "このグループはゲートウェイのデフォルトのみを提供します。",
+      "keepRunning": "画像生成・編集はこのモデルを使用します。AIHub を起動したままにしてください。"
     }
   },
   "codexMarket": {
@@ -5636,6 +5654,49 @@
   "homeGroupRow": {
     "aria": {
       "imageModel": "{{name}} 的生图模型"
+    }
+  },
+  "codexDesktop": {
+    "launch": {
+      "restartAfterQuit": "作業内容を保存し、Codex（トレイ含む）を完全に終了してから再起動してください。",
+      "manualQuitRetry": "Codex を自動終了できませんでした。作業を保存して手動で終了し、再試行してください。",
+      "notFoundTrusted": "信頼できる Codex Desktop が見つかりません。設定でプログラムパスを選択してください。",
+      "unsupported": "現在のシステムまたは Codex バージョンでは、ここからの起動は未対応です。",
+      "localeUnconfirmed": "UI 言語を確認できませんでした。Codex 内でご確認ください。",
+      "failedFallback": "起動に失敗しました。Codex Desktop がインストール済みか確認して再試行してください。"
+    },
+    "idle": {
+      "notInstalled": "Codex が見つかりません。設定でプログラムを選択してください。"
+    },
+    "action": {
+      "launch": "Codex を起動",
+      "launching": "起動中",
+      "managePlugins": "プラグインを管理"
+    }
+  },
+  "announcements": {
+    "banner": {
+      "new": "新しいお知らせ",
+      "unreadCount": "未読 {{count}} 件"
+    },
+    "error": {
+      "badPayload": "お知らせデータの形式が不正です",
+      "loadFailed": "お知らせの読み込みに失敗しました。再試行してください。",
+      "saveStateFailed": "お知らせの状態保存に失敗しました。再試行してください。"
+    },
+    "title": "お知らせ",
+    "action": {
+      "backToList": "お知らせ一覧に戻る",
+      "refresh": "お知らせを更新"
+    },
+    "aria": {
+      "unread": "（未読）"
+    },
+    "status": {
+      "loading": "お知らせを読み込み中…"
+    },
+    "empty": {
+      "none": "お知らせはありません"
     }
   }
 }

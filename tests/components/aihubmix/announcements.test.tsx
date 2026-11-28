@@ -64,7 +64,7 @@ describe("platform announcements", () => {
   it("uses the home reminder to open a list and marks only the article the user opens", async () => {
     render(<HomeAndAnnouncements />);
     const reminder = await screen.findByRole("button", {
-      name: /新公告.*维护通知/,
+      name: /announcements\.banner\.new.*维护通知/,
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText(notice.content)).not.toBeInTheDocument();
@@ -79,7 +79,11 @@ describe("platform announcements", () => {
       expect.anything(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /维护通知.*未读/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /维护通知.*announcements\.aria\.unread/,
+      }),
+    );
     expect(screen.getByText(notice.content)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: notice.title })).toHaveFocus();
     await waitFor(() =>
@@ -89,14 +93,16 @@ describe("platform announcements", () => {
         ),
       ).toEqual([["announcement-read", { id: notice.id }]]),
     );
-    fireEvent.click(screen.getByRole("button", { name: "返回公告列表" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "announcements.action.backToList" }),
+    );
     expect(
       screen.getByRole("button", { name: /版本说明/ }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "首页" }));
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: /新公告/ }),
+        screen.queryByRole("button", { name: /announcements\.banner\.new/ }),
       ).not.toBeInTheDocument(),
     );
   });
@@ -109,7 +115,7 @@ describe("platform announcements", () => {
       expect(mocks.dispatch).toHaveBeenCalledWith("announcements"),
     );
     expect(
-      screen.queryByRole("button", { name: /新公告/ }),
+      screen.queryByRole("button", { name: /announcements\.banner\.new/ }),
     ).not.toBeInTheDocument();
     mocks.dispatch.mockResolvedValue([older, notice]);
     const poll = interval.mock.calls.find(
@@ -117,7 +123,9 @@ describe("platform announcements", () => {
     )?.[0] as () => void;
     await act(async () => poll());
     expect(
-      screen.getByRole("button", { name: /新公告.*维护通知/ }),
+      screen.getByRole("button", {
+        name: /announcements\.banner\.new.*维护通知/,
+      }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText(notice.content)).not.toBeInTheDocument();
@@ -125,7 +133,7 @@ describe("platform announcements", () => {
 
   it("retains a confirmed read when a stale refresh finishes later", async () => {
     render(<HomeAndAnnouncements />);
-    await screen.findByRole("button", { name: /新公告/ });
+    await screen.findByRole("button", { name: /announcements\.banner\.new/ });
     let finishRefresh!: (items: unknown) => void;
     mocks.dispatch.mockImplementation((command: string) =>
       command === "announcements"
@@ -135,11 +143,19 @@ describe("platform announcements", () => {
         : Promise.resolve(null),
     );
     fireEvent.click(screen.getByRole("button", { name: "公告" }));
-    fireEvent.click(screen.getByRole("button", { name: /维护通知.*未读/ }));
-    fireEvent.click(screen.getByRole("button", { name: "返回公告列表" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /维护通知.*announcements\.aria\.unread/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "announcements.action.backToList" }),
+    );
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: /维护通知.*未读/ }),
+        screen.queryByRole("button", {
+          name: /维护通知.*announcements\.aria\.unread/,
+        }),
       ).not.toBeInTheDocument(),
     );
     await act(async () => finishRefresh([notice]));
@@ -147,7 +163,9 @@ describe("platform announcements", () => {
       screen.getByRole("button", { name: /维护通知/ }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /维护通知.*未读/ }),
+      screen.queryByRole("button", {
+        name: /维护通知.*announcements\.aria\.unread/,
+      }),
     ).not.toBeInTheDocument();
   });
 
@@ -160,7 +178,9 @@ describe("platform announcements", () => {
     render(<HomeAndAnnouncements />);
     fireEvent.click(screen.getByRole("button", { name: "公告" }));
     fireEvent.click(await screen.findByRole("button", { name: /维护通知/ }));
-    fireEvent.click(screen.getByRole("button", { name: "返回公告列表" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "announcements.action.backToList" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: /维护通知/ }));
     expect(
       mocks.dispatch.mock.calls.filter(

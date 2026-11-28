@@ -5540,23 +5540,40 @@
     "error": {
       "loadKeys": "加载 API 列表失败，请重试。",
       "copyFailed": "复制失败，请重试。",
-      "deleteUnconfirmed": "删除未能确认"
+      "deleteUnconfirmed": "删除未能确认",
+      "deleteUnconfirmedDetail": "{{detail}}. Refresh the list to confirm the result, then retry."
     },
     "notice": {
-      "keyCopied": "API Key 已复制"
+      "keyCopied": "API Key 已复制",
+      "keyDeleted": "API Key \"{{name}}\" deleted"
     },
     "status": {
       "loading": "正在加载…"
     },
     "empty": {
-      "noKeys": "还没有 API Key"
+      "noKeys": "还没有 API Key",
+      "bindHint": "Pick a tool and add a model group on the home page; AIHub will bind an available API Key automatically. Switch models with /model in the Agent."
     },
     "dialog": {
       "deleteTitle": "删除 API Key",
-      "confirmDelete": "确认删除"
+      "confirmDelete": "确认删除",
+      "deleteBody": "Delete \"{{name}}\"? Tools using this Key will no longer be able to call the API. This cannot be undone."
     },
     "action": {
-      "cancel": "取消"
+      "cancel": "取消",
+      "refresh": "Refresh",
+      "copyKey": "Copy Key",
+      "deleteKey": "Delete"
+    },
+    "label": {
+      "currentAccount": "Current account"
+    },
+    "section": {
+      "myKeys": "My API Keys"
+    },
+    "aria": {
+      "copyKey": "Copy {{name}}",
+      "deleteKey": "Delete {{name}}"
     }
   },
   "applyApiDialog": {
@@ -5607,7 +5624,8 @@
     },
     "hint": {
       "modelInUse": "生图和改图使用此型号。请保持 AIHub 运行。",
-      "gatewayOnly": "当前分组仅提供网关默认选项。"
+      "gatewayOnly": "This group only offers the gateway default.",
+      "keepRunning": "Image generation and editing use this model. Keep AIHub running."
     }
   },
   "codexMarket": {
@@ -5636,6 +5654,49 @@
   "homeGroupRow": {
     "aria": {
       "imageModel": "{{name}} 的生图模型"
+    }
+  },
+  "codexDesktop": {
+    "launch": {
+      "restartAfterQuit": "Save your work and fully quit Codex (including the tray), then relaunch.",
+      "manualQuitRetry": "Codex could not quit automatically. Save your work, quit manually, and retry.",
+      "notFoundTrusted": "No trusted Codex Desktop found. Choose the program path in Settings.",
+      "unsupported": "Launching from here is not supported on this system or Codex version yet.",
+      "localeUnconfirmed": "Could not confirm the UI language. Please check inside Codex.",
+      "failedFallback": "Launch failed. Check that Codex Desktop is installed and try again."
+    },
+    "idle": {
+      "notInstalled": "Codex not found. Choose the program in Settings."
+    },
+    "action": {
+      "launch": "Launch Codex",
+      "launching": "Launching",
+      "managePlugins": "Manage plugins"
+    }
+  },
+  "announcements": {
+    "banner": {
+      "new": "New announcements",
+      "unreadCount": "{{count}} unread"
+    },
+    "error": {
+      "badPayload": "Announcement data has an unexpected format",
+      "loadFailed": "Failed to load announcements. Please retry.",
+      "saveStateFailed": "Failed to save announcement state. Please retry."
+    },
+    "title": "Announcements",
+    "action": {
+      "backToList": "Back to announcement list",
+      "refresh": "Refresh announcements"
+    },
+    "aria": {
+      "unread": "(unread)"
+    },
+    "status": {
+      "loading": "Loading announcements…"
+    },
+    "empty": {
+      "none": "No announcements yet"
     }
   }
 }

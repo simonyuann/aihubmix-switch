@@ -5540,23 +5540,40 @@
     "error": {
       "loadKeys": "加载 API 列表失败，请重试。",
       "copyFailed": "复制失败，请重试。",
-      "deleteUnconfirmed": "删除未能确认"
+      "deleteUnconfirmed": "删除未能确认",
+      "deleteUnconfirmedDetail": "{{detail}}. Sonucu doğrulamak için listeyi yenileyin, sonra tekrar deneyin."
     },
     "notice": {
-      "keyCopied": "API Key 已复制"
+      "keyCopied": "API Key 已复制",
+      "keyDeleted": "\"{{name}}\" API anahtarı silindi"
     },
     "status": {
       "loading": "正在加载…"
     },
     "empty": {
-      "noKeys": "还没有 API Key"
+      "noKeys": "还没有 API Key",
+      "bindHint": "Ana sayfada bir araç seçip model grubu ekleyin; AIHub kullanılabilir bir API anahtarını otomatik bağlar. Modelleri Agent içinde /model ile değiştirin."
     },
     "dialog": {
       "deleteTitle": "删除 API Key",
-      "confirmDelete": "确认删除"
+      "confirmDelete": "确认删除",
+      "deleteBody": "\"{{name}}\" silinsin mi? Bu anahtarı kullanan araçlar API çağıramaz. Bu işlem geri alınamaz."
     },
     "action": {
-      "cancel": "取消"
+      "cancel": "取消",
+      "refresh": "Yenile",
+      "copyKey": "Anahtarı kopyala",
+      "deleteKey": "Sil"
+    },
+    "label": {
+      "currentAccount": "Geçerli hesap"
+    },
+    "section": {
+      "myKeys": "API anahtarlarım"
+    },
+    "aria": {
+      "copyKey": "{{name}} kopyala",
+      "deleteKey": "{{name}} sil"
     }
   },
   "applyApiDialog": {
@@ -5607,7 +5624,8 @@
     },
     "hint": {
       "modelInUse": "生图和改图使用此型号。请保持 AIHub 运行。",
-      "gatewayOnly": "当前分组仅提供网关默认选项。"
+      "gatewayOnly": "Bu grup yalnızca ağ geçidi varsayılanını sunar.",
+      "keepRunning": "Görsel üretim ve düzenleme bu modeli kullanır. AIHub'ı çalışır durumda tutun."
     }
   },
   "codexMarket": {
@@ -5636,6 +5654,49 @@
   "homeGroupRow": {
     "aria": {
       "imageModel": "{{name}} 的生图模型"
+    }
+  },
+  "codexDesktop": {
+    "launch": {
+      "restartAfterQuit": "Çalışmanızı kaydedin ve Codex'i (sistem tepsisi dahil) tamamen kapatın, sonra yeniden başlatın.",
+      "manualQuitRetry": "Codex otomatik olarak kapatılamadı. Çalışmanızı kaydedin, elle kapatın ve yeniden deneyin.",
+      "notFoundTrusted": "Güvenilir bir Codex Desktop bulunamadı. Ayarlar'dan program yolunu seçin.",
+      "unsupported": "Bu sistem veya Codex sürümü buradan başlatmayı henüz desteklemiyor.",
+      "localeUnconfirmed": "Arayüz dili doğrulanamadı. Lütfen Codex içinde kontrol edin.",
+      "failedFallback": "Başlatma başarısız oldu. Codex Desktop'ın yüklü olduğunu kontrol edip yeniden deneyin."
+    },
+    "idle": {
+      "notInstalled": "Codex bulunamadı. Ayarlar'dan programı seçin."
+    },
+    "action": {
+      "launch": "Codex'i başlat",
+      "launching": "Başlatılıyor",
+      "managePlugins": "Eklentileri yönet"
+    }
+  },
+  "announcements": {
+    "banner": {
+      "new": "Yeni duyurular",
+      "unreadCount": "{{count}} okunmamış"
+    },
+    "error": {
+      "badPayload": "Duyuru verisi biçimi geçersiz",
+      "loadFailed": "Duyurular yüklenemedi. Lütfen yeniden deneyin.",
+      "saveStateFailed": "Duyuru durumu kaydedilemedi. Lütfen yeniden deneyin."
+    },
+    "title": "Duyurular",
+    "action": {
+      "backToList": "Duyuru listesine dön",
+      "refresh": "Duyuruları yenile"
+    },
+    "aria": {
+      "unread": "(okunmamış)"
+    },
+    "status": {
+      "loading": "Duyurular yükleniyor…"
+    },
+    "empty": {
+      "none": "Henüz duyuru yok"
     }
   }
 }

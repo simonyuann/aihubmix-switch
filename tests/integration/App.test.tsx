@@ -314,7 +314,9 @@ describe("dedicated client account boundary", () => {
     );
     mount();
     expect(
-      await screen.findByRole("button", { name: /新公告.*维护通知/ }),
+      await screen.findByRole("button", {
+        name: /announcements\.banner\.new.*维护通知/,
+      }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(
@@ -323,7 +325,7 @@ describe("dedicated client account boundary", () => {
       }),
     );
     expect(
-      await screen.findByRole("heading", { name: "公告" }),
+      await screen.findByRole("heading", { name: "announcements.title" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /版本说明/ }),

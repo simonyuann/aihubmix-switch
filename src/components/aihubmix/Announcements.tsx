@@ -14,6 +14,7 @@ import { SessionMarkdown } from "@/components/sessions/reader/SessionMarkdown";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { Button } from "@/components/ui/button";
 import { friendlyError } from "./friendlyError";
+import { useTranslation } from "react-i18next";
 
 const Context = createContext<{
   items: Announcement[];
@@ -24,6 +25,7 @@ const Context = createContext<{
 } | null>(null);
 
 export function AnnouncementBanner({ onOpen }: { onOpen: () => void }) {
+  const { t } = useTranslation();
   const unread = useContext(Context)?.items.filter((item) => !item.readAt);
   if (!unread?.length) return null;
   return (
@@ -37,12 +39,12 @@ export function AnnouncementBanner({ onOpen }: { onOpen: () => void }) {
         aria-hidden="true"
       />
       <span className="min-w-0 flex-1 truncate">
-        <strong>新公告</strong>
+        <strong>{t("announcements.banner.new")}</strong>
         <span className="ms-2">{unread[0].title}</span>
       </span>
       {unread.length > 1 && (
         <span className="shrink-0 text-caption text-fg-3">
-          {unread.length} 条未读
+          {t("announcements.banner.unreadCount", { count: unread.length })}
         </span>
       )}
       <ChevronRight className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -52,6 +54,7 @@ export function AnnouncementBanner({ onOpen }: { onOpen: () => void }) {
 
 export function AnnouncementProvider({ children }: { children: ReactNode }) {
   const { state } = useAccount();
+  const { t } = useTranslation();
   const [items, setItems] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -67,7 +70,8 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
     try {
       const next = await dispatch<Announcement[]>("announcements");
       if (!isCurrent()) return;
-      if (!Array.isArray(next)) throw new Error("公告数据格式异常");
+      if (!Array.isArray(next))
+        throw new Error(t("announcements.error.badPayload"));
       // An earlier read acknowledgement must survive a stale server response.
       setItems((previous) => {
         const readAt = new Map(previous.map((item) => [item.id, item.readAt]));
@@ -80,7 +84,8 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
       });
       setError("");
     } catch (e) {
-      if (isCurrent()) setError(friendlyError(e, "公告加载失败，请重试。"));
+      if (isCurrent())
+        setError(friendlyError(e, t("announcements.error.loadFailed")));
     } finally {
       if (isCurrent()) setLoading(false);
     }
@@ -117,7 +122,7 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
       })
       .catch((e) => {
         if (generation.current === current)
-          setError(friendlyError(e, "公告状态保存失败，请重试。"));
+          setError(friendlyError(e, t("announcements.error.saveStateFailed")));
       })
       .finally(() => pending.delete(item.id));
   }, []);
@@ -130,6 +135,7 @@ export function AnnouncementProvider({ children }: { children: ReactNode }) {
 }
 
 export function AnnouncementPage() {
+  const { t } = useTranslation();
   const announcements = useContext(Context);
   const refresh = announcements?.refresh;
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -149,13 +155,13 @@ export function AnnouncementPage() {
   return (
     <>
       <AppPageHeader
-        title="公告"
+        title={t("announcements.title")}
         icon={<Megaphone className="h-5 w-5" />}
         actions={
           selected && (
             <Button variant="outline" onClick={() => setSelectedId(null)}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              返回公告列表
+              {t("announcements.action.backToList")}
             </Button>
           )
         }
@@ -176,7 +182,7 @@ export function AnnouncementPage() {
                 size="compact"
                 onClick={() => void refresh?.()}
               >
-                刷新公告
+                {t("announcements.action.refresh")}
               </Button>
             </div>
           )}
@@ -222,7 +228,9 @@ export function AnnouncementPage() {
                     <span className="min-w-0 flex-1 break-words font-medium">
                       {item.title}
                       {!item.readAt && (
-                        <span className="sr-only">（未读）</span>
+                        <span className="sr-only">
+                          {t("announcements.aria.unread")}
+                        </span>
                       )}
                     </span>
                     {item.createdAt && (
@@ -243,11 +251,13 @@ export function AnnouncementPage() {
             </ul>
           ) : announcements?.loading ? (
             <p role="status" className="py-4 text-body text-fg-3">
-              正在加载公告…
+              {t("announcements.status.loading")}
             </p>
           ) : (
             !announcements?.error && (
-              <p className="py-4 text-body text-fg-3">暂无公告</p>
+              <p className="py-4 text-body text-fg-3">
+                {t("announcements.empty.none")}
+              </p>
             )
           )}
         </div>

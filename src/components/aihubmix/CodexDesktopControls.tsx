@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { LoaderCircle, Play, Puzzle } from "lucide-react";
 import { codexMarketError } from "@/lib/codexPluginMarket";
 import { isLinux } from "@/lib/platform";
@@ -15,24 +16,25 @@ import {
 function startMessage(
   result: CodexDesktopLaunchResult,
   preferences: CodexDesktopPreferences,
-  platform?: string,
+  platform: string | undefined,
+  t: (key: string) => string,
 ): string {
   if (result.status === "already_running") {
     if (platform === "linux" || (!platform && isLinux()))
-      return "请保存工作并完全退出 Codex（包括托盘），再重新启动。";
-    return "未能自动退出 Codex，请保存工作并手动退出后重试。";
+      return t("codexDesktop.launch.restartAfterQuit");
+    return t("codexDesktop.launch.manualQuitRetry");
   }
   if (result.status === "not_installed")
-    return "未找到受信任的 Codex Desktop，请在设置中选择程序路径。";
+    return t("codexDesktop.launch.notFoundTrusted");
   if (result.status === "unsupported")
-    return "当前系统或 Codex 版本暂不支持从这里启动。";
+    return t("codexDesktop.launch.unsupported");
 
   if (
     preferences.language !== "system" &&
     result.locale !== "applied" &&
     result.locale !== "scheduled"
   )
-    return "界面语言未能确认，请在 Codex 中检查。";
+    return t("codexDesktop.launch.localeUnconfirmed");
   return "";
 }
 
@@ -56,6 +58,7 @@ const safeLaunchErrors = new Set([
 /** Desktop launch is explicit; merely configuring a provider does not start Codex. */
 export function CodexDesktopControls() {
   const preferences = useCodexDesktopPreferences();
+  const { t } = useTranslation();
   const [status, setStatus] = useState<CodexDesktopStatus | null>(null);
   const [message, setMessage] = useState("");
   const [launching, setLaunching] = useState(false);
@@ -81,7 +84,7 @@ export function CodexDesktopControls() {
     setMessage("");
     try {
       const result = await codexDesktop.launch(preferences);
-      setMessage(startMessage(result, preferences, status?.platform));
+      setMessage(startMessage(result, preferences, status?.platform, t));
       if (
         result.status === "started" ||
         result.status === "partial" ||
@@ -97,10 +100,7 @@ export function CodexDesktopControls() {
       const detail =
         typeof error === "string" && safeLaunchErrors.has(error)
           ? error
-          : codexMarketError(
-              error,
-              "启动失败，请检查 Codex Desktop 是否已安装后重试。",
-            );
+          : codexMarketError(error, t("codexDesktop.launch.failedFallback"));
       setMessage(detail);
     } finally {
       setLaunching(false);
@@ -108,7 +108,7 @@ export function CodexDesktopControls() {
   }
 
   const idle =
-    status?.installed === false ? "未找到 Codex，请在设置中选择程序。" : "";
+    status?.installed === false ? t("codexDesktop.idle.notInstalled") : "";
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -134,12 +134,14 @@ export function CodexDesktopControls() {
         ) : (
           <Play aria-hidden="true" className="h-4 w-4" />
         )}
-        {launching ? "正在启动" : "启动 Codex"}
+        {launching
+          ? t("codexDesktop.action.launching")
+          : t("codexDesktop.action.launch")}
       </Button>
       <CodexPluginMarketDialog>
         <Button variant="outline" disabled={launching} className="shrink-0">
           <Puzzle className="h-4 w-4" aria-hidden="true" />
-          管理插件
+          {t("codexDesktop.action.managePlugins")}
         </Button>
       </CodexPluginMarketDialog>
     </div>
