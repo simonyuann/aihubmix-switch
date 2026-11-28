@@ -375,3 +375,19 @@ Intl.DateTimeFormat("zh-CN") 日期区域为行为保持,标注待 locale 化(�
 
 **验证**:typecheck 0 错误;check:i18n 5 locale 一致(4577 keys);oxlint 0 错误;
 format:check 绿;account.test 10/10;App.test 17/17。
+
+
+## Round 19 — T22 LoginPage 子批(2026-11-28)
+
+**提交**:LoginPage.tsx 39 处 → `loginPage.*` 37 keys × 5 locale
+(title/subtitle×3、label×8、action×8、register×3、error×8、notice×3、placeholder);
+组件接入 useTranslation;验证码冷却 {{seconds}} 参数化。
+
+**保留项**:`error.includes("请先退出当前账号")` 为后端消息内容检查
+(与 ToolPage 的后端消息检查同一模式),非 i18n 范畴。
+
+**验证**:typecheck 0 错误;check:i18n 5 locale 一致(4614 keys);oxlint 0 错误;
+format:check 绿;depcruise 0 违规;AccountCacheIsolation 5/5;account.test 15/15。
+
+**T22 剩余批次**:CodexPluginMarketDialog(37)/AccountContext(9)/App.tsx(6)/
+其余小文件(help.test 相关 HelpPage 27 处等)——同法分批。
