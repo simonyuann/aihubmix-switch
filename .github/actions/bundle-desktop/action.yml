@@ -1,0 +1,95 @@
+name: Bundle desktop artifacts
+description: >-
+  Build, bundle, test and collect desktop release artifacts for one target.
+  单一权威实现:build.yml 与 rebuild-*.yml 的 bundle 步骤统一走本 composite
+  action,消除逐行复制导致的漂移(治理 T13)。
+
+inputs:
+  target:
+    description: Rust target triple (e.g. x86_64-pc-windows-msvc)
+    required: true
+  bundles:
+    description: Comma-separated tauri bundle list (e.g. app,dmg)
+    required: true
+  native_tests:
+    description: Run native regression tests for this target
+    required: false
+    default: 'true'
+  tauri_signing_private_key:
+    description: Tauri updater signing key (pass from secrets)
+    required: true
+  tauri_signing_private_key_password:
+    description: Tauri updater signing key password (pass from secrets)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install Linux desktop dependencies
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libssl-dev libxdo-dev patchelf file
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 10.12.3
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: pnpm
+    - uses: dtolnay/rust-toolchain@1.95.0
+      with:
+        targets: ${{ inputs.target }}
+    - uses: swatinem/rust-cache@v2
+      with:
+        workspaces: src-tauri
+        key: ${{ inputs.target }}
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+    - name: Clear previously patched Windows executable
+      if: runner.os == 'Windows'
+      shell: bash
+      run: cargo clean --manifest-path src-tauri/Cargo.toml --package cc-switch --release --target ${{ inputs.target }}
+    - name: Build native desktop executable
+      # OAuth client values are injected only into release builds, keeping
+      # Gemini's upstream subscription refresh behavior available.
+      shell: bash
+      run: pnpm tauri build --target ${{ inputs.target }} --no-bundle -- --locked
+      env:
+        CI: 'true'
+    - name: Preserve the unbundled portable executable
+      if: runner.os == 'Windows'
+      shell: bash
+      run: node scripts/collect-portable.mjs ${{ inputs.target }}
+    - name: Bundle signed desktop updates
+      shell: bash
+      run: pnpm tauri bundle --target ${{ inputs.target }} --bundles ${{ inputs.bundles }} --ci
+      env:
+        CI: 'true'
+        APPIMAGE_EXTRACT_AND_RUN: '1'
+        LINUXDEPLOY_EXCLUDED_LIBRARIES: 'libwayland-client.so*'
+        TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.tauri_signing_private_key }}
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.tauri_signing_private_key_password }}
+    - name: Verify native updater installation formats
+      shell: bash
+      run: node scripts/check-update-format.mjs ${{ inputs.target }}
+    - name: Test native configuration, detection and model verification
+      if: inputs.native_tests == 'true' && runner.os != 'Windows'
+      shell: bash
+      run: cargo test --release --manifest-path src-tauri/Cargo.toml --locked --target ${{ inputs.target }}
+    - name: Test Windows with Common Controls v6
+      if: inputs.native_tests == 'true' && runner.os == 'Windows'
+      shell: pwsh
+      run: ./scripts/test-windows.ps1 -Target ${{ inputs.target }}
+    - run: node scripts/collect-artifacts.mjs ${{ inputs.target }}
+      shell: bash
+      env:
+        TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.tauri_signing_private_key }}
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.tauri_signing_private_key_password }}
+    - uses: actions/upload-artifact@v4
+      with:
+        name: desktop-${{ inputs.target }}
+        path: artifacts/*
+        if-no-files-found: error
+        retention-days: 14
