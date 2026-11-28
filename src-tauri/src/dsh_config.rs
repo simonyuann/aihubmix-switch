@@ -2820,7 +2820,7 @@ mod tests {
     /// Points `DSH_HOME` at a temporary directory for one test and restores it afterwards.
     struct DshHome {
         dir: tempfile::TempDir,
-        previous: Option<std::ffi::OsString>,
+        _env: crate::test_support::EnvVarGuard,
     }
     impl DshHome {
         fn new() -> Self {
@@ -2829,17 +2829,8 @@ mod tests {
                 "DSH tests require isolated settings with no configured DSH directory"
             );
             let dir = tempfile::tempdir().unwrap();
-            let previous = std::env::var_os("DSH_HOME");
-            std::env::set_var("DSH_HOME", dir.path());
-            Self { dir, previous }
-        }
-    }
-    impl Drop for DshHome {
-        fn drop(&mut self) {
-            match self.previous.take() {
-                Some(value) => std::env::set_var("DSH_HOME", value),
-                None => std::env::remove_var("DSH_HOME"),
-            }
+            let _env = crate::test_support::EnvVarGuard::set("DSH_HOME", dir.path());
+            Self { dir, _env }
         }
     }
 

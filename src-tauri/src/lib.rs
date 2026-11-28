@@ -2514,6 +2514,8 @@ fn relaunch_macos_bundle(env: &tauri::Env) {
 }
 
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests {
     use super::{
         classify_exit_request, error_for_log, redact_url_for_log, redact_url_for_log_with_secrets,

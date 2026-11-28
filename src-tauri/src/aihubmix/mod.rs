@@ -589,10 +589,10 @@ mod wallet_tests {
     async fn expired_account_recovery_refuses_ambiguous_dsh_and_can_retry() {
         assert!(crate::settings::get_dsh_override_dir().is_none());
         let temp = tempfile::tempdir().unwrap();
-        let old_dsh = std::env::var_os("DSH_HOME");
-        let old_home = std::env::var_os("CC_SWITCH_TEST_HOME");
-        std::env::set_var("DSH_HOME", temp.path().join("dsh"));
-        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        let _envs = vec![
+            crate::test_support::EnvVarGuard::set("DSH_HOME", temp.path().join("dsh")),
+            crate::test_support::EnvVarGuard::set("CC_SWITCH_TEST_HOME", temp.path()),
+        ];
         let path = temp.path().join("dsh/profiles/web/cordis.patch.yml");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
@@ -682,14 +682,6 @@ mod wallet_tests {
         );
         backend.finish_account_recovery().unwrap();
         assert_eq!(backend.store.settings.account.user_id, None);
-        match old_dsh {
-            Some(value) => std::env::set_var("DSH_HOME", value),
-            None => std::env::remove_var("DSH_HOME"),
-        }
-        match old_home {
-            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
-            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
-        }
     }
 
     #[test]
@@ -697,8 +689,7 @@ mod wallet_tests {
     fn logout_leaves_unrelated_malformed_dsh_files_untouched_but_refuses_platform_traces() {
         assert!(crate::settings::get_dsh_override_dir().is_none());
         let temp = tempfile::tempdir().unwrap();
-        let old = std::env::var_os("DSH_HOME");
-        std::env::set_var("DSH_HOME", temp.path());
+        let _env = crate::test_support::EnvVarGuard::set("DSH_HOME", temp.path());
         let dir = temp.path().join("profiles/web");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cordis.patch.yml");
@@ -713,10 +704,6 @@ mod wallet_tests {
         std::fs::write(&path, traced).unwrap();
         assert!(cleanup_dsh_account(&state, 1).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), traced);
-        match old {
-            Some(value) => std::env::set_var("DSH_HOME", value),
-            None => std::env::remove_var("DSH_HOME"),
-        }
     }
 
     #[test]
@@ -724,8 +711,7 @@ mod wallet_tests {
     fn logout_detaches_verified_dsh_nodes_and_preserves_credentials() {
         assert!(crate::settings::get_dsh_override_dir().is_none());
         let temp = tempfile::tempdir().unwrap();
-        let old_home = std::env::var_os("DSH_HOME");
-        std::env::set_var("DSH_HOME", temp.path());
+        let _env = crate::test_support::EnvVarGuard::set("DSH_HOME", temp.path());
         let id = "aihubmix-dsh-account-1-service-7";
         let models = [types::Model {
             id: "test-model".into(),
@@ -767,10 +753,6 @@ mod wallet_tests {
                 .unwrap()
                 .contains("fixture-key")
         );
-        match old_home {
-            Some(path) => std::env::set_var("DSH_HOME", path),
-            None => std::env::remove_var("DSH_HOME"),
-        };
     }
 
     #[test]
