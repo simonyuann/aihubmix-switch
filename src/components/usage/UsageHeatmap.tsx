@@ -9,7 +9,7 @@ import {
   formatTokensShort,
   getLocaleFromLanguage,
   parseFiniteNumber,
-} from "./format";
+} from "@/utils/format";
 import { hitRateOf, type UsageTrendStatLike } from "./UsageTrendChart";
 import { UsageTooltipCard } from "./UsageTooltipCard";
 import { useMoneyFormat } from "@/hooks/useMoneyFormat";

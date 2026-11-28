@@ -47,7 +47,7 @@ import {
   getResolvedLang,
   resolveSidebarToday,
   type SidebarTodayItem,
-} from "@/components/usage/format";
+} from "@/utils/format";
 import { useSidebarStatus, type AppNavStatus } from "@/hooks/useSidebarStatus";
 import { HoverTip } from "@/components/ui/hover-tip";
 import { DRAG_REGION_ATTR, DRAG_REGION_STYLE, isMac } from "@/lib/platform";

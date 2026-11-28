@@ -12,7 +12,7 @@ import {
   getLocaleFromLanguage,
   getResolvedLang,
   parseFiniteNumber,
-} from "./format";
+} from "@/utils/format";
 import {
   getCacheWriteAvailability,
   type UsageRangeSelection,

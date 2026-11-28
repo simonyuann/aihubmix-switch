@@ -7,7 +7,7 @@ import { useProxyStatusQuery } from "@/lib/query/proxy";
 import { proxyApi } from "@/lib/api/proxy";
 import { useUsageSummary } from "@/lib/query/usage";
 import { MODE_APP_IDS, isModeAppId } from "@/config/appConfig";
-import { parseFiniteNumber } from "@/components/usage/format";
+import { parseFiniteNumber } from "@/utils/format";
 import type { UsageRangeSelection } from "@/types/usage";
 import type { AppMode } from "@/types/proxy";
 

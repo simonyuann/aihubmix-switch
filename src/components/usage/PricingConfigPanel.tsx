@@ -36,7 +36,7 @@ import {
   joinClauses,
   joinNames,
   parseFiniteNumber,
-} from "./format";
+} from "@/utils/format";
 import { usageTable } from "./usageTable";
 
 /** 计费默认配置只管这 4 个有路由用量管线的应用 */

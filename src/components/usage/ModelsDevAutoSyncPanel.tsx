@@ -54,7 +54,7 @@ import {
   type ModelsDevEntry,
 } from "@/lib/modelsDevPricing";
 import { usageKeys } from "@/lib/query/usage";
-import { formatRelativeTime } from "./format";
+import { formatRelativeTime } from "@/utils/format";
 import type { ModelsDevSyncConfig, ModelsDevSyncState } from "@/types/usage";
 import { isTextEditableTarget } from "@/utils/domUtils";
 

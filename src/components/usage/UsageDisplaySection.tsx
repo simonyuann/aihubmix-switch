@@ -23,7 +23,7 @@ import {
   type SidebarTodayItem,
   TREND_CHART_TYPES,
   type TrendChartType,
-} from "./format";
+} from "@/utils/format";
 import { ChecklistMenu } from "./ChecklistMenu";
 import { settingsCardClass, settingsGroupTitleClass } from "./settingsStyles";
 

@@ -21,7 +21,7 @@ import {
   getLocaleFromLanguage,
   sumSpeedTotals,
   USD_DISPLAY,
-} from "@/components/usage/format";
+} from "@/utils/format";
 
 describe("usage format helpers", () => {
   it("formats Traditional Chinese token units with Traditional characters", () => {

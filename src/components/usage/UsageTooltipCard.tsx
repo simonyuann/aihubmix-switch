@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { formatHitRatePercent, formatTokensShort } from "./format";
+import { formatHitRatePercent, formatTokensShort } from "@/utils/format";
 import { useMoneyFormat } from "@/hooks/useMoneyFormat";
 
 interface UsageTooltipCardProps {

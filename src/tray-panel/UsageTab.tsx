@@ -22,7 +22,7 @@ import {
   formatTokensCompact,
   getLocaleFromLanguage,
   resolveTrendChartType,
-} from "@/components/usage/format";
+} from "@/utils/format";
 import {
   buildUsageTrendChartData,
   createUsageTrendTokenTickFormatter,

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getUsageRangePresetLabel, resolveUsageRange } from "@/lib/usageRange";
-import { getLocaleFromLanguage } from "./format";
+import { getLocaleFromLanguage } from "@/utils/format";
 import type { UsageRangePreset, UsageRangeSelection } from "@/types/usage";
 
 type DraftField = "start" | "end";

@@ -6,7 +6,7 @@ import {
   formatMoneyTick,
   resolveMoneyDisplay,
   USD_DISPLAY,
-} from "@/components/usage/format";
+} from "@/utils/format";
 import { useSettingsQuery } from "@/lib/query";
 
 /**

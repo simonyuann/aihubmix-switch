@@ -5,7 +5,7 @@ import {
   formatFirstTokenSeconds,
   formatTokensPerSecond,
   getAggregateTokensPerSecond,
-} from "./format";
+} from "@/utils/format";
 import { usageTable } from "./usageTable";
 
 /** 供应商 / 模型统计行共有的速度分子分母与首字中位数（后端只统计满足条件的明细请求）。 */

@@ -43,7 +43,7 @@ import {
   getLocaleFromLanguage,
   getResolvedLang,
   parseFiniteNumber,
-} from "@/components/usage/format";
+} from "@/utils/format";
 import { sessionMenuItemClass } from "../SessionItem";
 import {
   buildCdResumeCommand,

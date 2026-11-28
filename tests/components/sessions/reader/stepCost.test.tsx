@@ -5,7 +5,7 @@ import { getAgentReaderStyle } from "@/components/sessions/reader/agentStyles";
 import { transcriptToMarkdown } from "@/components/sessions/reader/exportMarkdown";
 import { StepMetaText } from "@/components/sessions/reader/rowStyles";
 import { buildTurns } from "@/components/sessions/reader/turns";
-import { formatMoneyCompact, USD_DISPLAY } from "@/components/usage/format";
+import { formatMoneyCompact, USD_DISPLAY } from "@/utils/format";
 import { fixtures } from "./helpers";
 
 // 会话阅读页的费用只来自 OpenCode 的 step-finish，本机常常没有这类数据，

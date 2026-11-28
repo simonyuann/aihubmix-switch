@@ -27,7 +27,7 @@ import {
   getLocaleFromLanguage,
   getResolvedLang,
   parseFiniteNumber,
-} from "./format";
+} from "@/utils/format";
 import { appDisplayName } from "./RequestLogTable";
 import { getUsageProviderLabel } from "./providerLabel";
 

@@ -9,7 +9,7 @@ import {
   formatTokensCompact,
   getLocaleFromLanguage,
   getResolvedLang,
-} from "./format";
+} from "@/utils/format";
 import { usageTable } from "./usageTable";
 import { PerformanceCells, PerformanceHeaders } from "./statsColumns";
 import type { UsageRangeSelection } from "@/types/usage";

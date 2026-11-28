@@ -31,7 +31,7 @@ import {
   getLocaleFromLanguage,
   isSessionLogRequest,
   parseFiniteNumber,
-} from "./format";
+} from "@/utils/format";
 import {
   stickyCol,
   usageTable,

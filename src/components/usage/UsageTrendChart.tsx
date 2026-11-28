@@ -19,7 +19,7 @@ import {
   getLocaleFromLanguage,
   parseFiniteNumber,
   resolveTrendChartType,
-} from "./format";
+} from "@/utils/format";
 import { resolveUsageRange } from "@/lib/usageRange";
 import type { UsageRangeSelection } from "@/types/usage";
 import { useMoneyFormat } from "@/hooks/useMoneyFormat";

@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fmtInt, getLocaleFromLanguage } from "./format";
+import { fmtInt, getLocaleFromLanguage } from "@/utils/format";
 
 interface TablePaginationProps {
   /** 从 0 开始的页码 */
