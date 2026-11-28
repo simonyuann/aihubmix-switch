@@ -46,3 +46,16 @@
 **T20**(`fb004c5`):`components/usage/format.ts`(474 行通用显示格式化)被 5 个非 usage 区域消费,层级倒挂 → 迁移 `utils/format.ts`,23 处导入点全量更新,旧路径删除。验证:typecheck 绿;324 相关测试通过。
 
 **待办**:全量 vitest 静默对照(cargo test 完成后跑,对照 5 文件 flaky 基线)。
+
+## Round 3 — invoke 边界归一 + 依赖方向检查器 + build.rs 平台门控(2026-11-28)
+
+**范围**:T3(部分)/ T8 / T9 + Rust 验证基建。
+
+**动作与提交**:
+1. `c058dbc`:组件/hooks/入口的 **9 处散落 invoke** 收敛到 lib/api;新增 window/init/tray/codexImagegen 四个单一职责 api 模块;updater.ts 补齐 2 个命令契约;**dependency-cruiser 边界规则 `no-raw-invoke-outside-api-layer` 落地(error 级)+ `pnpm lint:arch` 脚本**。当前 631 模块 3464 依赖 0 违规。
+2. `build.rs` 修复:Common Controls manifest 的 `/MANIFEST*` 链接参数按 `CARGO_CFG_TARGET_ENV == "msvc"` 门控(MSVC/CI 行为不变;GNU 目标跳过,使无 MSVC 的 Windows 开发者可编译)。
+3. 判定记录:T18(mock 双轨)——12 个文件的 inline `vi.mock` 各有语义(isTauri 常量/固定返回/代理 spy),非复制粘贴,**不机械合并**;T3 余项(lib 根桌面集成四件套)——claudeDesktop.ts 内含 React hooks 状态机,整体搬入 lib/api 会污染 api 层纯度,后续以 lint 边界(已完成)+ 拆分纯 invoke 契约的方式处理,不做无价值目录搬迁。
+
+**验证**:tsc 绿;prettier 绿;相关测试 74+90 通过;depcruise 0 违规;cargo check(GNU)在 build.rs 修改后通过。
+
+**发现**:`cargo test` 在 GNU 目标硬性受阻(`webview2_com_sys` E0463,COM 栈 MSVC 导入库导向),clean 后复现 → 行为级 Rust 验证以 CI 为准;本地用 `cargo check --all-targets` 做类型级验证。安装 MSVC Build Tools 可解锁(待用户决定)。

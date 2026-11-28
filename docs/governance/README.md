@@ -26,10 +26,16 @@
 | 验证手段 | 覆盖范围 | 状态 |
 | --- | --- | --- |
 | `pnpm typecheck`(tsc --noEmit) | 前端 TS 全量 | ✅ 基线绿 |
-| `pnpm test:unit`(vitest) | 前端组件/集成/node 测试 | 基线:3541 通过 / **13 预存失败**(详见 PROGRESS Round 0) |
-| `cargo check` | Rust 全量类型检查 | ✅ 本机用 GNU 目标工具链通过(见下) |
-| `cargo test` | Rust 全量测试 | 待首跑结果 |
-| `cargo fmt --check` / `cargo clippy` | Rust 语法/静态检查 | rustfmt ✅ 基线绿;clippy 随 toolchain |
+| `pnpm test:unit`(vitest) | 前端组件/集成/node 测试 | 基线:5 文件 flaky(13↔18 预存失败,详见 PROGRESS Round 0/T17) |
+| `pnpm lint:arch`(dependency-cruiser) | 前端依赖方向/边界 | ✅ 0 违规(T9 落地) |
+| `pnpm format:check` | 前端格式 | ✅ 绿(T11) |
+| `cargo check` / `cargo check --all-targets` | Rust 全量类型检查(含测试目标) | ✅ GNU 目标通过;**本地 Rust 重构的类型级验证手段** |
+| `cargo test` | Rust 行为级测试 | ⛔ 本机受阻:`webview2_com_sys` 无法以 rlib 形式链接(WebView2 COM 栈为 MSVC 导入库导向;GNU 目标 E0463)。行为级验证以 CI 为准;如需本地解锁需安装 MSVC Build Tools |
+| `cargo fmt --check` | Rust 格式 | ✅ 基线绿 |
+
+**本机 Rust 验证方法**:本机无 MSVC Build Tools,且 Git Bash 的 coreutils `link.exe` 会遮蔽 rustc 的链接器。使用 GNU 目标工具链规避:
+`RUSTUP_TOOLCHAIN=1.95.0-x86_64-pc-windows-gnu cargo check [--all-targets]`
+(`rust-toolchain.toml` 锚定 1.95.0 版本不变,仅 target 换为 gnu。`check --all-targets` 覆盖测试目标的类型正确性;行为级验证依赖 CI 的 MSVC cargo test。)
 
 **本机 Rust 验证方法**:本机无 MSVC Build Tools,且 Git Bash 的 coreutils `link.exe` 会遮蔽 rustc 的链接器。使用 GNU 目标工具链规避:
 `RUSTUP_TOOLCHAIN=1.95.0-x86_64-pc-windows-gnu cargo check/test`
