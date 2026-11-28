@@ -150,3 +150,32 @@
 
 **T4 剩余**:misc ~7000 行 = 剪贴板/应用更新/便携模式/迁移结果/配置读写命令等
 app-misc 域 + get_tool_versions 命令 + 测试;后续按域继续或保持现状。
+
+
+## Round 9 — T4 批次2 + T14 批次1(2026-11-28)
+
+**提交**:`4a6d99b`(T4 批次2)+ `9b03542`(T14 批次1)。
+
+**T4 批次2**:新增 `services/tool_versions.rs`(722 行)——版本检查域权威实现
+(get_tool_versions 编排、单工具探测、semver 比较、npm/GitHub/PyPI/agy/hermes
+最新版 fetchers);**Node 升级门槛域(commands/tool_node_requirement.rs,322 行)
+并入同模块**——它与版本检查互锁(update_node_gap ↔ fetch_npm_dist_tags),
+合并消除跨模块循环。commands/misc.rs 7013→6614 行;get_tool_versions 保留薄壳。
+
+**T14 批次1**:OpenCode 数据目录解析归一——session_manager 层的
+get_opencode_base_dir 与 opencode_config::get_opencode_data_dir 同语义双实现;
+委托权威实现,**顺带修复测试隔离隐患**(原实现走 dirs::home_dir,不感知
+CC_SWITCH_TEST_HOME)。
+
+**T14 勘察修正**(与初报对照):
+1. DSH_HOME 生产读取点仅 dsh_config.rs 一处(settings 优先 + env 回退,SSOT 已成立);
+   其余 4 处均为测试夹具——初报"4 个模块读取"高估。
+2. omp 的 XDG_DATA_HOME 用于向恢复的终端会话传递 env,语义与目录解析不同——非重复。
+3. 前缀统一(CCS_/AIHUB_ → CC_SWITCH_)是用户可见的破坏性变更 → P-ADR-005 待确认。
+4. 测试 env 夹具样板(DshHome 等 ×3)→ serial_test 化,列 T14 剩余(中优先)。
+
+**验证**:cargo check --all-targets(GNU)0 错误;cargo fmt --check 绿(两批均独立验证)。
+
+**T4 剩余评估**:misc 剩余 6614 行 ≈ 终端启动域(~1700 行,批次3 候选——
+claude/agy 会话的 unix/macos(iTerm2/Ghostty/Warp/otty)/linux 启动器,同质度高)
++ app-misc 小命令(~150 行,Deletion Test 不支持拆分,保留)+ 测试(~4500 行)。

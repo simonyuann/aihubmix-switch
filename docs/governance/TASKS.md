@@ -27,7 +27,7 @@
 
 ## P1 — 高价值,依赖勘察报告细化
 
-### T4 `commands/misc.rs`(10952 行)拆分 `in-progress(10952→7013:child_process/tool_runtime/tool_lifecycle 已抽出)`
+### T4 `commands/misc.rs`(10952 行)拆分 `in-progress(10952→6614:+tool_versions/node_requirement 批次2;终端启动域 ~1700 行为批次3 候选)`
 - 证据:剪贴板/外部 URL 校验/应用更新/便携模式/迁移结果/8 个工具的版本探测+生命周期(install/update/uninstall)/semver 解析/WSL+PowerShell 包装混在一个文件;存在 4 组 `#[cfg]` 平台重复函数(`tool_env_type_and_wsl_distro`×4、`mcode_installer_update_command`×2、`codex_installer_update_command`×2)。
 - 方向:按领域拆为 `commands/tool_lifecycle.rs`、`commands/tool_versions.rs`、`commands/app_updates.rs`、`commands/clipboard.rs` 等;`#[cfg]` 平台变体收敛为平台模块(参照 codex_desktop_platform.rs 模式)。
 - 验证:cargo check + cargo test(受本机 MSVC 缺失约束,见 README 验证矩阵)。**依赖 T0 工具链结论**。
@@ -87,7 +87,7 @@
 - 方向:抽取可复用 composite action(或 workflow 内 YAML anchor 等价物);flatpak 标记为手工旁路并在文档注明。
 - 验证:workflow 语法检查(actionlint 或 dry-run);下次 tag 实证。
 
-### T14 环境变量读取归一 `open(验证受限)`
+### T14 环境变量读取归一 `in-progress(批次1:OpenCode 目录解析归一;DSH_HOME 勘察修正:SSOT 已成立)`
 - 证据:三种前缀并存(`CC_SWITCH_`/`CCS_`/`AIHUB_`);`DSH_HOME` 4 个模块各自读取;`XDG_DATA_HOME` 4 文件重复解析;`KIMI_CODE_HOME` 3 处读取;`CC_SWITCH_TEST_HOME` 保存/恢复样板复制粘贴 4+ 份(devDep 已有 serial_test 未用于此)。
 - 方向:建 `env_resolver` 深模块(单一读取点+类型化访问器);测试 env 样板统一到 serial_test 辅助宏;前缀规范写入 DECISIONS。
 - 验证:cargo test;grep 断言单点读取。
