@@ -226,3 +226,24 @@ build.yml 与 rebuild-desktop/intel-release.yml 三个 workflow 统一消费(净
 诚实声明:CI 行为级验证以下一次 tag/dispatch 触发为准(本地无法运行 CI)。
 
 **验证**:typecheck/tests/i18n/check:i18n/format:check 全绿(Rust 侧 check --all-targets 亦绿)。
+
+
+## Round 12 — T14 批次2:测试 env 夹具统一(2026-11-28)
+
+**提交**:`37ced1c`(净 -65 行)。
+
+**内容**:新增 `test_support.rs`(cfg(test))::EnvVarGuard——以
+codex_history_migration 已有的实现为蓝本泛化;迁移 6 处平行实现
+(codex_history_migration/dsh_config DshHome/skill TestHomeGuard/
+aihubmix 内联×3)。
+
+**勘察修正**:
+1. serial_test 并非未使用——app_config.rs 的 #[serial] 测试一直在用(初报有误)。
+2. 三个夹具语义不同,保留为特例并记录:agy_smoke_tests RestoreHome(Drop 含
+   settings::reload_settings 耦合)、agy_config HomeGuard(tempdir 耦合)、
+   opencode_config TestHomeGuard(settings 耦合)——强行合并属形式统一。
+
+**T14 状态**:批次1(OpenCode 目录解析归一)+ 批次2(EnvVarGuard 统一)完成;
+剩余 = env 前缀更名(P-ADR-005,破坏性,待确认)——T14 按可安全范围收敛。
+
+**验证**:cargo check --all-targets(GNU)0 错误;cargo fmt --check 绿。
