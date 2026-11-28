@@ -438,3 +438,24 @@ depcruise 0 违规;format:check 绿;**全量 vitest 288/3540 全绿**。
 **T22 状态**:aihubmix 子应用主体迁移完成。剩余 = 若干 <5 处的小文件散点
 (HomeImageModelSelect/HomeGroupRow/DiagnosticReport 等)——体量极小,可在
 后续维护中随手迁移,不再作为独立治理批次。
+
+
+## Round 22 — T22 HelpPage 子批(2026-11-28)
+
+**提交**:`HelpPage 27 处 → helpPage.* 23 keys`。
+
+**内容**:title/section×2/contact×8(交流群/二维码 alt/复制 toast/加载失败)/
+faq×6(三组问答 q+a)/aria/toast×2/action×2/status/error/warning;
+questions 数组改 key 表,渲染处 t();组件接入 useTranslation。
+
+**测试迁移**:help.test 3 处断言改 key;App.test 的 HelpPage title 断言改 key,
+nav help 按钮确认为 Sidebar 组件文案(未迁移),保持原样——**教训:批量替换
+同名文案前必须确认组件归属**(本轮 App.test 的 nav 按钮误改后即时还原)。
+
+**验证**:typecheck 0 错误;check:i18n 5 locale 一致(4692 keys);oxlint 0 错误;
+format:check 绿;depcruise 0 违规;全量 vitest **288/3540 全绿**。
+
+**T22 剩余**:CodexDesktopControls 自身 23 行(部分为后端步骤标签已随
+ClaudeDesktopControls 批次处理)、AccountPage(22)、ApplyApiDialog(14)、
+HomeImageModelSelect(9)、CodexMarketProgress(7)、DiagnosticReport(4)、
+friendlyError/groupBrandIcon 等小文件——体量递减,同法分批。
