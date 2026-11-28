@@ -40,6 +40,7 @@ pub mod subscription;
 pub mod subscription_agy;
 pub mod subscription_grok;
 pub mod sync_protocol;
+pub mod terminal_launch;
 pub(crate) mod tool_lifecycle;
 pub mod tool_versions;
 pub mod usage_cache;
