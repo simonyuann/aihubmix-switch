@@ -44,9 +44,11 @@ describe("support contact", () => {
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValue({ contactInfo: "QQ: 123" });
     showHelp();
-    const retry = await screen.findByRole("button", { name: "重试" });
+    const retry = await screen.findByRole("button", {
+      name: "helpPage.action.retry",
+    });
     expect(
-      screen.getByRole("img", { name: "AIHubMix QQ 交流群二维码" }),
+      screen.getByRole("img", { name: "helpPage.contact.qqGroupQrAlt" }),
     ).toBeVisible();
     fireEvent.click(retry);
     expect(await screen.findByText("QQ: 123")).toBeInTheDocument();
@@ -56,10 +58,12 @@ describe("support contact", () => {
     mocks.copyText.mockResolvedValue(undefined);
     showHelp();
     expect(
-      screen.getByRole("img", { name: "AIHubMix QQ 交流群二维码" }),
+      screen.getByRole("img", { name: "helpPage.contact.qqGroupQrAlt" }),
     ).toBeVisible();
     expect(screen.getByText("1091823578")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "helpPage.aria.copyGroupNumber" }),
+    );
     expect(mocks.copyText).toHaveBeenCalledWith("1091823578");
     await waitFor(() =>
       expect(screen.queryByRole("status")).not.toBeInTheDocument(),

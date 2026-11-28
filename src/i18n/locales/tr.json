@@ -5485,5 +5485,54 @@
       "refreshFailed": "余额刷新失败，请重试",
       "refreshFailedRetry": "余额刷新失败，点击重试"
     }
+  },
+  "helpPage": {
+    "title": "帮助与答疑",
+    "section": {
+      "contact": "联系方式",
+      "faq": "常见问题"
+    },
+    "contact": {
+      "qqGroup": "AIHubMix 交流群",
+      "qqScanHint": "打开手机 QQ，扫一扫加入群聊。",
+      "groupNumberLabel": "群号",
+      "qqGroupQrAlt": "AIHubMix QQ 交流群二维码",
+      "loadFailed": "其他联系方式暂时无法加载。",
+      "loading": "正在获取其他联系方式…"
+    },
+    "aria": {
+      "copyGroupNumber": "复制群号"
+    },
+    "toast": {
+      "groupNumberCopied": "群号已复制",
+      "copyFailed": "请选中群号并复制。"
+    },
+    "action": {
+      "retry": "重试",
+      "networkDiagnostics": "网络诊断"
+    },
+    "status": {
+      "diagnosticRunning": "正在检查账号和模型接口…"
+    },
+    "error": {
+      "diagnosticFailed": "诊断未完成，请重试。"
+    },
+    "warning": {
+      "noApiKeySharing": "请勿向他人发送 API Key。"
+    },
+    "faq": {
+      "switchGroup": {
+        "q": "如何切换模型分组？",
+        "a": "在首页选择工具，然后在模型分组中选择要使用的服务。切换后请按提示重新打开工具。"
+      },
+      "rechargeBalance": {
+        "q": "充值后余额没有更新怎么办？",
+        "a": "请先刷新余额，并在充值记录中查看订单状态。正在到账的订单请稍候，不要重复付款。"
+      },
+      "codexModel": {
+        "q": "如何在 Codex 中切换模型？",
+        "a": "配置好分组后，在 Codex 中打开模型选择器；命令行版本也可以使用 /model。"
+      }
+    }
   }
 }

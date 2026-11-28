@@ -231,7 +231,7 @@ describe("dedicated client account boundary", () => {
     expect(screen.queryByLabelText("服务地址")).not.toBeInTheDocument();
 
     fireEvent.click(help);
-    await screen.findByRole("heading", { name: "帮助与答疑" });
+    await screen.findByRole("heading", { name: "helpPage.title" });
     expect(
       within(wallet).getByRole("button", {
         name: "balanceDisplay.action.recharge",
