@@ -17,7 +17,8 @@
     "test": "pnpm test:unit",
     "dev:web": "pnpm dev:renderer",
     "build:desktop": "pnpm tauri build",
-    "lint:arch": "depcruise src --config .dependency-cruiser.cjs"
+    "lint:arch": "depcruise src --config .dependency-cruiser.cjs",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "keywords": [],
   "author": "Jason Young",

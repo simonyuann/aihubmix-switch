@@ -232,6 +232,27 @@
         "oauthTitle": "OAuth Kimlik Doğrulama Modu",
         "oauthHint": "Google’ın resmî hizmeti kişisel OAuth kimlik doğrulaması kullanır; API anahtarı girmeniz gerekmez. İlk kullanımda oturum açmanız için tarayıcı otomatik açılır.",
         "apiKeyPlaceholder": "Gemini API Anahtarını girin"
+      },
+      "claudeAccount": {
+        "label": "Sign-in method",
+        "default": "Follow Claude Code login",
+        "defaultDescription": "The account changes with the current Claude Code login",
+        "missing": "Account not on this computer",
+        "manage": "Add or manage Claude accounts",
+        "helpTerminal": "The Claude config folder is overridden in Settings, so switching to this card doesn't change Claude Code's sign-in. Use Open Terminal on the card to use the selected account.",
+        "help": "Switching to this card signs Claude Code in to the selected account, and claude started anywhere afterwards uses it. To use several accounts at once, use Open Terminal on the card.",
+        "claudeAccount": "Claude account",
+        "reauthBadge": "Re-login required",
+        "terminalHint": "Use via Open Terminal",
+        "plan": {
+          "pro": "Pro",
+          "max": "Max",
+          "max5x": "Max 5x",
+          "max20x": "Max 20x",
+          "team": "Team",
+          "teamPremium": "Team Premium",
+          "enterprise": "Enterprise"
+        }
       }
     },
     "duplicateLiveIdsLoadFailed": "Sağlayıcı tanımlayıcıları yapılandırmadan okunamadı. Lütfen yapılandırmayı düzeltip tekrar deneyin.",
@@ -361,7 +382,8 @@
     "codexAuthCleanupFailed": "Başarılı bir şekilde geçiş yapıldı ancak auth.json kaldırılamadı; resmi oturum açma kimlik bilgileri hâlâ diskte; bunları kaldırmak için auth.json'u Codex yapılandırma dizininden silin",
     "windowControlFailed": "Pencere kontrolü başarısız oldu: {{error}}",
     "officialBlockedByProxy": "Yerel yönlendirme etkinken resmi sağlayıcıya geçilemez. Yönlendirmenin resmi API'lerle kullanılması hesabın yasaklanmasına neden olabilir.",
-    "proxyOfficialWarning": "Mevcut sağlayıcı {{name}} resmidir. Yerel yönlendirmeyi kullanmadan önce üçüncü taraf bir sağlayıcıya geçmeyi düşünün."
+    "proxyOfficialWarning": "Mevcut sağlayıcı {{name}} resmidir. Yerel yönlendirmeyi kullanmadan önce üçüncü taraf bir sağlayıcıya geçmeyi düşünün.",
+    "proxyLoopbackHijacked": "Requests from {{app}} to the local route {{origin}} will be picked up by the system proxy, so {{app}} will fail with 502 errors. Make loopback addresses connect directly in your proxy tool (for example, add IP-CIDR,127.0.0.0/8,DIRECT,no-resolve at the top of your Clash rules), then fully quit and reopen {{app}}."
   },
   "confirm": {
     "deleteProvider": "Sağlayıcıyı Sil",
@@ -1091,7 +1113,8 @@
     },
     "data": {
       "location": "Konum"
-    }
+    },
+    "browsePlaceholderDsh": "e.g., /home/<your-username>/.dsh"
   },
   "apps": {
     "claude": "Claude",
@@ -4353,7 +4376,6 @@
       "routing": "Yönlendirme",
       "currentDefault": "Mevcut varsayılan",
       "defaultAfterSwitch": "Geçişten sonra varsayılan",
-      "current": "Mevcut",
       "default": "Varsayılan"
     },
     "action": {
@@ -4370,7 +4392,8 @@
       "edit": "{{name}}'yi düzenleyin",
       "more": "{{name}} için diğer işlemler",
       "moveUp": "{{name}}'yi yukarı taşı",
-      "moveDown": "{{name}}'yi aşağı taşı"
+      "moveDown": "{{name}}'yi aşağı taşı",
+      "openTerminal": "Open a terminal with {{name}}"
     },
     "chip": {
       "official": "Resmi",
@@ -4390,7 +4413,6 @@
       "defaultWhileRouting": "Yönlendirme sırasında varsayılan, yönlendirdiğiniz sağlayıcıdır. Birleştirme'ya geçerken başka bir tane seçebilirsiniz.",
       "needsRoute": "Yönlendirme gerekiyor: {{reason}}; doğrudan bağlanamıyorum.",
       "defaultCannotRemove": "Varsayılan kaldırılamaz. Önce başka bir sağlayıcıyı varsayılan yapın.",
-      "currentCannotRemove": "Kullanılan sağlayıcı kaldırılamaz. Önce başka birini etkinleştirin.",
       "inUseCannotDelete": "Kullanılan sağlayıcı silinemez. Önce diğerine geçin.",
       "directDefaultCannotDelete": "Yönlendirmeden çıkıldığında bu sağlayıcıya dönülür; bu nedenle silinemez. Önce doğrudan bağlantı sayfasında başka bir sağlayıcı için \"Doğrudan bağlantıya dön ve kullan\" seçeneğini seçin.",
       "noFailover": "Resmi hesaplar yedek sağlayıcıya geçiş kuyruğuna katılamaz: İstemcinin kendi oturum açma bilgilerini kullanırlar ve diğer sağlayıcılarla dönüşümlü olarak çalışamazlar."
@@ -4532,7 +4554,8 @@
       "connected": "Bağlantı başarılı",
       "disconnected": "Bağlantı başarısız",
       "checking": "Bağlantı kontrol ediliyor",
-      "disabled": "Etkin değil"
+      "disabled": "Etkin değil",
+      "authRequired": "Server reachable but requires sign-in (e.g. OAuth). CC Switch checks without your client's own login: if you've signed in from the client, it works there; if you set a token in the headers, make sure it is still valid"
     },
     "noun": "MCP sunucuları",
     "listSeparator": ", ",
@@ -4690,7 +4713,11 @@
       "tags": "Etiketler",
       "tagsPlaceholder": "Virgülle ayırın, ör. docs, web",
       "homepage": "Ana sayfa",
-      "docs": "Dokümanlar"
+      "docs": "Dokümanlar",
+      "sseAsHttpTitle": "{{apps}} doesn't support SSE and will connect over HTTP",
+      "sseAsHttpBody": "{{apps}} only supports stdio and HTTP (Streamable HTTP), so this URL will be used as an HTTP server; it won't connect if the server only speaks SSE. If the server also offers Streamable HTTP, switch to HTTP.",
+      "sseRejectedTitle": "SSE isn't supported by {{apps}}",
+      "sseRejectedBody": "These apps only support stdio and HTTP (Streamable HTTP), so writing to them will fail on save. Switch to HTTP, or untick these apps."
     },
     "resync": "Bu anahtarlardan her uygulamanın yapılandırmasını yeniden yazın"
   },
@@ -4890,7 +4917,9 @@
       "copilotHelp": "Claude Code ve Claude Desktop'deki GitHub Copilot ön ayarları tarafından kullanılır. Seçilmiş bir hesaba sahip olmayan sağlayıcılar Varsayılan hesabı kullanır.",
       "chatgptHelp": "Claude Code ve Claude Desktop'deki ChatGPT ön ayarları ve Codex'nin resmi oturum açma bağlaması tarafından kullanılır. Seçilmiş bir hesaba sahip olmayan sağlayıcılar Varsayılan hesabı kullanır.",
       "xaiHelp": "Claude Code, Claude Desktop ve Codex'deki xAI ön ayarları tarafından kullanılır. Seçilmiş bir hesaba sahip olmayan sağlayıcılar Varsayılan hesabı kullanır.",
-      "agyHelp": "Antigravity CLI (agy) için resmî oturum açma yöntemi. agy aynı anda yalnızca tek bir hesapta oturum açabilir. Hesabı Değiştir seçeneği agy'nin oturumunu seçilen hesapla değiştirir ve bundan sonra başlatılan agy oturumları bu hesabı kullanır. agy'nin hâlihazırda oturum açtığı hesap buraya otomatik olarak eklenir; böylece başka hesaba geçerken önceki hesabı kaybetmezsiniz."
+      "agyHelp": "Antigravity CLI (agy) için resmî oturum açma yöntemi. agy aynı anda yalnızca tek bir hesapta oturum açabilir. Hesabı Değiştir seçeneği agy'nin oturumunu seçilen hesapla değiştirir ve bundan sonra başlatılan agy oturumları bu hesabı kullanır. agy'nin hâlihazırda oturum açtığı hesap buraya otomatik olarak eklenir; böylece başka hesaba geçerken önceki hesabı kaybetmezsiniz.",
+      "claudeHelpTerminal": "Official Claude Code subscription accounts (Pro / Max / Team). The Claude config folder is overridden in Settings (for example, to WSL), so switching cards doesn't change Claude Code's sign-in. Pick an account on an official card and use Open Terminal on the card.",
+      "claudeHelp": "Official Claude Code subscription accounts (Pro / Max / Team). Pick an account on a Claude official card: after switching to the card, every newly started claude uses it. To use several accounts at once, use Open Terminal on the card. Sign-in tokens stay on this computer and are never uploaded, refreshed or signed out. The first switch saves the account Claude Code is signed in to now; switching ends Remote Control and rebuilds the prompt cache."
     },
     "addAccount": "Hesap ekle",
     "accountMenu": "{{login}} için daha fazla eylem",
@@ -4942,6 +4971,20 @@
       "removeNote": "agy'nin oturumu açık kalır: agy bu hesabı kullanıyorsa kaldırdıktan sonra da çalışmaya devam eder.",
       "switched": "Hesap değiştirildi. Yeni agy oturumları bu hesabı kullanacak.",
       "switchedWhileRunning": "Hesap değiştirildi. agy çalışıyor: açık agy oturumları önceki hesabı kullanmaya devam eder ve hesabı yeniden kaydedebilir. agy'yi kapatıp yeniden açın."
+    },
+    "claude": {
+      "pasteSubmitted": "Submitted. Finishing sign-in…",
+      "pasteToggle": "Didn't come back here after authorizing?",
+      "pasteHint": "Paste the address from the browser's address bar after authorizing, or the code shown on the page.",
+      "pasteLabel": "Authorization code or address",
+      "pasteSubmit": "Submit",
+      "reauthNote": "Sign-in expired. Sign in again.",
+      "addedOn": "Added {{date}}",
+      "loginExpiresOn": "Sign-in expires around {{date}}; sign in again after that",
+      "loginMaybeExpired": "Sign-in may have expired. Sign in again before switching to it.",
+      "statusLoadFailed": "Couldn't read Claude accounts. Try again.",
+      "empty": "No Claude accounts yet. Sign in here to switch between multiple subscription accounts.",
+      "removeNote": "Only removes the sign-in AIHub Switch saved for this account; it isn't signed out anywhere else, and Claude Code's current sign-in (~/.claude) is untouched. Cards bound to it switch to Claude Code's current sign-in."
     }
   },
   "kimi": {
