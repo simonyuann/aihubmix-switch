@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::child_process::{decode_command_output, CommandDeadline};
+use crate::tool_runtime::VERSION_RE;
 
 /// 新版本要求的 Node 和升级会用到的 Node 对不上。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]

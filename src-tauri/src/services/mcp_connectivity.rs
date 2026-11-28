@@ -45,9 +45,9 @@ static BATCHES: Lazy<std::sync::Mutex<HashMap<String, AbortHandle>>> = Lazy::new
 const LOGIN_SHELL_PATH_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(not(target_os = "windows"))]
 static LOGIN_SHELL_PATH: Lazy<Option<String>> = Lazy::new(|| {
-    crate::commands::login_shell_path(crate::child_process::CommandDeadline::from_timeout(Some(
-        LOGIN_SHELL_PATH_TIMEOUT,
-    )))
+    crate::tool_runtime::login_shell_path(crate::child_process::CommandDeadline::from_timeout(
+        Some(LOGIN_SHELL_PATH_TIMEOUT),
+    ))
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

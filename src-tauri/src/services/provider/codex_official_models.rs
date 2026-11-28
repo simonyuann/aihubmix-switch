@@ -126,7 +126,7 @@ impl Env {
         Self {
             codex_version: Box::new(|| {
                 newest_codex_version(
-                    crate::commands::local_tool_version("codex"),
+                    crate::tool_runtime::local_tool_version("codex"),
                     recent_thread_versions(),
                 )
             }),

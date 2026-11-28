@@ -91,8 +91,3 @@ pub use s3_sync::*;
 pub use usage::*;
 pub use webdav_sync::*;
 pub use workspace::*;
-
-// 进程执行原语的权威定义在 crate::child_process;此处仅保留 misc 自有的
-// login_shell_path(shell 环境域,待 R2 迁移)供本 crate 内部使用。
-#[cfg(not(target_os = "windows"))]
-pub(crate) use misc::login_shell_path;

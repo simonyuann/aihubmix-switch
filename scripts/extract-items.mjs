@@ -16,10 +16,14 @@ const itemRe =
 
 function itemName(line) {
   const m = line.match(
-    /^(?:pub(?:\(crate\))? )?(?:async )?fn (\w+)|^(?:pub(?:\(crate\))? )?const (\w+)|^(?:pub(?:\(crate\))? )?static (\w+)|^(?:pub(?:\(crate\))? )?struct (\w+)/,
+    /^(?:pub(?:\(crate\))? )?(?:async )?fn (\w+)|^(?:pub(?:\(crate\))? )?const (\w+)|^(?:pub(?:\(crate\))? )?static (\w+)|^(?:pub(?:\(crate\))? )?(?:struct|enum) (\w+)/,
   );
   if (!m) return null;
   return m.slice(1).find(Boolean);
+}
+
+function isConstLike(line) {
+  return /^(?:pub(?:\(crate\))? )?(?:const|static) /.test(line);
 }
 
 // 收集所有顶层项(签名行索引 → {name, bodyStart, bodyEnd, prefixStart})
@@ -29,12 +33,21 @@ for (let i = 0; i < lines.length; i++) {
   if (!name) continue;
   // 只匹配顶层(前一非空行不以缩进续行特征)——签名行本身列 0
   if (lines[i].startsWith(" ") || lines[i].startsWith("\t")) continue;
-  // 向后找列 0 的 "}"
+  // 向后找边界:const/static 以第一个以 ";" 结尾的行为止;其余找列 0 的 "}"
   let end = -1;
-  for (let j = i + 1; j < lines.length; j++) {
-    if (lines[j] === "}") {
-      end = j;
-      break;
+  if (isConstLike(lines[i])) {
+    for (let j = i; j < lines.length; j++) {
+      if (lines[j].trimEnd().endsWith(";")) {
+        end = j;
+        break;
+      }
+    }
+  } else {
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j] === "}") {
+        end = j;
+        break;
+      }
     }
   }
   if (end < 0) throw new Error(`no closing brace for ${name} @${i + 1}`);
