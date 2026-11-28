@@ -514,3 +514,34 @@ shell 级)——T22 后续子批候选。
 
 **T22 状态**:aihubmix 子应用组件层硬编码中文基本清零(仅剩品牌匹配
 功能数据与后端消息匹配);剩余 Sidebar(shell 级)与其余目录散点。
+
+
+## Round 26 — 三项遗留补全(2026-11-28)
+
+**提交**:`637b026`(Sidebar 子批)+ `41d487a`(上游文档归档)+ 本日志。
+
+**① Sidebar 子批**:38 行 CJK 中 ~31 行为中文代码注释(开发者向,非
+i18n 范围)保留;真实硬编码仅 7 个导航 label → `nav.*`(复用 nav.settings,
+新增 home/announcements/help/generalSettings/aboutUpdates)。
+App.test 断言同步(设置/公告/帮助与答疑/通用设置/关于与更新 → keys)。
+
+**② IconPicker flaky 归因**:全量运行失败的 "Relay A" 断言,单文件三连跑
+全绿(10/10 ×3)→ 确认为全量并行负载下的 flaky(与 T17 既有归因一致),
+非回归。全量套件失败基线记为 ≤1 flaky/轮。
+
+**③ 三项 P-ADR 落盘(决策经仓库主人授权执行)**:
+- **ADR-005**(原 P-ADR-002):config 家族 = 共享引擎 + 每工具薄声明;
+  引擎能力域封闭枚举四项(家目录定位/路径模板/受管块读写/迁移检测),
+  工具特有语义留本地,负面清单防参数黑洞。T5 → in-progress。
+- **ADR-006**(原 P-ADR-004):上游 README_ZH/JA/DE + CHANGELOG 归档至
+  `docs/upstream-legacy/`(选项 a,41d487a),声明"非本项目现状";
+  无任何构建/CI 内部消费方(勘察确认)。
+- **ADR-007**(新增 P-ADR-005):环境变量前缀冻结——不更名(拒绝破坏性
+  变更),`CC_SWITCH_` 为唯一规范前缀(240 处存量),`AIHUB_`(19)/
+  `CCS_`(9)legacy 只读不得新增。T14 尾巴关闭。
+
+**验证**:typecheck 0;check:i18n 4775×5 一致;App.test 17/17;
+全量 vitest 见收尾门禁记录。
+
+**P-ADR 剩余**:P-ADR-001(治理文档合并策略)、P-ADR-003(misc.rs 目录
+形态,倾向已记录)——均不阻塞任何任务,留待合并前定夺。
