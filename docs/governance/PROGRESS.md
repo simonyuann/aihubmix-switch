@@ -203,3 +203,26 @@ misc.rs 6614→5074 行(**治理开始累计 10952→5074,-5878,过半**)。
 **T4 剩余评估**:misc 剩余 ~5074 行 ≈ app-misc 小命令(~150)+ get_tool_versions
 薄壳 + ToolInstallationReport 探测命令 + 测试(~4000)。生产代码已无 >500 行的
 同质块;剩余为命令薄壳与测试,按 Deletion Test 维持现状合理,继续拆分的边际价值低。
+
+
+## Round 11 — T19+T10 / T12 / T13(2026-11-28)
+
+**提交**:`c2f7978`(T19+T10)+ `53c8f7c`(T12)+ `cd7f009`(T13)。
+
+**T19+T10**:tr 补齐 39 个缺失 key(取 en 值,fallbackLng=en 运行时本就回退,
+显式化待母语校订);清理孤立 key(tr×2、zh-TW×1,grep 证实零引用);
+新增 scripts/check-i18n.mjs + `pnpm check:i18n`(T10 防回归:全部 locale
+与 en key 集合一致性断言)。结果:5 locale × 4384 keys 完全对齐。
+
+**T12**:json5/json-five 二选一——勘察发现二者角色不同(json5=语义解析、
+json-five=无损往返编辑),但 json-five 0.3.1 自带 serde 支持(de.rs from_str)
+可接管语义解析角色;5 文件 16 处切换后删除 json5 依赖。诚实声明:jsonc_document
+的输出验证测试此前靠独立实现交叉验证,统一后为同源自洽,行为级验证以 CI
+cargo test 为最终门禁。
+
+**T13**:bundle 步骤抽取为 `.github/actions/bundle-desktop` composite action,
+build.yml 与 rebuild-desktop/intel-release.yml 三个 workflow 统一消费(净 -134 行);
+顺带修复 LINUXDEPLOY_EXCLUDED_LIBRARIES 漂移;actionlint v1.7.12 静态校验通过。
+诚实声明:CI 行为级验证以下一次 tag/dispatch 触发为准(本地无法运行 CI)。
+
+**验证**:typecheck/tests/i18n/check:i18n/format:check 全绿(Rust 侧 check --all-targets 亦绿)。

@@ -77,12 +77,12 @@
 - 方向:补 `.prettierrc`(与仓库现状风格一致,避免全量 reformat 噪音)+ 扩 glob 或显式声明排除;`format:check` 进 CI。
 - 验证:format:check 通过且不产生大面积 diff。
 
-### T12 Rust 依赖归一(json5/json-five 二选一等) `open(验证受限)`
+### T12 Rust 依赖归一(json5/json-five 二选一等) `done(53c8f7c:统一到 json-five,删 json5;objc2 双版本为受控例外)`
 - 证据:双 JSON5 解析器并存(`json5 0.4` 与 `json-five 0.3.1`,openclaw_config.rs 两者都碰);`serde_yaml 0.9` 上游停维护;`objc2` 双大版本并存(macOS 26 兼容 hack,Cargo.toml 有注释,需保留并说明)。
 - 方向:json-five 迁移到 json5(或反向,取特性匹配者),删另一个;objc2 双版本加注释声明为受控例外。
 - 验证:cargo check + 相关模块测试。
 
-### T13 构建工作流去重(build.yml vs rebuild-*.yml) `open`
+### T13 构建工作流去重(build.yml vs rebuild-*.yml) `done(cd7f009:composite action,actionlint 校验;行为级验证待下次 CI 触发)`
 - 证据:两条发布路径的 bundle 步骤逐行复制粘贴(相同矩阵/脚本序列,rebuild 少 Linux);flatpak 手工路径未接任何 workflow。
 - 方向:抽取可复用 composite action(或 workflow 内 YAML anchor 等价物);flatpak 标记为手工旁路并在文档注明。
 - 验证:workflow 语法检查(actionlint 或 dry-run);下次 tag 实证。
