@@ -1,0 +1,44 @@
+# 架构治理(Governance)
+
+> 目标:对整个代码库进行系统性的架构降熵、规范化归一、模块解耦和复杂度治理,演进为高度规整、极易理解、极易维护、适合大量 Agent 并行开发的工程系统。
+> 分支:`Z_code_work`(隔离 worktree)。每批有效改进一个独立 commit。
+
+## 工程性质(验收轴)
+
+1. **Single Source of Truth** — 业务规则/数据定义/配置/状态/设计规范各拥有唯一权威来源。
+2. **Canonical Implementation** — 同一语义只保留一种标准实现;平行实现必须迁移后删除。
+3. **Deep Modules**(Ousterhout)— 复杂性封装在内部,以简单稳定接口暴露;消灭浅转发层。
+4. **High Cohesion, Low Coupling** — 明确职责/所有权/依赖方向;消灭循环依赖、隐式耦合、共享可变状态。
+5. **Locality of Change** — 改一个业务概念只改一个逻辑位置。
+6. **Deletion over Accumulation** — 引入新标准实现后必须迁移调用方并删除旧实现;禁止新旧长期并存。
+7. **Enforceable Architecture** — 已确立的规范转化为机器可执行约束(Lint/AST/契约测试/CI)。
+
+## 治理循环(每轮必须闭环)
+
+扫描 → 发现熵点 → 分析真实调用方 → 多方案对比 → 选总复杂度最低方案 → 建立行为基线/测试 → 完成迁移 → **删除旧实现** → 独立复审 → 执行验证 → 建立防回归约束 → 记录(PROGRESS/DECISIONS/TASKS)→ 下一轮。
+
+**禁止**:只建新抽象/新目录/新接口而不迁移调用方;过度抽象;无价值目录搬迁;为行数牺牲可读性;合并语义不同的概念。
+
+**Deletion Test**:如果删除某层抽象,复杂性会消失还是会扩散到调用方?只有真正封装复杂性的抽象才保留。
+
+## 验证矩阵(本机能力)
+
+| 验证手段 | 覆盖范围 | 状态 |
+| --- | --- | --- |
+| `pnpm typecheck`(tsc --noEmit) | 前端 TS 全量 | ✅ 基线绿 |
+| `pnpm test:unit`(vitest) | 前端组件/集成/node 测试 | 见 PROGRESS |
+| `cargo check` / `cargo test` | Rust 全量 | 本机无 MSVC 链接器,首跑待验证;失败则记录约束 |
+| `cargo fmt --check` / `cargo clippy` | Rust 语法/静态检查 | rustfmt ✅ 已装,clippy 随 toolchain |
+
+约束:无 MSVC Build Tools 时,涉及 proc-macro/链接的 cargo 任务可能失败;Rust 侧重构验证以实际可运行为准,不可验证的批次要降级为"结构只读分析 + 待验证标记"。
+
+## 文档体系
+
+- `PROGRESS.md` — 每轮治理日志(做了什么、验证结果、提交号)。
+- `TASKS.md` — 优化任务池(熵点清单、证据、优先级、状态、验证计划)。
+- `DECISIONS.md` — 架构决策记录(ADR,含"待确认"决策)。
+- `ARCHITECTURE-MAP.md` — 架构地图/依赖图/状态所有权(随治理更新)。
+
+## 待确认事项的处理
+
+凡涉及产品决策、重大架构变更、破坏性迁移 → 记入 `DECISIONS.md` 的"待确认"节,不阻塞其他独立任务。
