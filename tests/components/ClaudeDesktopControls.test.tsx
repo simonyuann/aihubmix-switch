@@ -38,14 +38,20 @@ describe("Claude Chinese launch", () => {
       .mockResolvedValueOnce("localized_started");
     render(<ClaudeDesktopControls />);
     fireEvent.click(
-      screen.getByRole("button", { name: "中文启动 Claude Desktop" }),
+      screen.getByRole("button", { name: "claudeDesktop.action.chineseStart" }),
     );
     await screen.findByRole("dialog");
-    expect(screen.getByText(/降低对客户端签名的校验/)).toBeInTheDocument();
+    expect(
+      screen.getByText("claudeDesktop.dialog.windowsNote"),
+    ).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke.mock.calls[0][1].consent).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "同意并中文启动" }));
-    await screen.findByText("中文补丁已就绪，已发送启动请求。");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "claudeDesktop.action.agreeAndStart",
+      }),
+    );
+    await screen.findByText("claudeDesktop.message.chineseReady");
     expect(invoke.mock.calls[1][1]).toEqual({
       executablePath: "",
       action: "chinese",
@@ -58,9 +64,13 @@ describe("Claude Chinese launch", () => {
     invoke.mockRejectedValue("consent_required");
     render(<ClaudeDesktopControls />);
     fireEvent.click(
-      screen.getByRole("button", { name: "中文启动 Claude Desktop" }),
+      screen.getByRole("button", { name: "claudeDesktop.action.chineseStart" }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "取消" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "claudeDesktop.action.cancel",
+      }),
+    );
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -74,13 +84,13 @@ describe("Claude Chinese launch", () => {
     );
     render(<ClaudeDesktopControls />);
     const button = screen.getByRole("button", {
-      name: "中文启动 Claude Desktop",
+      name: "claudeDesktop.action.chineseStart",
     });
     fireEvent.click(button);
     fireEvent.click(button);
     expect(invoke).toHaveBeenCalledTimes(1);
     resolve("localized_started");
-    await screen.findByText("中文补丁已就绪，已发送启动请求。");
+    await screen.findByText("claudeDesktop.message.chineseReady");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
   it("launches selected unpacked app without patch when preserve is selected", async () => {
@@ -91,9 +101,9 @@ describe("Claude Chinese launch", () => {
     invoke.mockResolvedValue("started");
     render(<ClaudeDesktopControls />);
     fireEvent.click(
-      screen.getByRole("button", { name: "启动 Claude Desktop" }),
+      screen.getByRole("button", { name: "claudeDesktop.action.start" }),
     );
-    await screen.findByText("已发送启动请求。");
+    await screen.findByText("claudeDesktop.message.launchRequested");
     expect(invoke).toHaveBeenCalledWith("launch_claude_desktop", {
       executablePath: "C:\\Apps\\Claude.exe",
       action: "launch",
@@ -105,14 +115,18 @@ describe("Claude Chinese launch", () => {
   it("restores only after confirmation and switches the next launch to preserve", async () => {
     invoke.mockResolvedValue("restored");
     render(<ClaudeDesktopControls showRestore />);
-    fireEvent.click(screen.getByRole("button", { name: "恢复原版" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "claudeDesktop.action.restore" }),
+    );
     expect(invoke).not.toHaveBeenCalled();
     fireEvent.click(
-      screen.getAllByRole("button", { name: "恢复原版" }).at(-1)!,
+      screen
+        .getAllByRole("button", { name: "claudeDesktop.action.restore" })
+        .at(-1)!,
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "启动 Claude Desktop" }),
+        screen.getByRole("button", { name: "claudeDesktop.action.start" }),
       ).toBeInTheDocument(),
     );
     expect(invoke.mock.calls[0][1]).toMatchObject({
@@ -124,7 +138,7 @@ describe("Claude Chinese launch", () => {
     invoke.mockRejectedValue("failed path /Users/private auth=sk-test-secret");
     render(<ClaudeDesktopControls />);
     fireEvent.click(
-      screen.getByRole("button", { name: "中文启动 Claude Desktop" }),
+      screen.getByRole("button", { name: "claudeDesktop.action.chineseStart" }),
     );
     await screen.findByText(
       "操作未完成，请检查 Claude Desktop 安装状态后重试。",
@@ -143,10 +157,12 @@ describe("Claude Chinese launch", () => {
     );
     render(<ClaudeDesktopControls />);
     fireEvent.click(
-      screen.getByRole("button", { name: "中文启动 Claude Desktop" }),
+      screen.getByRole("button", { name: "claudeDesktop.action.chineseStart" }),
     );
     fireEvent.click(
-      await screen.findByRole("button", { name: "同意并中文启动" }),
+      await screen.findByRole("button", {
+        name: "claudeDesktop.action.agreeAndStart",
+      }),
     );
     const channel = invoke.mock.calls[1][1].onProgress;
     expect(screen.getByRole("dialog")).toHaveClass("overflow-y-auto");
@@ -154,17 +170,21 @@ describe("Claude Chinese launch", () => {
       channel.onmessage({ phase: "authorizing", interruptible: false }),
     );
     expect(screen.getByRole("progressbar")).toHaveAccessibleName(
-      "等待系统授权",
+      "claudeDesktop.phase.authorizing",
     );
-    expect(screen.getByText(/请在系统弹窗中允许/)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "取消操作" }),
+      screen.getByText("claudeDesktop.progress.authorizeHint"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "claudeDesktop.action.cancelOperation",
+      }),
     ).toBeInTheDocument();
     for (const [phase, label] of [
-      ["checking_backup", "检查旧补丁与备份"],
-      ["cleaning", "清理旧补丁组件"],
-      ["closing", "关闭 Claude 与后台服务"],
-      ["permissions", "准备应用目录写入权限"],
+      ["checking_backup", "claudeDesktop.phase.checking_backup"],
+      ["cleaning", "claudeDesktop.phase.cleaning"],
+      ["closing", "claudeDesktop.phase.closing"],
+      ["permissions", "claudeDesktop.phase.permissions"],
     ]) {
       act(() => channel.onmessage({ phase, interruptible: true }));
       expect(screen.getByRole("progressbar")).toHaveAccessibleName(label);
@@ -178,7 +198,7 @@ describe("Claude Chinese launch", () => {
       }),
     );
     expect(screen.getByRole("progressbar")).toHaveAccessibleName(
-      "恢复原版文件",
+      "claudeDesktop.phase.restoring",
     );
     expect(screen.getByRole("progressbar")).toHaveAttribute(
       "aria-valuenow",
@@ -193,18 +213,20 @@ describe("Claude Chinese launch", () => {
       }),
     );
     expect(screen.getByRole("progressbar")).toHaveAccessibleName(
-      "汉化界面文字",
+      "claudeDesktop.phase.translating",
     );
     expect(screen.getByRole("progressbar")).toHaveAttribute(
       "aria-valuenow",
       "20",
     );
-    expect(screen.getByText(/已处理 20 \/ 100 项/)).toBeInTheDocument();
+    expect(
+      screen.getByText("claudeDesktop.progress.countedLine"),
+    ).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     act(() => channel.onmessage({ phase: "verifying", interruptible: true }));
     expect(screen.getByRole("progressbar")).toHaveAccessibleName(
-      "校验应用文件",
+      "claudeDesktop.phase.verifying",
     );
     await act(async () => {
       finish("localized_started");
@@ -223,27 +245,33 @@ describe("Claude Chinese launch", () => {
     );
     render(<ClaudeDesktopControls />);
     fireEvent.click(
-      screen.getByRole("button", { name: "中文启动 Claude Desktop" }),
+      screen.getByRole("button", { name: "claudeDesktop.action.chineseStart" }),
     );
     const args = invoke.mock.calls[0][1];
     act(() =>
       args.onProgress.onmessage({ phase: "replacing", interruptible: false }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "取消操作" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "claudeDesktop.action.cancelOperation",
+      }),
+    );
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("cancel_claude_desktop_launch", {
         operationId: args.operationId,
       }),
     );
     expect(
-      screen.getByRole("button", { name: "正在安全停止…" }),
+      screen.getByRole("button", { name: "claudeDesktop.action.stopping" }),
     ).toBeDisabled();
-    expect(screen.getByText(/当前写入完成后结束/)).toBeInTheDocument();
+    expect(
+      screen.getByText("claudeDesktop.progress.safeStop"),
+    ).toBeInTheDocument();
     await act(async () => {
       finish("stopped_after_install");
     });
     expect(
-      screen.getByText("补丁处理已完成，已按要求停止自动启动。"),
+      screen.getByText("claudeDesktop.message.stoppedAfterInstall"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
@@ -258,7 +286,7 @@ describe("Claude Chinese launch", () => {
     );
     render(<ClaudeDesktopControls />);
     fireEvent.click(
-      screen.getByRole("button", { name: "中文启动 Claude Desktop" }),
+      screen.getByRole("button", { name: "claudeDesktop.action.chineseStart" }),
     );
     act(() =>
       invoke.mock.calls[0][1].onProgress.onmessage({
@@ -269,12 +297,18 @@ describe("Claude Chinese launch", () => {
       }),
     );
     await act(async () => reject("patch_failed"));
-    expect(screen.getByText("未完成 · 重新签名应用")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "中文启动 Claude Desktop" }),
+      screen.getByText(
+        "claudeDesktop.status.failedPrefixclaudeDesktop.phase.signing",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "claudeDesktop.action.chineseStart" }),
     ).toBeEnabled();
     expect(
-      screen.queryByRole("button", { name: "取消操作" }),
+      screen.queryByRole("button", {
+        name: "claudeDesktop.action.cancelOperation",
+      }),
     ).not.toBeInTheDocument();
   });
 });

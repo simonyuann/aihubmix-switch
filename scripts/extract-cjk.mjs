@@ -1,6 +1,6 @@
 // 提取 ToolPage.tsx 中含中文的字符串字面量(去重)
 import fs from "node:fs";
-const src = fs.readFileSync("src/components/aihubmix/ToolPage.tsx", "utf8");
+const src = fs.readFileSync(process.argv[2] ?? "src/components/aihubmix/ToolPage.tsx", "utf8");
 const re2 = /(['"])((?:\\.|(?!\1).)*[\u4e00-\u9fff](?:\\.|(?!\1).)*)\1/g;
 const found = new Map();
 let m;
