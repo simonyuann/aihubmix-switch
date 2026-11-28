@@ -354,3 +354,24 @@ ClaudeDesktopControls 9/9 绿;受影响关联测试 67/67;format:check 绿。
 
 **T22 剩余批次**:RechargeDialog(48)/LoginPage(39)/CodexPluginMarketDialog(37)/
 AccountContext(9)/App.tsx(6)/其余 aihubmix 文件——同法分批。
+
+
+## Round 18 — T22 RechargeDialog 子批(2026-11-28)
+
+**提交**:`a155958`。
+
+**内容**:新增 `rechargeDialog.*` 命名空间 50 keys × 5 locale——status×7
+(订单状态表改 key 表)、action×13、label×13(钱包余额/快捷金额/范围与手续费/
+二维码 alt 等)、method×3(微信/支付宝/充值)、error×12、title/description/
+empty/fallback;插值模板 4 个(amountRange/rangeAndFee/yuan/remainingSeconds)
+参数化;orderDate 的回退标题改为参数传入(模块级函数无法用 hook)。
+
+**测试迁移**:account.test 19 处断言改 key 形式(10/10 绿);App.test recharge
+流程 2 处——**integration 测试环境确认同为空资源**(dialog 渲染 key 拼接串,
+与组件测试一致)。
+
+**保留项**:mock 数据中的支付方式名(支付宝)为数据非 i18n;
+Intl.DateTimeFormat("zh-CN") 日期区域为行为保持,标注待 locale 化(后续批次)。
+
+**验证**:typecheck 0 错误;check:i18n 5 locale 一致(4577 keys);oxlint 0 错误;
+format:check 绿;account.test 10/10;App.test 17/17。
