@@ -67,7 +67,7 @@
 
 ## P1.5 — 工具链勘察新增(2026-11-28 报告)
 
-### T17 flaky 测试归因与稳定化(Windows 本地) `open`
+### T17 flaky 归因与稳定化 `done(testTimeout 20000ms;修复后 288/3540 全绿首次实现)`
 - 证据:两次全量运行失败均集中于同样 5 个测试文件(`AppsPage.test.tsx` 124s、`PiProviderForm.test.tsx` 169s、`SwitchModePanel.test.tsx`、`ClaudeDesktopProviderForm.test.tsx`、`IconPicker.test.tsx`),失败测试数 13↔18 随负载漂移,单测 5-8s 超时。CI(Linux)状态待比对。
 - 方向:静默复跑归因(真超时?Windows 路径?mock 时序?);逐文件稳定化(fake timer/放宽超时/隔离重试);目标:vitest 在本机可作可靠回归信号。
 - 验证:连续 3 次全量运行零失败。
