@@ -119,3 +119,34 @@
 **插曲**:R4 迁移时 extract-items.mjs 对单行分号结尾的元组结构体按列 0 `}` 找边界导致过采(把后续 Tauri 命令一起搬走)——通过 /tmp 提取块比对发现并恢复;脚本仍需对分号结尾 struct 加边界规则(TODO:脚本补丁,下批处理)。
 
 **下一步**:T4(misc 剩余 ~8700 行:生命周期/更新/剪贴板按域拆分)、T14(env 读取归一)、T5(config 家族,待 P-ADR-002)。
+
+
+## Round 8 — T4 批次1:工具生命周期族 → services::tool_lifecycle(2026-11-28)
+
+**提交**:`0963ea6`。
+
+**内容**:新增 `services/tool_lifecycle.rs`(1747 行)——生命周期域的权威实现:
+- ToolLifecycleCoordinator(防并发)+ ToolLifecycleAction + normalize_requested_tools
+- 13 工具安装/更新命令族(UNIX 脚本常量、Windows PowerShell 构造、npm 参数、
+  CodexStandaloneInstall、mcode/grok/hermes 原生更新、包管理器锚定命令)
+- 安装枚举(ToolInstallation/enumerate_tool_installations/default_install)与更新解析
+  (resolve_update_command/UpdateCommand/prefers_official_update)
+- shell 命令行构造(build_tool_action_line±wsl、tool_action_shell_command±for_shell)
+- `commands/misc.rs` 8742→7013 行(自治理开始累计 10952→7013,-3939);
+  prepare_tool_uninstall / run_tool_lifecycle_action 保留薄壳(P-ADR-003)
+- commands::tool_uninstall / tool_node_requirement 经 misc 的 `pub(crate) use` glob
+  消费(沿用 `pub use misc::*` 既有模式)
+
+**验证**:cargo check --all-targets(GNU)0 错误;cargo fmt --check 绿。
+
+**方法教训**(本批 9 轮编译迭代):
+1. Node 脚本读 Git Bash /tmp 路径必须用 `cygpath -w` 换算(两次空跑)。
+2. 脚本对"单行分号元组结构体"曾按列 0 `}` 找边界导致过采(R4 发现后已修);
+   本批 attr 链前向收集又误吞相邻项——提取后必须以编译错误核对闭包,而非信任清单。
+3. 字段可见性脚本因"doc 注释在前、正则误锚 ^
+"连续三轮未生效——heredoc 内嵌 JS 的
+   正则转义要实测;改用 indexOf 切片 + 字符串 join 一次成功。
+4. 后台 cargo check 完成后立即读日志,不要叠加多个顺序 check(超时 2 次的根源)。
+
+**T4 剩余**:misc ~7000 行 = 剪贴板/应用更新/便携模式/迁移结果/配置读写命令等
+app-misc 域 + get_tool_versions 命令 + 测试;后续按域继续或保持现状。
