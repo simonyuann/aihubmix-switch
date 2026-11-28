@@ -271,3 +271,25 @@ flaky 文件本次全过,行为未破坏。
 **迁移过程教训**:机械注入 import 的"最后一个 import 行"启发式会把注入行插进
 多行 import 中间(SessionManagerPage/SessionReader/CcWorkspace 三处断链)——
 逐一修复;后续同类批量迁移应解析完整 import 块而非按行匹配。
+
+
+## Round 14 — T8:oxlint 防线落地(2026-11-28)
+
+**提交**:`87f006b`。
+
+**内容**:新增 oxlint 1.95.0 + `.oxlintrc.json`(correctness + import/node/
+promise/unicorn 插件);no-restricted-globals 禁止 localStorage 直访
+(localCache/userPreferences override 豁免)——T21 单一触点的防回归约束;
+既有 40 错误清零(22 自动修 + 11 手修 + 5 规则级关闭 + 2 转义修正);
+package.json 新增 `lint` script。
+
+**验证**:oxlint 0 错误;typecheck 0 错误;depcruise 0 违规;format:check 绿;
+check:i18n 绿;全量 vitest 4 failed/3536——唯一失败文件 PiProviderForm 属
+T17 已知 flaky 基线,行为未破坏。
+
+**T8 剩余**:CI 接入(build.yml checks job 加 pnpm lint + pnpm check:i18n)
+——待下批,与 T17 静默归因同轮。
+
+**方法教训**:管道后 `$?` 读到的是管道尾命令的退出码——本轮 typecheck 的
+"TSC=1"误读即此;另 bash→node→sed 的反斜杠转义层级耗时数轮,最终以
+charCode 构造字符串绕过。

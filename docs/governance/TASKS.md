@@ -50,7 +50,7 @@
 
 ## P2 — 防回归约束建设
 
-### T8 前端 Lint 与架构边界约束 `open`
+### T8 前端 lint 防线 `in-progress(87f006b:oxlint 落地+40 违规清零;剩余:CI 接入)`
 - 证据:仓库当前仅有 prettier(format/format:check),无 eslint/biome,无边界检查。
 - 方向:引入轻量 linter(倾向 oxlint/biome,速度优先)+ 自定义规则:禁止 lib/api 之外的 `invoke(`、禁止跨层 import(如 components→database 类)、强制命名约定。
 - 验证:linter 在 CI/本地 script 跑通,并对违规样例报错。
