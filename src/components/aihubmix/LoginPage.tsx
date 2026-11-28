@@ -14,6 +14,7 @@ import { WindowControls } from "@/components/shell/WindowControls";
 import { useSettingsQuery } from "@/lib/query";
 import logo from "@/assets/icons/aihubmix-a.png";
 import { friendlyError } from "./friendlyError";
+import { useTranslation } from "react-i18next";
 
 type Mode = "login" | "register" | "forgot";
 interface AuthSettings {
@@ -25,6 +26,7 @@ interface AuthSettings {
   agreements?: { title: string; content: string }[];
 }
 export function LoginPage() {
+  const { t } = useTranslation();
   const session = useAccount();
   const { data: windowSettings } = useSettingsQuery();
   const windowControls =
@@ -81,7 +83,7 @@ export function LoginPage() {
         await dispatch("forget-remembered-login");
         setSavedEmail("");
       } catch {
-        setError("未能清除保存的密码，请重试。");
+        setError(t("loginPage.error.clearSavedPassword"));
         return;
       } finally {
         setForgetting(false);
@@ -110,7 +112,7 @@ export function LoginPage() {
       })
       .catch((e) => {
         if (current)
-          setError(friendlyError(e, "连接平台失败，请检查网络后重试。"));
+          setError(friendlyError(e, t("loginPage.error.connectFailed")));
       })
       .finally(() => {
         if (current) setSettingsLoading(false);
@@ -146,12 +148,12 @@ export function LoginPage() {
     try {
       await dispatch("send-code", { email: email.trim() });
       if (active.current) {
-        setNotice("验证码已发送，请检查邮箱");
+        setNotice(t("loginPage.notice.codeSent"));
         setCooldown(60);
       }
     } catch (e) {
       if (active.current)
-        setError(friendlyError(e, "验证码发送失败，请稍后重试。"));
+        setError(friendlyError(e, t("loginPage.error.codeSendFailed")));
     } finally {
       gate.current = false;
       if (active.current) setSending(false);
@@ -171,7 +173,7 @@ export function LoginPage() {
     setError("");
     setNotice("");
     if (mode === "register" && password !== confirm) {
-      setError("两次输入的密码不一致");
+      setError(t("loginPage.error.passwordMismatch"));
       return;
     }
     gate.current = true;
@@ -179,10 +181,7 @@ export function LoginPage() {
     try {
       if (mode === "forgot") {
         await dispatch("forgot-password", { email: email.trim() });
-        if (active.current)
-          setNotice(
-            "若该邮箱已注册，你会收到密码重置邮件。请通过邮件中的链接设置新密码，再返回登录。",
-          );
+        if (active.current) setNotice(t("loginPage.notice.resetEmailSent"));
       } else {
         await session.authenticate(mode, {
           email: email.trim(),
@@ -199,8 +198,8 @@ export function LoginPage() {
       }
     } catch (e) {
       if (active.current) {
-        const message = friendlyError(e, "操作失败，请检查网络后重试。");
-        if (message === "请重新输入密码") setSavedEmail("");
+        const message = friendlyError(e, t("loginPage.error.operationFailed"));
+        if (message === t("loginPage.error.reenterPassword")) setSavedEmail("");
         setError(message);
       }
     } finally {
@@ -218,21 +217,22 @@ export function LoginPage() {
       setNotice(
         result?.logoutNotice ||
           result?.revocationWarning ||
-          "已退出本机旧账号，请重新登录。",
+          t("loginPage.notice.loggedOutLocal"),
       );
     } catch (e) {
-      setError(friendlyError(e, "退出账号失败，请重试。"));
+      setError(friendlyError(e, t("loginPage.error.logoutFailed")));
     } finally {
       gate.current = false;
       setBusy(false);
     }
   }
-  const title =
+  const title = t(
     mode === "login"
-      ? "登录你的账户"
+      ? "loginPage.title.login"
       : mode === "register"
-        ? "创建账户"
-        : "找回密码";
+        ? "loginPage.title.register"
+        : "loginPage.title.forgot",
+  );
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-app text-fg-1">
       <div className="flex h-12 shrink-0 items-center">
@@ -263,21 +263,21 @@ export function LoginPage() {
               disabled={busy || sending}
             >
               <ArrowLeft className="me-2 h-4 w-4" />
-              返回登录
+              {t("loginPage.action.backToLogin")}
             </Button>
           )}
           <h2 className="text-page font-semibold">{title}</h2>
           <p className="mb-7 mt-2 text-body text-fg-3">
             {mode === "login"
-              ? "登录后即可配置工具、申请 API 和充值。"
+              ? t("loginPage.subtitle.login")
               : mode === "register"
-                ? "使用邮箱注册，开启你的 API 服务。"
-                : "输入注册邮箱，我们会发送密码重置邮件。"}
+                ? t("loginPage.subtitle.register")
+                : t("loginPage.subtitle.forgot")}
           </p>
           {settings?.captchaRequired ? (
             <div className="space-y-4">
               <p className="text-body text-fg-2">
-                平台已开启当前客户端暂不支持的安全验证，请联系管理员。
+                {t("loginPage.error.captchaUnsupported")}
               </p>
             </div>
           ) : (
@@ -289,9 +289,9 @@ export function LoginPage() {
               }}
             >
               <label className="block space-y-2 text-body">
-                <span>邮箱</span>
+                <span>{t("loginPage.label.email")}</span>
                 <Input
-                  aria-label="邮箱"
+                  aria-label={t("loginPage.label.email")}
                   type="email"
                   autoComplete="username"
                   placeholder="you@example.com"
@@ -307,9 +307,9 @@ export function LoginPage() {
               </label>
               {mode !== "forgot" && (
                 <label className="block space-y-2 text-body">
-                  <span>密码</span>
+                  <span>{t("loginPage.label.password")}</span>
                   <Input
-                    aria-label="密码"
+                    aria-label={t("loginPage.label.password")}
                     type="password"
                     autoComplete={
                       mode === "register" ? "new-password" : "current-password"
@@ -321,7 +321,9 @@ export function LoginPage() {
                       setPassword(e.target.value);
                     }}
                     placeholder={
-                      savedPasswordAvailable ? "已记住密码" : undefined
+                      savedPasswordAvailable
+                        ? t("loginPage.placeholder.savedPassword")
+                        : undefined
                     }
                     required={!savedPasswordAvailable}
                     disabled={busy}
@@ -331,9 +333,9 @@ export function LoginPage() {
               {mode === "register" && (
                 <>
                   <label className="block space-y-2 text-body">
-                    <span>确认密码</span>
+                    <span>{t("loginPage.label.confirmPassword")}</span>
                     <Input
-                      aria-label="确认密码"
+                      aria-label={t("loginPage.label.confirmPassword")}
                       type="password"
                       autoComplete="new-password"
                       minLength={8}
@@ -345,10 +347,10 @@ export function LoginPage() {
                   </label>
                   {settings?.emailVerifyEnabled && (
                     <label className="block space-y-2 text-body">
-                      <span>邮箱验证码</span>
+                      <span>{t("loginPage.label.emailCode")}</span>
                       <div className="flex gap-2">
                         <Input
-                          aria-label="邮箱验证码"
+                          aria-label={t("loginPage.label.emailCode")}
                           autoComplete="one-time-code"
                           value={code}
                           onChange={(e) => setCode(e.target.value)}
@@ -364,18 +366,20 @@ export function LoginPage() {
                           }
                         >
                           {cooldown > 0
-                            ? `${cooldown} 秒`
+                            ? t("loginPage.register.codeCooldown", {
+                                seconds: cooldown,
+                              })
                             : sending
-                              ? "发送中…"
-                              : "发送验证码"}
+                              ? t("loginPage.register.sending")
+                              : t("loginPage.register.sendCode")}
                         </Button>
                       </div>
                     </label>
                   )}
                   {settings?.invitationCodeEnabled && (
                     <Input
-                      aria-label="邀请码"
-                      placeholder="邀请码"
+                      aria-label={t("loginPage.label.invitationCode")}
+                      placeholder={t("loginPage.label.invitationCode")}
                       required
                       value={invitation}
                       onChange={(e) => setInvitation(e.target.value)}
@@ -393,7 +397,7 @@ export function LoginPage() {
                       disabled={busy || forgetting}
                       onChange={(e) => void changeRemember(e.target.checked)}
                     />
-                    记住我
+                    {t("loginPage.label.rememberMe")}
                   </label>
                   <button
                     type="button"
@@ -401,7 +405,7 @@ export function LoginPage() {
                     className="text-caption text-fg-2 hover:text-action disabled:opacity-40"
                     onClick={() => changeMode("forgot")}
                   >
-                    忘记密码？
+                    {t("loginPage.action.forgotPassword")}
                   </button>
                 </div>
               )}
@@ -427,7 +431,7 @@ export function LoginPage() {
                       onChange={(e) => setAccepted(e.target.checked)}
                       required
                     />
-                    我已阅读并同意以上协议
+                    {t("loginPage.label.agreeToTerms")}
                   </label>
                 </section>
               )}
@@ -447,10 +451,10 @@ export function LoginPage() {
                   <Loader2 className="me-2 h-4 w-4 animate-spin" />
                 ) : null}
                 {mode === "forgot"
-                  ? "发送重置邮件"
+                  ? t("loginPage.action.sendResetEmail")
                   : mode === "register"
-                    ? "注册并登录"
-                    : "登录"}
+                    ? t("loginPage.action.registerAndLogin")
+                    : t("loginPage.action.login")}
                 {!busy && <ArrowRight className="ms-2 h-4 w-4" />}
               </Button>
             </form>
@@ -462,7 +466,7 @@ export function LoginPage() {
               disabled={settingsLoading || busy || sending}
               onClick={() => setSettingsAttempt((value) => value + 1)}
             >
-              重新连接平台
+              {t("loginPage.action.reconnectPlatform")}
             </Button>
           )}
           {(error || session.error) && (
@@ -478,7 +482,7 @@ export function LoginPage() {
               disabled={busy}
               onClick={() => void clearPreviousAccount()}
             >
-              退出本机旧账号
+              {t("loginPage.action.logoutOldAccount")}
             </Button>
           )}
           {notice && (
@@ -489,14 +493,14 @@ export function LoginPage() {
           )}
           {mode === "login" && (
             <p className="mt-7 text-center text-body text-fg-3">
-              还没有账户？{" "}
+              {t("loginPage.label.noAccountYet")}{" "}
               <button
                 type="button"
                 className="font-medium text-action disabled:opacity-40"
                 onClick={() => changeMode("register")}
                 disabled={busy || !settings?.registrationEnabled}
               >
-                立即注册
+                {t("loginPage.action.registerNow")}
               </button>
             </p>
           )}
