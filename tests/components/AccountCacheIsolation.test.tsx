@@ -109,7 +109,7 @@ describe("account cache isolation", () => {
     await screen.findByText("cards-1");
     fireEvent.click(screen.getByText("退出"));
     expect(screen.queryByText("cards-1")).not.toBeInTheDocument();
-    expect(screen.getByText("正在验证登录…")).toBeInTheDocument();
+    expect(screen.getByText("app.status.verifying")).toBeInTheDocument();
     const sessionCalls = mocks.dispatch.mock.calls.filter(
       ([command]) => command === "session",
     ).length;

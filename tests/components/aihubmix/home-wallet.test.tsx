@@ -28,10 +28,9 @@ describe("wallet balance", () => {
   it("keeps raw balance errors out of the header tooltip", () => {
     mocks.account.walletError = "private server details";
     render(<BalanceDisplay />);
-    expect(screen.getByRole("button", { name: "刷新余额" })).toHaveAttribute(
-      "title",
-      "余额刷新失败，点击重试",
-    );
+    expect(
+      screen.getByRole("button", { name: "balanceDisplay.action.refresh" }),
+    ).toHaveAttribute("title", "balanceDisplay.status.refreshFailedRetry");
     expect(document.body.innerHTML).not.toContain("private server details");
   });
 
@@ -47,15 +46,21 @@ describe("wallet balance", () => {
     render(<SidebarWalletCard collapsed={false} onRecharge={recharge} />);
 
     expect(screen.getByText("¥88.80")).toBeInTheDocument();
-    const refresh = screen.getByRole("button", { name: "刷新余额" });
+    const refresh = screen.getByRole("button", {
+      name: "balanceDisplay.action.refresh",
+    });
     fireEvent.click(refresh);
     expect(refresh).toBeDisabled();
-    expect(screen.getByText("刷新中")).toBeInTheDocument();
+    expect(
+      screen.getByText("balanceDisplay.status.refreshing"),
+    ).toBeInTheDocument();
     fireEvent.click(refresh);
     expect(mocks.account.refreshWallet).toHaveBeenCalledTimes(1);
     await act(async () => finish());
     expect(refresh).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "充值" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "balanceDisplay.action.recharge" }),
+    );
     expect(recharge).toHaveBeenCalledTimes(1);
   });
 
@@ -69,9 +74,11 @@ describe("wallet balance", () => {
     view.rerender(
       <SidebarWalletCard collapsed={false} onRecharge={() => {}} />,
     );
-    expect(screen.getByText("余额暂不可用")).toBeInTheDocument();
+    expect(
+      screen.getByText("accountContext.error.walletUnavailable"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(
-      "余额刷新失败，请重试",
+      "balanceDisplay.status.refreshFailed",
     );
     expect(
       screen.queryByText(/private server details/),
@@ -82,7 +89,7 @@ describe("wallet balance", () => {
     const recharge = vi.fn();
     render(<SidebarWalletCard collapsed onRecharge={recharge} />);
     const wallet = screen.getByRole("button", {
-      name: "账户余额 ¥88.80，充值",
+      name: /^balanceDisplay.label.balance/,
     });
     fireEvent.click(wallet);
     expect(recharge).toHaveBeenCalledOnce();
@@ -95,7 +102,7 @@ describe("wallet balance", () => {
       </HeaderBalanceContext.Provider>,
     );
     expect(
-      screen.queryByRole("button", { name: "刷新余额" }),
+      screen.queryByRole("button", { name: "balanceDisplay.action.refresh" }),
     ).not.toBeInTheDocument();
     view.rerender(
       <HeaderBalanceContext.Provider value>
@@ -103,7 +110,7 @@ describe("wallet balance", () => {
       </HeaderBalanceContext.Provider>,
     );
     expect(
-      screen.getByRole("button", { name: "刷新余额" }),
+      screen.getByRole("button", { name: "balanceDisplay.action.refresh" }),
     ).toBeInTheDocument();
   });
 
@@ -111,7 +118,7 @@ describe("wallet balance", () => {
     mocks.account.state.account.loggedIn = false;
     render(<SidebarWalletCard collapsed={false} onRecharge={() => {}} />);
     expect(
-      screen.queryByRole("region", { name: "账户余额" }),
+      screen.queryByRole("region", { name: "balanceDisplay.label.balance" }),
     ).not.toBeInTheDocument();
   });
 });

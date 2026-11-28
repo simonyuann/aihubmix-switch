@@ -1,7 +1,11 @@
 {
   "app": {
     "title": "AIHub Switch",
-    "description": "Claude Code, Codex ve Gemini CLI için Hepsi Bir Arada Asistan"
+    "description": "Claude Code, Codex ve Gemini CLI için Hepsi Bir Arada Asistan",
+    "status": {
+      "verifying": "正在验证登录…",
+      "offlineRestored": "当前离线，已恢复本机登录状态。联网后自动验证，余额等在线功能暂不可用。"
+    }
   },
   "common": {
     "unsavedLeaveTitle": "Kaydedilmemiş değişiklikler",
@@ -5451,6 +5455,35 @@
       "loginRequired": "官方入口需登录 ChatGPT",
       "mayRequire": "可能需要授权",
       "seeDescription": "授权要求以插件说明为准"
+    }
+  },
+  "accountContext": {
+    "error": {
+      "walletUnavailable": "余额暂不可用",
+      "pleaseLogin": "请先登录账号",
+      "sessionExpired": "登录已失效，请重新登录。",
+      "keychainLocked": "无法解锁系统凭据存储",
+      "keychainLockedDetail": "无法解锁系统凭据存储。请解锁钥匙串或凭据管理器后重启应用；已有数据未被覆盖。",
+      "connectionUnavailable": "连接暂时不可用，请检查网络后重试。",
+      "reloginRequired": "请重新登录"
+    },
+    "status": {
+      "offlineUsingSaved": "当前离线，正在使用本机保存的登录状态；联网后会自动验证。"
+    }
+  },
+  "balanceDisplay": {
+    "label": {
+      "balance": "账户余额",
+      "balanceShort": "余额"
+    },
+    "action": {
+      "refresh": "刷新余额",
+      "recharge": "充值"
+    },
+    "status": {
+      "refreshing": "刷新中",
+      "refreshFailed": "余额刷新失败，请重试",
+      "refreshFailedRetry": "余额刷新失败，点击重试"
     }
   }
 }

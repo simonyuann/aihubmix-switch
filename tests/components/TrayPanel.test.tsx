@@ -279,7 +279,9 @@ describe("TrayPanel window layout", () => {
     expect(await screen.findByText("USD 10.00")).toBeInTheDocument();
     vi.mocked(dispatch).mockRejectedValueOnce(new Error("balance unavailable"));
     await act(async () => emitTauriEvent(SHOW_EVENT, { ...windows, seq: 3 }));
-    expect(await screen.findByTitle("余额暂不可用")).toHaveTextContent("余额暂不可用");
+    expect(
+      await screen.findByTitle("accountContext.error.walletUnavailable"),
+    ).toHaveTextContent("accountContext.error.walletUnavailable");
     expect(screen.queryByText("USD 10.00")).not.toBeInTheDocument();
   });
 

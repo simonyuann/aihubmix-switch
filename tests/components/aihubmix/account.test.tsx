@@ -380,7 +380,9 @@ describe("AIHubMix account integration", () => {
   });
   it("makes balance refresh failures visible without exposing details", () => {
     render(<WalletBalanceDisplay wallet={null} error="connection error" />);
-    expect(screen.getByText("余额暂不可用")).toBeVisible();
+    expect(
+      screen.getByText("accountContext.error.walletUnavailable"),
+    ).toBeVisible();
     expect(screen.queryByText("connection error")).not.toBeInTheDocument();
   });
 });

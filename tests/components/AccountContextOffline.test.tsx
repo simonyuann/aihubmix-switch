@@ -63,7 +63,7 @@ describe("account session connectivity", () => {
         : Promise.resolve(null),
     );
     fireEvent.click(screen.getByText("刷新会话"));
-    await screen.findByText("连接暂时不可用，请检查网络后重试。");
+    await screen.findByText("accountContext.error.connectionUnavailable");
     expect(screen.getByTestId("account")).toHaveTextContent(
       "user@example.test",
     );
@@ -78,7 +78,7 @@ describe("account session connectivity", () => {
   it("does not trust unverified cold-start sessions when offline", async () => {
     mocks.dispatch.mockRejectedValue("connection timeout");
     mount();
-    await screen.findByText("连接暂时不可用，请检查网络后重试。");
+    await screen.findByText("accountContext.error.connectionUnavailable");
     expect(screen.getByTestId("account")).toHaveTextContent("logged-out");
   });
   it("restores a backend-validated local session and revalidates on reconnect", async () => {
@@ -89,7 +89,9 @@ describe("account session connectivity", () => {
     );
     mount();
     await screen.findByText("user@example.test");
-    expect(screen.getByRole("status")).toHaveTextContent("当前离线");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "accountContext.status.offlineUsingSaved",
+    );
     mocks.dispatch.mockImplementation((command) =>
       command === "session" ? Promise.resolve(verified) : Promise.resolve(null),
     );
@@ -110,7 +112,7 @@ describe("account session connectivity", () => {
           : Promise.resolve(null),
     );
     mount();
-    await screen.findByText("连接暂时不可用，请检查网络后重试。");
+    await screen.findByText("accountContext.error.connectionUnavailable");
     fireEvent.click(screen.getByText("登录"));
     await screen.findByText("user@example.test");
     expect(

@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
 import {
@@ -40,6 +41,7 @@ export function useOptionalAccount() {
   return useContext(Context);
 }
 export function AccountProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const client = useQueryClient();
   const [state, setState] = useState<AccountState | null>(null);
   const [checking, setChecking] = useState(true);
@@ -62,7 +64,9 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         return;
       walletRevision.current++;
       setWallet(payload.wallet);
-      setWalletError(payload.wallet ? "" : "余额暂不可用");
+      setWalletError(
+        payload.wallet ? "" : t("accountContext.error.walletUnavailable"),
+      );
     },
   );
   const refresh = useCallback(async () => {
@@ -71,7 +75,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     try {
       const next = await dispatch<AccountState>("session");
       if (rev !== revision.current) return;
-      if (!next.account.loggedIn) throw new Error("请先登录账号");
+      if (!next.account.loggedIn)
+        throw new Error(t("accountContext.error.pleaseLogin"));
       const identity = accountIdentity(next);
       if (
         activeAccount.current !== null &&
@@ -85,9 +90,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       activeAccount.current = identity;
       setState(next);
       setError(
-        next.sessionOffline
-          ? "当前离线，正在使用本机保存的登录状态；联网后会自动验证。"
-          : "",
+        next.sessionOffline ? t("accountContext.status.offlineUsingSaved") : "",
       );
     } catch (e) {
       if (rev !== revision.current) return;
@@ -102,15 +105,15 @@ export function AccountProvider({ children }: { children: ReactNode }) {
         client.clear();
         setError(
           /登录已失效|登录信息已变更|登录已过期/.test(message)
-            ? "登录已失效，请重新登录。"
+            ? t("accountContext.error.sessionExpired")
             : "",
         );
       } else {
         // Keep an existing session when verification cannot be completed.
         setError(
           message.includes("无法解锁系统凭据存储")
-            ? "无法解锁系统凭据存储。请解锁钥匙串或凭据管理器后重启应用；已有数据未被覆盖。"
-            : "连接暂时不可用，请检查网络后重试。",
+            ? t("accountContext.error.keychainLockedDetail")
+            : t("accountContext.error.connectionUnavailable"),
         );
       }
     } finally {
@@ -139,7 +142,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       setState(null);
       setWallet(null);
       setChecking(false);
-      setError("登录已失效，请重新登录。");
+      setError(t("accountContext.error.sessionExpired"));
       activeAccount.current = null;
       client.clear();
     };
@@ -175,7 +178,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     // leave the frontend stuck on the login page with an active backend.
     const next = await dispatch<AccountState>(command, payload);
     if (rev !== revision.current) return;
-    if (!next.account.loggedIn) throw new Error("请重新登录");
+    if (!next.account.loggedIn)
+      throw new Error(t("accountContext.error.reloginRequired"));
     walletRevision.current++;
     client.clear();
     setWallet(null);

@@ -122,17 +122,24 @@ function mount() {
   );
 }
 async function login() {
-  await screen.findByRole("heading", { name: "登录你的账户" });
-  fireEvent.change(screen.getByLabelText("邮箱"), {
+  await screen.findByRole("heading", { name: "loginPage.title.login" });
+  fireEvent.change(screen.getByLabelText("loginPage.label.email"), {
     target: { value: "a@example.test" },
   });
-  fireEvent.change(screen.getByLabelText("密码", { selector: "input" }), {
-    target: { value: "secret-pass" },
-  });
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "登录" })).toBeEnabled(),
+  fireEvent.change(
+    screen.getByLabelText("loginPage.label.password", { selector: "input" }),
+    {
+      target: { value: "secret-pass" },
+    },
   );
-  fireEvent.click(screen.getByRole("button", { name: "登录" }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "loginPage.action.login" }),
+    ).toBeEnabled(),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "loginPage.action.login" }),
+  );
   await screen.findByRole("navigation");
 }
 beforeEach(() => {
@@ -165,7 +172,7 @@ describe("dedicated client account boundary", () => {
 
   it("does not mount tools or fetch wallet/keys before verifying login, including StrictMode", async () => {
     mount();
-    await screen.findByRole("heading", { name: "登录你的账户" });
+    await screen.findByRole("heading", { name: "loginPage.title.login" });
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     expect(
       mocks.dispatch.mock.calls.some(([command]) =>
@@ -181,7 +188,7 @@ describe("dedicated client account boundary", () => {
     );
     mount();
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "连接暂时不可用，请检查网络后重试。",
+      "accountContext.error.connectionUnavailable",
     );
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
   });
@@ -190,7 +197,9 @@ describe("dedicated client account boundary", () => {
     await login();
     const balance = await screen.findByText("USD 12.34");
     const nav = screen.getByRole("navigation");
-    const wallet = within(nav).getByRole("region", { name: "账户余额" });
+    const wallet = within(nav).getByRole("region", {
+      name: "balanceDisplay.label.balance",
+    });
     const help = within(nav).getByRole("button", { name: "帮助与答疑" });
     expect(wallet).toContainElement(balance);
     for (const item of [
@@ -201,10 +210,14 @@ describe("dedicated client account boundary", () => {
         wallet.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
-    expect(screen.getAllByRole("button", { name: "刷新余额" })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: "balanceDisplay.action.refresh" }),
+    ).toHaveLength(1);
     expect(balance.closest("button, a, [role='button']")).toBeNull();
     expect(
-      within(wallet).getByRole("button", { name: "充值" }),
+      within(wallet).getByRole("button", {
+        name: "balanceDisplay.action.recharge",
+      }),
     ).toBeInTheDocument();
     for (const name of ["授权中心", "添加供应商"])
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
@@ -219,13 +232,23 @@ describe("dedicated client account boundary", () => {
 
     fireEvent.click(help);
     await screen.findByRole("heading", { name: "帮助与答疑" });
-    expect(within(wallet).getByRole("button", { name: "充值" })).toBeEnabled();
-    expect(screen.getAllByRole("button", { name: "刷新余额" })).toHaveLength(1);
+    expect(
+      within(wallet).getByRole("button", {
+        name: "balanceDisplay.action.recharge",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getAllByRole("button", { name: "balanceDisplay.action.refresh" }),
+    ).toHaveLength(1);
   });
   it("opens recharge from home and keeps API management accessible from account settings", async () => {
     loggedIn = true;
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "充值" }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "balanceDisplay.action.recharge",
+      }),
+    );
     expect(await screen.findByRole("dialog")).toHaveTextContent(
       "rechargeDialog.title",
     );
@@ -311,9 +334,11 @@ describe("dedicated client account boundary", () => {
     mount();
     await screen.findByRole("navigation");
     act(() => window.dispatchEvent(new Event("aihubmix:session-expired")));
-    await screen.findByRole("heading", { name: "登录你的账户" });
+    await screen.findByRole("heading", { name: "loginPage.title.login" });
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("登录已失效");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "accountContext.error.sessionExpired",
+    );
   });
   it("supports logout from settings instead of API management", async () => {
     loggedIn = true;
@@ -336,22 +361,30 @@ describe("dedicated client account boundary", () => {
       }),
     );
     fireEvent.click(await screen.findByRole("button", { name: "退出登录" }));
-    await screen.findByRole("heading", { name: "登录你的账户" });
+    await screen.findByRole("heading", { name: "loginPage.title.login" });
     expect(mocks.dispatch).toHaveBeenCalledWith("logout");
     expect(screen.queryByText(/请关闭并重新打开/)).not.toBeInTheDocument();
   });
   it("sends a reset email explicitly and remains outside the application", async () => {
     mount();
-    await screen.findByRole("heading", { name: "登录你的账户" });
+    await screen.findByRole("heading", { name: "loginPage.title.login" });
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "忘记密码？" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "loginPage.action.forgotPassword" }),
+      ).toBeEnabled(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "忘记密码？" }));
-    fireEvent.change(screen.getByLabelText("邮箱"), {
+    fireEvent.click(
+      screen.getByRole("button", { name: "loginPage.action.forgotPassword" }),
+    );
+    fireEvent.change(screen.getByLabelText("loginPage.label.email"), {
       target: { value: "a@example.test" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "发送重置邮件" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("密码重置邮件");
+    fireEvent.click(
+      screen.getByRole("button", { name: "loginPage.action.sendResetEmail" }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "loginPage.notice.resetEmailSent",
+    );
     expect(mocks.dispatch).toHaveBeenCalledWith("forgot-password", {
       email: "a@example.test",
     });
@@ -359,37 +392,52 @@ describe("dedicated client account boundary", () => {
   });
   it("registers with email verification and never submits mismatched passwords", async () => {
     mount();
-    await screen.findByRole("heading", { name: "登录你的账户" });
+    await screen.findByRole("heading", { name: "loginPage.title.login" });
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "立即注册" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "loginPage.action.registerNow" }),
+      ).toBeEnabled(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "立即注册" }));
-    fireEvent.change(screen.getByLabelText("邮箱"), {
+    fireEvent.click(
+      screen.getByRole("button", { name: "loginPage.action.registerNow" }),
+    );
+    fireEvent.change(screen.getByLabelText("loginPage.label.email"), {
       target: { value: "a@example.test" },
     });
-    fireEvent.change(screen.getByLabelText("密码", { selector: "input" }), {
-      target: { value: "secret-pass" },
-    });
-    fireEvent.change(screen.getByLabelText("确认密码"), {
+    fireEvent.change(
+      screen.getByLabelText("loginPage.label.password", { selector: "input" }),
+      {
+        target: { value: "secret-pass" },
+      },
+    );
+    fireEvent.change(screen.getByLabelText("loginPage.label.confirmPassword"), {
       target: { value: "different" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "发送验证码" }));
-    await screen.findByText("验证码已发送，请检查邮箱");
+    fireEvent.click(
+      screen.getByRole("button", { name: "loginPage.register.sendCode" }),
+    );
+    await screen.findByText("loginPage.notice.codeSent");
     expect(mocks.dispatch).toHaveBeenCalledWith("send-code", {
       email: "a@example.test",
     });
-    fireEvent.change(screen.getByLabelText("邮箱验证码"), {
+    fireEvent.change(screen.getByLabelText("loginPage.label.emailCode"), {
       target: { value: "123456" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "注册并登录" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("两次输入");
+    fireEvent.click(
+      screen.getByRole("button", { name: "loginPage.action.registerAndLogin" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "loginPage.error.passwordMismatch",
+    );
     expect(
       mocks.dispatch.mock.calls.some(([command]) => command === "register"),
     ).toBe(false);
-    fireEvent.change(screen.getByLabelText("确认密码"), {
+    fireEvent.change(screen.getByLabelText("loginPage.label.confirmPassword"), {
       target: { value: "secret-pass" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "注册并登录" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "loginPage.action.registerAndLogin" }),
+    );
     await screen.findByRole("navigation");
     expect(mocks.dispatch).toHaveBeenCalledWith("register", {
       email: "a@example.test",
@@ -416,21 +464,27 @@ describe("dedicated client account boundary", () => {
       return response(command);
     });
     mount();
-    await screen.findByRole("heading", { name: "登录你的账户" });
-    expect(screen.getByLabelText("记住我")).not.toBeChecked();
-    fireEvent.change(screen.getByLabelText("邮箱"), {
+    await screen.findByRole("heading", { name: "loginPage.title.login" });
+    expect(
+      screen.getByLabelText("loginPage.label.rememberMe"),
+    ).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText("loginPage.label.email"), {
       target: { value: "a@example.test" },
     });
-    fireEvent.change(screen.getByLabelText("密码"), {
+    fireEvent.change(screen.getByLabelText("loginPage.label.password"), {
       target: { value: "test-password" },
     });
-    const submit = screen.getByRole("button", { name: "登录" });
+    const submit = screen.getByRole("button", {
+      name: "loginPage.action.login",
+    });
     await waitFor(() => expect(submit).toBeEnabled());
     fireEvent.click(submit);
     expect(await screen.findByRole("alert")).toHaveTextContent("连接服务超时");
     for (const label of ["服务条款", "网络诊断", "手动下载安装包"])
       expect(screen.queryByText(label)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "立即注册" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "loginPage.action.registerNow" }),
+    );
     expect(await screen.findByText("服务条款")).toBeInTheDocument();
   });
   it("uses the saved password only for its email and only after clicking login", async () => {
@@ -441,9 +495,9 @@ describe("dedicated client account boundary", () => {
     );
     mount();
     const email = await screen.findByDisplayValue("a@example.test");
-    const pwd = screen.getByLabelText("密码");
+    const pwd = screen.getByLabelText("loginPage.label.password");
     expect(pwd).toHaveValue("");
-    expect(screen.getByLabelText("记住我")).toBeChecked();
+    expect(screen.getByLabelText("loginPage.label.rememberMe")).toBeChecked();
     fireEvent.change(email, { target: { value: "b@example.test" } });
     expect(pwd).toBeRequired();
     fireEvent.change(email, { target: { value: "a@example.test" } });
@@ -451,7 +505,9 @@ describe("dedicated client account boundary", () => {
     expect(mocks.dispatch.mock.calls.some(([cmd]) => cmd === "login")).toBe(
       false,
     );
-    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "loginPage.action.login" }),
+    );
     await screen.findByRole("navigation");
     expect(mocks.dispatch).toHaveBeenCalledWith(
       "login",
@@ -470,12 +526,14 @@ describe("dedicated client account boundary", () => {
     );
     mount();
     await screen.findByDisplayValue("a@example.test");
-    fireEvent.click(screen.getByLabelText("记住我"));
+    fireEvent.click(screen.getByLabelText("loginPage.label.rememberMe"));
     await waitFor(() =>
-      expect(screen.getByLabelText("记住我")).not.toBeChecked(),
+      expect(
+        screen.getByLabelText("loginPage.label.rememberMe"),
+      ).not.toBeChecked(),
     );
     expect(mocks.dispatch).toHaveBeenCalledWith("forget-remembered-login");
-    expect(screen.getByLabelText("密码")).toBeRequired();
+    expect(screen.getByLabelText("loginPage.label.password")).toBeRequired();
   });
   it("can reconnect after public account settings fail to load", async () => {
     let attempts = 0;
@@ -485,12 +543,18 @@ describe("dedicated client account boundary", () => {
       return response(command);
     });
     mount();
-    const retry = await screen.findByRole("button", { name: "重新连接平台" });
-    expect(screen.getByRole("button", { name: "登录" })).toBeDisabled();
+    const retry = await screen.findByRole("button", {
+      name: "loginPage.action.reconnectPlatform",
+    });
+    expect(
+      screen.getByRole("button", { name: "loginPage.action.login" }),
+    ).toBeDisabled();
     expect(attempts).toBe(1);
     fireEvent.click(retry);
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "登录" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "loginPage.action.login" }),
+      ).toBeEnabled(),
     );
   });
 
@@ -504,23 +568,30 @@ describe("dedicated client account boundary", () => {
         : response(command),
     );
     mount();
-    await screen.findByRole("heading", { name: "登录你的账户" });
-    fireEvent.change(screen.getByLabelText("邮箱"), {
+    await screen.findByRole("heading", { name: "loginPage.title.login" });
+    fireEvent.change(screen.getByLabelText("loginPage.label.email"), {
       target: { value: "a@example.test" },
     });
-    fireEvent.change(screen.getByLabelText("密码", { selector: "input" }), {
-      target: { value: "secret-pass" },
-    });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "登录" })).toBeEnabled(),
+    fireEvent.change(
+      screen.getByLabelText("loginPage.label.password", { selector: "input" }),
+      {
+        target: { value: "secret-pass" },
+      },
     );
-    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "loginPage.action.login" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "loginPage.action.login" }),
+    );
     act(() => window.dispatchEvent(new Event("aihubmix:session-expired")));
     loggedIn = true;
     await act(async () => finishLogin(account));
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "登录你的账户" }),
+      screen.getByRole("heading", { name: "loginPage.title.login" }),
     ).toBeInTheDocument();
   });
   it("lets the user clear a hidden old account when signing in as another user", async () => {
@@ -530,21 +601,30 @@ describe("dedicated client account boundary", () => {
         : response(command),
     );
     mount();
-    await screen.findByRole("heading", { name: "登录你的账户" });
-    fireEvent.change(screen.getByLabelText("邮箱"), {
+    await screen.findByRole("heading", { name: "loginPage.title.login" });
+    fireEvent.change(screen.getByLabelText("loginPage.label.email"), {
       target: { value: "other@example.test" },
     });
-    fireEvent.change(screen.getByLabelText("密码", { selector: "input" }), {
-      target: { value: "fixture-password" },
-    });
+    fireEvent.change(
+      screen.getByLabelText("loginPage.label.password", { selector: "input" }),
+      {
+        target: { value: "fixture-password" },
+      },
+    );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "登录" })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "loginPage.action.login" }),
+      ).toBeEnabled(),
     );
-    fireEvent.click(screen.getByRole("button", { name: "登录" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: "退出本机旧账号" }),
+      screen.getByRole("button", { name: "loginPage.action.login" }),
     );
-    await screen.findByText("已退出本机旧账号，请重新登录。");
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "loginPage.action.logoutOldAccount",
+      }),
+    );
+    await screen.findByText("loginPage.notice.loggedOutLocal");
     expect(mocks.dispatch).toHaveBeenCalledWith("logout");
   });
 });

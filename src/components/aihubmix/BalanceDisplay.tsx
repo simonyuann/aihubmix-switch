@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronRight, RefreshCw, Wallet } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useOptionalAccount } from "@/contexts/AccountContext";
 import { Button } from "@/components/ui/button";
 import { HoverTip } from "@/components/ui/hover-tip";
@@ -27,17 +28,18 @@ export function SidebarWalletCard({
   collapsed: boolean;
   onRecharge?: () => void;
 }) {
+  const { t } = useTranslation();
   const account = useOptionalAccount();
   const [refreshing, setRefreshing] = useState(false);
   if (!account?.state?.account.loggedIn) return null;
 
   const amount = account.walletError
-    ? "余额暂不可用"
+    ? t("accountContext.error.walletUnavailable")
     : formatBalance(account.wallet, true);
   if (collapsed) {
     return (
       <HoverTip
-        content={`${amount} · 充值`}
+        content={`${amount} · ${t("balanceDisplay.action.recharge")}`}
         side="right"
         disableHoverableContent
       >
@@ -45,7 +47,7 @@ export function SidebarWalletCard({
           size="icon"
           variant="quiet"
           className="mx-auto mb-1 h-8 w-12 shrink-0 text-fg-2"
-          aria-label={`账户余额 ${amount}，充值`}
+          aria-label={`${t("balanceDisplay.label.balance")} ${amount}，${t("balanceDisplay.action.recharge")}`}
           onClick={onRecharge}
           disabled={!onRecharge}
         >
@@ -57,17 +59,17 @@ export function SidebarWalletCard({
 
   return (
     <section
-      aria-label="账户余额"
+      aria-label={t("balanceDisplay.label.balance")}
       className="mx-2 mb-2 grid shrink-0 rounded-control bg-subtle px-2 py-1.5"
     >
       <div className="flex items-center text-caption text-fg-2">
-        <span>账户余额</span>
+        <span>{t("balanceDisplay.label.balance")}</span>
         <Button
           type="button"
           variant="quiet"
           size="icon"
-          aria-label="刷新余额"
-          title="刷新余额"
+          aria-label={t("balanceDisplay.action.refresh")}
+          title={t("balanceDisplay.action.refresh")}
           disabled={refreshing}
           className="h-6 w-6 text-fg-3 hover:bg-selected hover:text-fg-1"
           onClick={async () => {
@@ -83,7 +85,11 @@ export function SidebarWalletCard({
             aria-hidden="true"
             className={`h-3 w-3 ${refreshing ? "animate-spin motion-reduce:animate-none" : ""}`}
           />
-          <span className="sr-only">{refreshing ? "刷新中" : "刷新"}</span>
+          <span className="sr-only">
+            {refreshing
+              ? t("balanceDisplay.status.refreshing")
+              : t("balanceDisplay.action.refresh")}
+          </span>
         </Button>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-1">
@@ -101,13 +107,13 @@ export function SidebarWalletCard({
           onClick={onRecharge}
           disabled={!onRecharge}
         >
-          充值
+          {t("balanceDisplay.action.recharge")}
           <ChevronRight className="h-3 w-3 rtl:rotate-180" aria-hidden="true" />
         </Button>
       </div>
       {account.walletError && (
         <span role="status" className="sr-only">
-          余额刷新失败，请重试
+          {t("balanceDisplay.status.refreshFailed")}
         </span>
       )}
     </section>
@@ -115,6 +121,7 @@ export function SidebarWalletCard({
 }
 
 export function BalanceDisplay() {
+  const { t } = useTranslation();
   const account = useOptionalAccount();
   const [refreshing, setRefreshing] = useState(false);
   if (!account?.state?.account.loggedIn) return null;
@@ -129,8 +136,12 @@ export function BalanceDisplay() {
       />
       <button
         type="button"
-        aria-label="刷新余额"
-        title={account.walletError ? "余额刷新失败，点击重试" : "刷新余额"}
+        aria-label={t("balanceDisplay.action.refresh")}
+        title={
+          account.walletError
+            ? t("balanceDisplay.status.refreshFailedRetry")
+            : t("balanceDisplay.action.refresh")
+        }
         disabled={refreshing}
         className="-ms-1 me-2 rounded p-1 text-fg-3 hover:bg-subtle hover:text-fg-1 disabled:opacity-50"
         onClick={async () => {
@@ -149,7 +160,7 @@ export function BalanceDisplay() {
       </button>
       {account.walletError && (
         <span role="status" className="sr-only">
-          余额刷新失败，请重试
+          {t("balanceDisplay.status.refreshFailed")}
         </span>
       )}
     </div>
@@ -165,6 +176,7 @@ export function WalletBalanceDisplay({
   error?: string;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className={
@@ -172,10 +184,14 @@ export function WalletBalanceDisplay({
           ? "flex min-w-0 items-center justify-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground"
           : "me-2 flex shrink-0 items-center gap-2 whitespace-nowrap text-body text-fg-3"
       }
-      title={error ? "余额暂不可用" : undefined}
+      title={error ? t("accountContext.error.walletUnavailable") : undefined}
     >
       {!compact && <Wallet aria-hidden="true" className="h-4 w-4" />}
-      <span>{error ? "余额暂不可用" : "余额"}</span>
+      <span>
+        {error
+          ? t("accountContext.error.walletUnavailable")
+          : t("balanceDisplay.label.balanceShort")}
+      </span>
       {!error && (
         <span className="tabular-nums text-fg-1">{formatBalance(wallet)}</span>
       )}

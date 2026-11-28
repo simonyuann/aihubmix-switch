@@ -10,17 +10,19 @@ import { useTranslation } from "react-i18next";
 import { toast } from "@/lib/toast";
 
 function LoadingScreen() {
+  const { t } = useTranslation();
   return (
     <div
       role="status"
       className="flex h-screen items-center justify-center gap-3 bg-app text-body text-fg-3"
     >
       <Loader2 className="h-5 w-5 animate-spin" />
-      正在验证登录…
+      {t("app.status.verifying")}
     </div>
   );
 }
 export function AccountBoundary({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const { state, checking } = useAccount();
   if (checking) return <LoadingScreen />;
   return state?.account.loggedIn ? (
@@ -33,7 +35,7 @@ export function AccountBoundary({ children }: { children: React.ReactNode }) {
           role="status"
           className="fixed bottom-4 right-4 z-[100] max-w-sm rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 shadow-md dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
         >
-          当前离线，已恢复本机登录状态。联网后自动验证，余额等在线功能暂不可用。
+          {t("app.status.offlineRestored")}
         </div>
       )}
     </Fragment>
