@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/lib/toast";
-import { invoke } from "@tauri-apps/api/core";
+import { initApi } from "@/lib/api/init";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ExternalLink,
@@ -783,7 +783,7 @@ function CcWorkspace() {
   useEffect(() => {
     const checkMigration = async () => {
       try {
-        const migrated = await invoke<boolean>("get_migration_result");
+        const migrated = await initApi.getMigrationResult();
         if (migrated) {
           toast.success(
             t("migration.success", { defaultValue: "配置迁移成功" }),
@@ -801,9 +801,7 @@ function CcWorkspace() {
   useEffect(() => {
     const checkSkillsMigration = async () => {
       try {
-        const result = await invoke<{ count: number; error?: string } | null>(
-          "get_skills_migration_result",
-        );
+        const result = await initApi.getSkillsMigrationResult();
         if (result?.error) {
           toast.error(t("migration.skillsFailed"), {
             description: t("migration.skillsFailedDescription"),

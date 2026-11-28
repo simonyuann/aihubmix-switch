@@ -1,6 +1,6 @@
 import { markdownLanguage } from "@codemirror/lang-markdown";
-import { invoke } from "@tauri-apps/api/core";
 import { ArrowUpRight } from "lucide-react";
+import { settingsApi } from "@/lib/api/settings";
 import {
   createContext,
   Fragment,
@@ -582,7 +582,7 @@ export const hasHighlightableMarkdownMatch = (
 
 /** 默认的外链打开：后端 `open_external` 只放行 http/https/mailto */
 export const openSessionLink = async (url: string) => {
-  await invoke("open_external", { url });
+  await settingsApi.openExternal(url);
 };
 
 interface MarkdownActions {

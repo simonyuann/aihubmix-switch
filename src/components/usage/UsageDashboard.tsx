@@ -78,7 +78,11 @@ import {
   useRememberedChoice,
   writeRememberedChoice,
 } from "./rememberedChoice";
-import { fmtInt, formatRelativeTime, getLocaleFromLanguage } from "@/utils/format";
+import {
+  fmtInt,
+  formatRelativeTime,
+  getLocaleFromLanguage,
+} from "@/utils/format";
 import { getUsageProviderLabel, usageProviderTitle } from "./providerLabel";
 import { useElementWidth } from "./usageTable";
 

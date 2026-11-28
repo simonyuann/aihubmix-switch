@@ -1,9 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
 import { FileText, FolderOpen } from "lucide-react";
 import { memo, useCallback, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { HoverTip } from "@/components/ui/hover-tip";
+import { sessionsApi } from "@/lib/api/sessions";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -53,7 +53,7 @@ export const shortenPath = (path: string, projectDir?: string) => {
 
 /** 默认的「在 Finder 中显示」：调用后端 `reveal_session_path` 命令 */
 export const revealSessionPath = async (path: string) => {
-  await invoke("reveal_session_path", { path });
+  await sessionsApi.revealPath(path);
 };
 
 export interface PathChipProps {

@@ -4,7 +4,7 @@ fn main() {
     }
     tauri_build::build();
 
-    // Windows: Embed Common Controls v6 manifest for test binaries
+    // Windows (MSVC): Embed Common Controls v6 manifest for test binaries
     //
     // When running `cargo test`, the generated test executables don't include
     // the standard Tauri application manifest. Without Common Controls v6,
@@ -14,8 +14,11 @@ fn main() {
     // 1. Embeds the manifest into test binaries via /MANIFEST:EMBED
     // 2. Uses /MANIFEST:NO for the main binary to avoid duplicate resources
     //    (Tauri already handles manifest embedding for the app binary)
-    #[cfg(target_os = "windows")]
-    {
+    //
+    // The `/MANIFEST*` flags are MSVC link.exe specific. On the GNU toolchain
+    // (x86_64-pc-windows-gnu, used by local development environments without
+    // MSVC Build Tools) they are rejected by ld, so skip embedding there.
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
         let manifest_path = std::path::PathBuf::from(
             std::env::var("CARGO_MANIFEST_DIR").expect("missing CARGO_MANIFEST_DIR"),
         )

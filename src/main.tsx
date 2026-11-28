@@ -14,10 +14,10 @@ import { queryClient } from "@/lib/query";
 import { settingsApi } from "@/lib/api";
 import { Toaster } from "@/components/ui/sonner";
 import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
 import { message } from "@tauri-apps/plugin-dialog";
 import { exit } from "@tauri-apps/plugin-process";
 import { FrontendErrorBoundary } from "./components/FrontendErrorBoundary";
+import { initApi, type ConfigLoadErrorPayload } from "@/lib/api/init";
 import {
   installGlobalErrorHandlers,
   reportFrontendError,
@@ -39,13 +39,7 @@ try {
   // 忽略平台检测失败
 }
 
-// 配置加载错误payload类型
-interface ConfigLoadErrorPayload {
-  path?: string;
-  error?: string;
-  /** "db_version_too_new" 表示数据库版本过新，渲染应用内升级恢复界面 */
-  kind?: string;
-}
+// 配置加载错误payload类型已归一至 @/lib/api/init(SSOT)
 
 /**
  * 处理配置加载失败：显示错误消息并强制退出应用
@@ -88,9 +82,7 @@ try {
 async function bootstrap() {
   // 启动早期主动查询后端初始化错误，避免事件竞态
   try {
-    const initError = (await invoke(
-      "get_init_error",
-    )) as ConfigLoadErrorPayload | null;
+    const initError = await initApi.getInitError();
     if (initError && initError.kind === "db_version_too_new") {
       // 数据库版本过新：渲染应用内「升级应用」恢复界面，不进入正常 App
       ReactDOM.createRoot(document.getElementById("root")!).render(

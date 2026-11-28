@@ -31,3 +31,9 @@ export type {
   ManagedAuthStatus,
   ManagedAuthDeviceCodeResponse,
 } from "./auth";
+export { windowApi } from "./window";
+export { initApi } from "./init";
+export { trayApi } from "./tray";
+export { codexImagegenApi } from "./codexImagegen";
+export type { ConfigLoadErrorPayload } from "./init";
+export type { RawTrayNavigation } from "./tray";

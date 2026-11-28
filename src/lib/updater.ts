@@ -53,3 +53,20 @@ export async function checkForUpdate(
     await update.close();
   }
 }
+
+/**
+ * 检查后端侧可用更新,返回新版本号;无可用更新时返回 null。
+ */
+export async function checkAppUpdateAvailable(): Promise<string | null> {
+  return (await invoke<string | null>("check_app_update_available")) as
+    | string
+    | null;
+}
+
+/**
+ * 下载并安装更新后重启。成功时后端会下载+安装+重启,不会返回;
+ * 返回 false 表示(竞态)检查时有更新、安装时已无。
+ */
+export async function installUpdateAndRestart(): Promise<boolean> {
+  return (await invoke<boolean>("install_update_and_restart")) as boolean;
+}

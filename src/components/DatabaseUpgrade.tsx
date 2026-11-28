@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { exit } from "@tauri-apps/plugin-process";
+import { settingsApi } from "@/lib/api/settings";
+import {
+  checkAppUpdateAvailable,
+  installUpdateAndRestart,
+} from "@/lib/updater";
 import {
   Database,
   Download,
@@ -62,9 +66,7 @@ export function DatabaseUpgrade({ payload }: DatabaseUpgradeProps) {
     let cancelled = false;
     (async () => {
       try {
-        const version = await invoke<string | null>(
-          "check_app_update_available",
-        );
+        const version = await checkAppUpdateAvailable();
         if (cancelled) return;
         if (version) {
           setAvailableVersion(version);
@@ -99,7 +101,7 @@ export function DatabaseUpgrade({ payload }: DatabaseUpgradeProps) {
         (e) => setProgress(e.payload),
       );
       // 成功时后端会下载+安装+重启，不会返回；返回 false 表示无可用更新。
-      const updating = await invoke<boolean>("install_update_and_restart");
+      const updating = await installUpdateAndRestart();
       unlistenRef.current?.();
       unlistenRef.current = null;
       if (!updating) {
@@ -265,9 +267,7 @@ export function DatabaseUpgrade({ payload }: DatabaseUpgradeProps) {
             <Button
               variant="outline"
               className="gap-2"
-              onClick={() =>
-                void invoke("open_external", { url: RELEASES_URL })
-              }
+              onClick={() => void settingsApi.openExternal(RELEASES_URL)}
             >
               <ExternalLink className="h-4 w-4" />
               {t("dbUpgrade.openReleases", "打开发布页")}
@@ -277,7 +277,7 @@ export function DatabaseUpgrade({ payload }: DatabaseUpgradeProps) {
           <Button
             variant="outline"
             className="gap-2"
-            onClick={() => void invoke("open_app_config_folder")}
+            onClick={() => void settingsApi.openAppConfigFolder()}
             disabled={phase === "updating"}
           >
             <FolderOpen className="h-4 w-4" />

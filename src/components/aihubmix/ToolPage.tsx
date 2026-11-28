@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { ArrowLeftRight, Layers, Plus } from "lucide-react";
 import { APP_IDS } from "@/config/appConfig";
+import { codexImagegenApi } from "@/lib/api/codexImagegen";
 import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { APP_DISPLAY_NAME, AppGlyph } from "@/components/shell/AppGlyph";
 import { ProviderCard } from "@/components/providers/ProviderCard";
@@ -247,9 +247,7 @@ export function ToolPage({
       setKeyId("");
       if (start && app === "codex" && card.provider.category !== "official") {
         try {
-          const setup = await invoke<{ status: string }>(
-            "codex_imagegen_guide",
-          );
+          const setup = await codexImagegenApi.getSetupGuide();
           setImagegenNote(
             setup.status === "written"
               ? "如需使用命令行生图备用方式，还需在本机安装 Python 3.11+ 和 OpenAI SDK；WSL、远程主机和容器需分别配置。"

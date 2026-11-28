@@ -38,3 +38,11 @@
 **提交**:`4cd65a4 build: 删除 Tauri 模板残留的死配置(vite/vitest .mts 与 tsconfig.web.json)及 pnpm-workspace 占位符`
 
 **防回归**:死配置删除后不可再生——由 `pnpm typecheck` 的 include 范围与 vite/vitest 解析顺序天然保证;不另设 lint(过度)。
+
+## Round 2 — T7 死代码删除批次1 + T20 format.ts 下沉(2026-11-28)
+
+**T7 批次1**(`650c3ea`):删除 8 个零引用文件(useDebouncedValue/tomlUtils/toggle-row/ui/card/AppCountBar/AppToggleGroup/ListItemRow/ManagementListSearch)+ 3 个配套测试,-864 行。修正勘察漏项:tomlUtils 并非全零引用(其测试引用),连带修剪测试。验证:typecheck 绿;textNormalization 测试通过;动态引用(import.meta.glob/模板 import)排查无残留。
+
+**T20**(`fb004c5`):`components/usage/format.ts`(474 行通用显示格式化)被 5 个非 usage 区域消费,层级倒挂 → 迁移 `utils/format.ts`,23 处导入点全量更新,旧路径删除。验证:typecheck 绿;324 相关测试通过。
+
+**待办**:全量 vitest 静默对照(cargo test 完成后跑,对照 5 文件 flaky 基线)。

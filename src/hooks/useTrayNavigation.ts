@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppId } from "@/lib/api/types";
+import { trayApi, type RawTrayNavigation } from "@/lib/api/tray";
 import { APP_IDS } from "@/config/appConfig";
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/navigation";
 
@@ -11,13 +11,6 @@ export interface TrayNavigation {
   section?: SettingsSection;
   /** `needsRoute`：弹「需要路由」对话框；`add`：开始添加供应商 */
   intent?: "needsRoute" | "add";
-  providerId?: string;
-}
-
-interface RawTrayNavigation {
-  app?: string;
-  section?: string;
-  intent?: string;
   providerId?: string;
 }
 
@@ -53,9 +46,7 @@ export function useTrayNavigation(
 
     const take = async () => {
       try {
-        const raw = await invoke<RawTrayNavigation | null>(
-          "take_tray_navigation",
-        );
+        const raw = await trayApi.takeNavigation();
         const navigation = parseTrayNavigation(raw);
         if (navigation && !disposed) handlerRef.current(navigation);
       } catch (error) {
@@ -92,9 +83,11 @@ export function useTrayAppPageSeen(app: AppId | null): void {
   useEffect(() => {
     if (!app) return;
     const report = () => {
-      invoke("tray_app_page_seen", { appType: app }).catch((error) =>
-        console.error("Failed to report app page to tray", error),
-      );
+      trayApi
+        .reportAppPageSeen(app)
+        .catch((error) =>
+          console.error("Failed to report app page to tray", error),
+        );
     };
     report();
     window.addEventListener("focus", report);
