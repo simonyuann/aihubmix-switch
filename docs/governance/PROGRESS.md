@@ -337,3 +337,20 @@ AddProviderDialog/ApplyApiDialog 的同名按钮(平台分组/申请 API)属其�
 
 **T22 剩余批次**:ClaudeDesktopControls(53)/RechargeDialog(48)/LoginPage(39)/
 CodexPluginMarketDialog(37)/其余 aihubmix 文件——同法分批,每文件一批。
+
+
+## Round 17 — T22 ClaudeDesktopControls 子批(2026-11-28)
+
+**提交**:`cc8eff9`。
+
+**内容**:新增 `claudeDesktop.*` 命名空间 54 keys × 5 locale——phase×18
+(后端阶段标签;模块级映射表改为 key 表,渲染时 t)、progress×9(计数行
+countedLine 模板参数化 label/completed/total/percent;elapsed/idle 插值)、
+message×6、dialog×8(windows/mac/linux 平台注记)、action×8、aria/status。
+测试迁移 21 处断言(按钮名/消息/进度条 accessible name/阶段标签对)。
+
+**验证**:typecheck 0 错误;check:i18n 5 locale 一致(4527 keys);oxlint 0 错误;
+ClaudeDesktopControls 9/9 绿;受影响关联测试 67/67;format:check 绿。
+
+**T22 剩余批次**:RechargeDialog(48)/LoginPage(39)/CodexPluginMarketDialog(37)/
+AccountContext(9)/App.tsx(6)/其余 aihubmix 文件——同法分批。
