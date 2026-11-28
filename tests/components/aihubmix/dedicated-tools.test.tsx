@@ -157,7 +157,7 @@ describe("dedicated service cards", () => {
     );
     await waitFor(() => expect(picker).toHaveTextContent("2.6 Sunburst"));
     expect(
-      await screen.findByText(/请重启 Codex，使连接设置生效/),
+      await screen.findByText("toolPage.notice.imagegenSavedRestart"),
     ).toBeInTheDocument();
     await waitFor(() => expect(picker).toBeEnabled());
     fireEvent.keyDown(picker, { key: "ArrowDown" });
@@ -210,7 +210,11 @@ describe("dedicated service cards", () => {
       expect(disclosure).toHaveAttribute("aria-expanded", "true");
       fireEvent.click(disclosure);
       expect(picker).toHaveFocus();
-      act(() => screen.getByRole("button", { name: "添加分组" }).focus());
+      act(() =>
+        screen
+          .getByRole("button", { name: "toolPage.action.addGroup" })
+          .focus(),
+      );
       expect(panel).toHaveAttribute("inert");
     } finally {
       delete document.documentElement.dataset.keyboard;
@@ -316,14 +320,21 @@ describe("dedicated service cards", () => {
     wrap(<ToolPage app="codex" simple />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: `移除 ${service.provider.name}`,
+        name: "toolPage.aria.remove",
       }),
     );
-    const confirm = screen.getByRole("button", { name: "切换并移除" });
-    expect(confirm).toBeDisabled();
-    fireEvent.change(screen.getByRole("combobox", { name: "替代分组" }), {
-      target: { value: official.provider.id },
+    const confirm = screen.getByRole("button", {
+      name: "toolPage.action.switchAndRemove",
     });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(
+      screen.getByRole("combobox", {
+        name: "toolPage.dialog.replacementGroup",
+      }),
+      {
+        target: { value: official.provider.id },
+      },
+    );
     fireEvent.click(confirm);
     await waitFor(() =>
       expect(mocks.dispatch).toHaveBeenCalledWith("remove-tool-card", {
@@ -338,11 +349,13 @@ describe("dedicated service cards", () => {
     wrap(<ToolPage app="codex" simple />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: `移除 ${service.provider.name}`,
+        name: "toolPage.aria.remove",
       }),
     );
-    expect(screen.queryByText("替代分组")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "确认移除" }));
+    expect(screen.queryByText("toolPage.dialog.replacementGroup")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "toolPage.action.confirmRemove" }),
+    );
     await waitFor(() =>
       expect(mocks.dispatch).toHaveBeenCalledWith("remove-tool-card", {
         app: "codex",
@@ -383,14 +396,16 @@ describe("dedicated service cards", () => {
     wrap(<ToolPage app="codex" />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "启动 AIHubMix · OpenAI",
+        name: "toolPage.aria.start",
       }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "加载 API 列表失败，请重试。",
+      "toolPage.error.loadKeys",
     );
     expect(screen.queryByText(/example.invalid/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "toolPage.action.retry" }),
+    ).toBeEnabled();
   });
 
   it("keeps service warnings useful without exposing raw diagnostics", async () => {
@@ -402,7 +417,7 @@ describe("dedicated service cards", () => {
     });
     wrap(<ToolPage app="codex" simple />);
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "模型服务暂不可用，请重试。",
+      "toolPage.error.groupsUnavailable",
     );
     expect(screen.queryByText(/example.invalid/)).not.toBeInTheDocument();
   });
@@ -411,7 +426,7 @@ describe("dedicated service cards", () => {
     const onSelectApp = vi.fn();
     wrap(<ToolPage app="codex" simple onSelectApp={onSelectApp} />);
     fireEvent.click(
-      await screen.findByRole("button", { name: /选择 AI 工具，当前为 Codex/ }),
+      await screen.findByRole("button", { name: "toolPage.aria.selectTool" }),
     );
     expect(
       screen.getByRole("button", { name: "DeepSeek Harness" }),
@@ -427,16 +442,20 @@ describe("dedicated service cards", () => {
       currentProviderId: null,
     });
     wrap(<ToolPage app="codex" simple />);
-    expect(await screen.findByText("还没有添加模型分组")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "添加分组" }),
+      await screen.findByText("toolPage.empty.noGroupsTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "toolPage.action.addGroup" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("OpenAI Official")).not.toBeInTheDocument();
   });
   it("offers a direct official restore on the Codex home without a group card", async () => {
     wrap(<ToolPage app="codex" simple />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "恢复官方登录" }),
+      await screen.findByRole("button", {
+        name: "toolPage.action.restoreOfficial",
+      }),
     );
     await waitFor(() =>
       expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
@@ -445,7 +464,7 @@ describe("dedicated service cards", () => {
       }),
     );
     expect(
-      await screen.findByText(/请重启 Codex；如果官方登录已失效/),
+      await screen.findByText("toolPage.notice.switchedOfficialRestart"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("OpenAI Official", { selector: "h3" }),
@@ -465,14 +484,16 @@ describe("dedicated service cards", () => {
     );
     wrap(<ToolPage app="codex" simple />);
     expect(
-      await screen.findByRole("button", { name: "当前为官方配置" }),
+      await screen.findByRole("button", {
+        name: "toolPage.action.officialCurrent",
+      }),
     ).toBeDisabled();
   });
   it("activates a legacy group from home without asking for a key", async () => {
     wrap(<ToolPage app="codex" simple />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "切换到 AIHubMix · OpenAI",
+        name: "toolPage.aria.switchTo",
       }),
     );
     await waitFor(() =>
@@ -498,9 +519,9 @@ describe("dedicated service cards", () => {
     wrap(<ToolPage app="codex" simple />);
     await screen.findByText("AIHubMix · OpenAI");
     expect(screen.queryByText("OpenAI Official")).not.toBeInTheDocument();
-    expect(screen.queryByText("使用中")).not.toBeInTheDocument();
+    expect(screen.queryByText("toolPage.status.inUse")).not.toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole("button", { name: "切换到 AIHubMix · OpenAI" }),
+      screen.getByRole("button", { name: "toolPage.aria.switchTo" }),
     );
     await waitFor(() =>
       expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
@@ -525,9 +546,9 @@ describe("dedicated service cards", () => {
       );
       wrap(<ToolPage app="codex" simple={simple} />);
       const button = await screen.findByRole("button", {
-        name: "重新启用 AIHubMix · OpenAI",
+        name: "toolPage.aria.reEnable",
       });
-      expect(screen.getByText("使用中")).toBeInTheDocument();
+      expect(screen.getByText("toolPage.status.inUse")).toBeInTheDocument();
       fireEvent.click(button);
       await waitFor(() =>
         expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
@@ -535,11 +556,13 @@ describe("dedicated service cards", () => {
           providerId: service.provider.id,
         }),
       );
-      const notice = await screen.findByText(/请重启 Codex，使配置生效/);
+      const notice = await screen.findByText(/toolPage.notice.restartCodex/);
       expect(notice).toHaveAttribute("role", "status");
-      expect(notice).not.toHaveTextContent("命令行生图备用方式");
+      expect(notice).not.toHaveTextContent("toolPage.summary.imagegenFallback");
       expect(
-        screen.getByText("命令行生图备用方式").closest("details"),
+        screen
+          .getByText("toolPage.summary.imagegenFallback")
+          .closest("details"),
       ).not.toHaveAttribute("open");
     },
   );
@@ -577,9 +600,9 @@ describe("dedicated service cards", () => {
         ),
       );
       wrap(<ToolPage app="codex" simple={Boolean(simple)} />);
-      await screen.findByText("使用中");
+      await screen.findByText("toolPage.status.inUse");
       const button = screen.queryByRole("button", {
-        name: "重新启用 AIHubMix · OpenAI",
+        name: "toolPage.aria.reEnable",
       });
       expect(screen.queryByText(/切换至标准 HTTP/)).toBeNull();
       if (expected) expect(button).toBeEnabled();
@@ -599,9 +622,9 @@ describe("dedicated service cards", () => {
       ),
     );
     wrap(<ToolPage app="claude" simple />);
-    await screen.findByText("使用中");
+    await screen.findByText("toolPage.status.inUse");
     expect(
-      screen.queryByRole("button", { name: /重新启用/ }),
+      screen.queryByRole("button", { name: "toolPage.aria.reEnable" }),
     ).not.toBeInTheDocument();
   });
   it("allows manual key selection in the advanced view before reapplying an unconfigured active group", async () => {
@@ -621,7 +644,7 @@ describe("dedicated service cards", () => {
     wrap(<ToolPage app="codex" />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "重新启用 AIHubMix · OpenAI",
+        name: "toolPage.aria.reEnable",
       }),
     );
     expect(await screen.findByLabelText("API Key")).toBeInTheDocument();
@@ -646,7 +669,7 @@ describe("dedicated service cards", () => {
     );
     wrap(<ToolPage app="codex" simple />);
     const button = await screen.findByRole("button", {
-      name: "重新启用 AIHubMix · OpenAI",
+      name: "toolPage.aria.reEnable",
     });
     fireEvent.click(button);
     fireEvent.click(button);
@@ -674,15 +697,15 @@ describe("dedicated service cards", () => {
     wrap(<ToolPage app="codex" simple />);
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "重新启用 AIHubMix · OpenAI",
+        name: "toolPage.aria.reEnable",
       }),
     );
-    const notice = await screen.findByText(/请重启 Codex，使配置生效/);
-    expect(notice).not.toHaveTextContent("命令行生图备用方式");
+    const notice = await screen.findByText(/toolPage.notice.restartCodex/);
+    expect(notice).not.toHaveTextContent("toolPage.summary.imagegenFallback");
     expect(
-      screen.getByText("命令行生图备用方式").closest("details"),
+      screen.getByText("toolPage.summary.imagegenFallback").closest("details"),
     ).not.toHaveAttribute("open");
-    expect(notice).not.toHaveTextContent("原生生图已配置");
+    expect(notice).not.toHaveTextContent("toolPage.notice.imagegenSaved");
   });
   it("reuses CC cards with official restore, no model picker, and no arbitrary supplier actions", async () => {
     wrap(<ToolPage app="codex" />);
@@ -696,7 +719,7 @@ describe("dedicated service cards", () => {
       screen.queryByRole("button", { name: /更多|More/ }),
     ).not.toBeInTheDocument();
     fireEvent.click(
-      screen.getByRole("button", { name: "启动 OpenAI Official" }),
+      screen.getAllByRole("button", { name: "toolPage.aria.start" })[0],
     );
     await waitFor(() =>
       expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
@@ -705,14 +728,17 @@ describe("dedicated service cards", () => {
       }),
     );
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "已切换到 OpenAI Official",
+      "toolPage.notice.switchedOfficialRestart",
     );
   });
   it("selects only an active Key belonging to the card's exact group, without selecting a model", async () => {
     wrap(<ToolPage app="codex" />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "启动 AIHubMix · OpenAI" }),
-    );
+    // 两个 aria.start 按钮:已配置卡直启([0])与未配置卡走编辑对话框([1])。
+    // 空资源下 t 返回 key 且插值不生效,同名按钮以卡片顺序区分。
+    const startButtons = await screen.findAllByRole("button", {
+      name: "toolPage.aria.start",
+    });
+    fireEvent.click(startButtons[1]);
     expect(
       mocks.dispatch.mock.calls.some(([c]) => c === "start-tool-card"),
     ).toBe(false);
@@ -723,7 +749,9 @@ describe("dedicated service cards", () => {
     fireEvent.change(screen.getByLabelText("API Key"), {
       target: { value: "10" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存并启动" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "toolPage.action.saveAndStart" }),
+    );
     await waitFor(() =>
       expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
         app: "codex",
@@ -748,13 +776,15 @@ describe("dedicated service cards", () => {
     );
     wrap(<ToolPage app="codex" />);
     fireEvent.click(
-      await screen.findByRole("button", { name: "启动 AIHubMix · OpenAI" }),
+      await screen.findByRole("button", { name: "toolPage.aria.start" }),
     );
     await screen.findByRole("option", { name: /OpenAI Key/ });
     fireEvent.change(screen.getByLabelText("API Key"), {
       target: { value: "10" },
     });
-    const submit = screen.getByRole("button", { name: "保存并启动" });
+    const submit = screen.getByRole("button", {
+      name: "toolPage.action.saveAndStart",
+    });
     fireEvent.click(submit);
     fireEvent.click(submit);
     expect(
@@ -801,9 +831,13 @@ describe("dedicated service cards", () => {
     });
     wrap(<ToolPage app="pi" />);
     await screen.findByText("AIHubMix · OpenAI");
-    fireEvent.click(screen.getByRole("button", { name: "添加分组" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "toolPage.action.addGroup" }),
+    );
     expect(
-      screen.getByRole("option", { name: "OpenAI（已添加）" }),
+      screen.getByRole("option", {
+        name: "OpenAItoolPage.dialog.alreadyAdded",
+      }),
     ).toBeDisabled();
     expect(
       screen.getByRole("option", { name: "DeepSeek" }),
@@ -812,12 +846,16 @@ describe("dedicated service cards", () => {
       screen.queryByRole("option", { name: "GLM" }),
     ).not.toBeInTheDocument();
     glmAvailable = true;
-    fireEvent.click(screen.getByRole("button", { name: "刷新分组" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "toolPage.action.refreshGroups" }),
+    );
     await screen.findByRole("option", { name: "GLM" });
-    fireEvent.change(screen.getByLabelText("平台分组"), {
+    fireEvent.change(screen.getByLabelText("toolPage.dialog.platformGroup"), {
       target: { value: "9" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "确认添加分组" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "toolPage.aria.confirmAdd" }),
+    );
     await screen.findByText("AIHubMix · GLM");
     expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument();
     expect(mocks.dispatch).not.toHaveBeenCalledWith(
@@ -902,7 +940,7 @@ describe("DeepSeek Harness multi-provider experience", () => {
     const select = vi.fn();
     wrap(<ToolPage app="codex" simple onSelectApp={select} />);
     fireEvent.click(
-      await screen.findByRole("button", { name: /选择 AI 工具/ }),
+      await screen.findByRole("button", { name: "toolPage.aria.selectTool" }),
     );
     const choice = screen.getByRole("button", { name: /DeepSeek Harness/ });
     expect(choice).toBeEnabled();
@@ -924,11 +962,13 @@ describe("DeepSeek Harness multi-provider experience", () => {
     );
     wrap(<ToolPage app="dsh" simple />);
     await screen.findByText("分组 7");
-    expect(screen.getAllByText("已启用")).toHaveLength(2);
-    expect(screen.queryByText("使用中")).not.toBeInTheDocument();
-    expect(screen.getByText("状态未知")).toBeInTheDocument();
-    expect(screen.getByText(/支持同时启用多个分组/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "启用 分组 9" })).toBeEnabled();
+    expect(screen.getAllByText("toolPage.status.enabled")).toHaveLength(2);
+    expect(screen.queryByText("toolPage.status.inUse")).not.toBeInTheDocument();
+    expect(screen.getByText("toolPage.status.unknown")).toBeInTheDocument();
+    expect(screen.getByText("toolPage.hint.dshMulti")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "toolPage.aria.enable" })[0],
+    ).toBeEnabled();
   });
   it("enables a configured group and tells users to select a model in DSH", async () => {
     mocks.dispatch.mockImplementation((command) =>
@@ -943,7 +983,11 @@ describe("DeepSeek Harness multi-provider experience", () => {
       ),
     );
     wrap(<ToolPage app="dsh" simple />);
-    fireEvent.click(await screen.findByRole("button", { name: "启用 分组 7" }));
+    fireEvent.click(
+      await screen
+        .findAllByRole("button", { name: "toolPage.aria.enable" })
+        .then((b) => b[0]),
+    );
     await waitFor(() =>
       expect(mocks.dispatch).toHaveBeenCalledWith("start-tool-card", {
         app: "dsh",
@@ -951,7 +995,7 @@ describe("DeepSeek Harness multi-provider experience", () => {
       }),
     );
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "请在 DeepSeek Harness 中选择模型",
+      "toolPage.notice.dshMultiEnabled",
     );
   });
 });

@@ -193,7 +193,10 @@ describe("dedicated client account boundary", () => {
     const wallet = within(nav).getByRole("region", { name: "账户余额" });
     const help = within(nav).getByRole("button", { name: "帮助与答疑" });
     expect(wallet).toContainElement(balance);
-    for (const item of [help, within(nav).getByRole("button", { name: "设置" })]) {
+    for (const item of [
+      help,
+      within(nav).getByRole("button", { name: "设置" }),
+    ]) {
       expect(
         wallet.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
@@ -209,7 +212,8 @@ describe("dedicated client account boundary", () => {
       within(nav).queryByRole("button", { name: "API 管理" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getAllByRole("button", { name: "添加分组" }).length,
+      screen.getAllByRole("button", { name: "toolPage.action.addGroup" })
+        .length,
     ).toBeGreaterThan(0);
     expect(screen.queryByLabelText("服务地址")).not.toBeInTheDocument();
 
@@ -228,9 +232,13 @@ describe("dedicated client account boundary", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );
     fireEvent.click(
-      within(screen.getByRole("navigation")).getByRole("button", { name: "设置" }),
+      within(screen.getByRole("navigation")).getByRole("button", {
+        name: "设置",
+      }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "管理 API Key" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "管理 API Key" }),
+    );
     await screen.findByRole("heading", { name: "API 管理" });
     expect(await screen.findByText("USD 12.34")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -272,15 +280,27 @@ describe("dedicated client account boundary", () => {
         : response(command),
     );
     mount();
-    expect(await screen.findByRole("button", { name: /新公告.*维护通知/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /新公告.*维护通知/ }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "公告" }));
-    expect(await screen.findByRole("heading", { name: "公告" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /版本说明/ })).toBeInTheDocument();
+    fireEvent.click(
+      within(screen.getByRole("navigation")).getByRole("button", {
+        name: "公告",
+      }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "公告" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /版本说明/ }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("今晚维护服务。")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /维护通知/ }));
     expect(await screen.findByText("今晚维护服务。")).toBeInTheDocument();
-    expect(mocks.dispatch).toHaveBeenCalledWith("announcement-read", { id: 18 });
+    expect(mocks.dispatch).toHaveBeenCalledWith("announcement-read", {
+      id: 18,
+    });
   });
   it("returns to login on expiry and clears the authenticated interface", async () => {
     loggedIn = true;
@@ -295,9 +315,13 @@ describe("dedicated client account boundary", () => {
     loggedIn = true;
     mount();
     fireEvent.click(
-      within(await screen.findByRole("navigation")).getByRole("button", { name: "设置" }),
+      within(await screen.findByRole("navigation")).getByRole("button", {
+        name: "设置",
+      }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "管理 API Key" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "管理 API Key" }),
+    );
     await screen.findByRole("heading", { name: "API 管理" });
     expect(
       screen.queryByRole("button", { name: "退出登录" }),

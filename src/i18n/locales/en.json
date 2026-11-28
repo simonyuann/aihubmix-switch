@@ -5088,5 +5088,120 @@
       "description": "Configure an endpoint, API key and models. Existing custom providers appear here automatically."
     },
     "deleteSessionHint": "Delete this session in DeepSeek Harness to keep its history consistent."
+  },
+  "toolPage": {
+    "title": {
+      "home": "首页"
+    },
+    "action": {
+      "openProviders": "其他供应商",
+      "addGroup": "添加分组",
+      "applyApi": "申请 API",
+      "switchTool": "切换工具",
+      "officialCurrent": "当前为官方配置",
+      "restoreOfficial": "恢复官方登录",
+      "retry": "重试",
+      "reEnable": "重新启用",
+      "enable": "启用",
+      "switchTo": "切换到",
+      "switch": "切换",
+      "start": "启动",
+      "remove": "移除",
+      "cancel": "取消",
+      "refreshGroups": "刷新分组",
+      "switchAndRemove": "切换并移除",
+      "confirmRemove": "确认移除",
+      "save": "保存",
+      "saveAndEnable": "保存并启用",
+      "saveAndStart": "保存并启动"
+    },
+    "label": {
+      "currentTool": "当前工具"
+    },
+    "section": {
+      "groups": "模型分组"
+    },
+    "summary": {
+      "imagegenFallback": "命令行生图备用方式"
+    },
+    "hint": {
+      "dshMulti": "DeepSeek Harness 支持同时启用多个分组，请在 DeepSeek Harness 中选择模型。"
+    },
+    "status": {
+      "enabled": "已启用",
+      "inUse": "使用中",
+      "verificationPending": "待联网验证",
+      "ready": "分组已就绪",
+      "autoConfig": "切换时自动配置",
+      "unknown": "状态未知",
+      "configured": "已配置",
+      "keyNotSelected": "待选择 API",
+      "current": "当前",
+      "switchingConfig": "正在切换配置",
+      "savingConfig": "正在保存配置",
+      "adding": "正在添加…",
+      "loadingGroups": "正在加载模型服务…",
+      "loadingKeys": "正在加载 API…",
+      "processing": "正在处理…"
+    },
+    "empty": {
+      "noGroupsTitle": "还没有添加模型分组",
+      "noGroupsHint": "点「添加分组」选择要使用的模型分组。",
+      "noServices": "当前暂无适用于此工具的模型服务。"
+    },
+    "dialog": {
+      "removeTitle": "移除 {{name}}",
+      "removeDescription": "从此工具移除分组后，仍可重新添加，平台 API Key 会保留。",
+      "replacementGroup": "替代分组",
+      "selectReplacement": "请选择替代分组",
+      "replacementRequired": "请先添加并配置另一个分组，再移除此分组。",
+      "selectToolTitle": "选择工具",
+      "selectToolDescription": "选择后在首页展示该工具及其分组。",
+      "addDescription": "此处显示当前工具支持的模型分组。添加后可随时切换。",
+      "platformGroup": "平台分组",
+      "selectGroup": "请选择分组",
+      "alreadyAdded": "（已添加）",
+      "noAvailableGroups": "当前工具暂无可添加的分组。",
+      "keyDescriptionDsh": "仅显示此分组下可用的 API Key。启用后请在 DeepSeek Harness 中选择模型。",
+      "keyDescription": "仅显示此分组下可用的 API Key。模型可在 Agent 中通过 /model 切换。",
+      "selectApiKey": "请选择 API Key",
+      "noKeys": "此分组暂无可用 API，请通过右上角「申请 API」创建。"
+    },
+    "aria": {
+      "selectTool": "选择 AI 工具，当前为 {{name}}",
+      "reEnable": "重新启用 {{name}}",
+      "enable": "启用 {{name}}",
+      "switchTo": "切换到 {{name}}",
+      "start": "启动 {{name}}",
+      "remove": "移除 {{name}}",
+      "confirmAdd": "确认添加分组"
+    },
+    "notice": {
+      "groupAdded": "分组已添加。",
+      "groupRemoved": "分组已从此工具移除。",
+      "imagegenSavedRestart": "生图模型已保存。请重启 Codex，使连接设置生效。",
+      "imagegenSaved": "生图模型已保存。",
+      "imagegenManualRequired": "如需使用命令行生图备用方式，还需在本机安装 Python 3.11+ 和 OpenAI SDK；WSL、远程主机和容器需分别配置。",
+      "imagegenManualFailed": "命令行生图备用方式未能自动接入，这不代表原生生图不可用。请检查 Codex 的 shell_environment_policy 和 PYTHONPATH 设置。",
+      "imagegenStatusUnavailable": "命令行生图备用方式的状态不可用，这不代表原生生图不可用。",
+      "switchedOfficialRestart": "已切换到 {{name}}。请重启 Codex；如果官方登录已失效，请在 Codex 中重新登录。",
+      "dshMultiEnabled": "已启用 {{name}}。可以同时启用多个分组；请在 DeepSeek Harness 中选择模型。",
+      "switchedTo": "已切换到 {{name}}。",
+      "defaultModelSet": "默认模型：{{model}}。",
+      "restartCodex": "请重启 Codex，使配置生效。",
+      "pickModelInApp": "在 {{app}} 中选择模型。",
+      "apiKeySaved": "API Key 已保存。"
+    },
+    "error": {
+      "addGroup": "添加分组失败，请重试。",
+      "removeGroup": "移除分组失败，请检查当前配置后重试。",
+      "saveImagegen": "保存生图模型失败，请重试。",
+      "partialConfig": "部分配置未能确认，请刷新状态后重试。",
+      "operationFailed": "操作失败，请检查网络后重试。",
+      "loadGroups": "加载模型服务失败，请重试。",
+      "groupsUnavailable": "模型服务暂不可用，请重试。",
+      "loadKeys": "加载 API 列表失败，请重试。",
+      "waitStateConfirm": "请等待配置状态确认"
+    }
   }
 }
