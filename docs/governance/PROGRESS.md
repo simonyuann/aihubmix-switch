@@ -68,4 +68,16 @@
 
 **T18 判定**:维持"不机械合并"(各 mock 有独立语义)。
 
-**R1 预研**(进行中):misc.rs 进程原语(CommandDeadline/terminate_child_tree/isolate_child_process_group/wait_child_output/apply_extra_env/decode_command_output±win/merge_path_segments±win/CREATE_NO_WINDOW)抽离为 `child_process.rs`;mcp_connectivity 的 3 个 symbols(detected 工具执行外的全部)随之迁移;验证手段 = cargo check --all-targets(GNU)+ 新增 linux target 交叉检查 `cfg(not(windows))` 代码。
+**R1 预研**(进行中):misc.rs 进程原语抽离为 `child_process.rs`;验证手段 = cargo check --all-targets(GNU)+ linux target 交叉检查 `cfg(not(windows))` 代码。
+
+## Round 5 — R1 落地:child_process 深模块(2026-11-28)
+
+**提交**:`89ddd92`(misc.rs -290 行)。
+
+**内容**:进程执行原语(CommandDeadline/terminate_child_tree×2/isolate_child_process_group/wait_child_output/apply_extra_env/decode_command_output+Windows 多代码页解码/merge_path_segments+win 变体/CREATE_NO_WINDOW)从 commands/misc.rs 抽为 `src-tauri/src/child_process.rs`;两个原测试逐字随迁;services 的 **6 处**反向引用(mcp_connectivity×2、claude_account×2、codex_client_catalog×2)改指新模块;commands/mod.rs 的 cfg 再导出收窄为 login_shell_path(R2 迁移)。
+
+**验证**:cargo fmt --check 绿;cargo check --all-targets(GNU)0 错误 0 警告(1m12s)。
+
+**边界记录**:linux 交叉检查被 glib/gdk 等 `-sys` 构建脚本阻塞(Windows 无 GTK dev);posix 分支为逐字搬运 + CI 最终门禁。`CommandDeadline::{remaining,timeout_error}` 因 misc 有调用者改为 pub(crate)。
+
+**T6 进度**:17+2 处反向引用 → 已闭 6 处;剩余 11 处 = R2(工具发现/执行族:detected_tool_command×3、run_detected_tool_command_with_timeout、local_tool_version)+ R3(oauth 编排×5、initialize_codex_imagegen)+ R4(proxy 类型)。
