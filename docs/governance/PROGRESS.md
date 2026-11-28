@@ -391,3 +391,23 @@ format:check 绿;depcruise 0 违规;AccountCacheIsolation 5/5;account.test 15/15
 
 **T22 剩余批次**:CodexPluginMarketDialog(37)/AccountContext(9)/App.tsx(6)/
 其余小文件(help.test 相关 HelpPage 27 处等)——同法分批。
+
+
+## Round 20 — T22 CodexPluginMarketDialog 子批(2026-11-28)
+
+**提交**:`17e2e1e`。
+
+**内容**:新增 `pluginMarket.*` 命名空间 38 keys × 5 locale——title/description/
+warning/status×6(found/shownMore 计数插值)/error×5/notice×6/action×10/
+hint.download(sizeInfo 条件插值)/auth×3/aria/placeholder/label;
+PluginMarketContent 组件接入 useTranslation。
+
+**测试迁移**:codex-plugin-market-pagination 断言改 key 形式——计数行
+"找到 165 个插件，已显示 80 个" 渲染为分段 key 拼接,断言改用
+/pluginMarket.status.found/ 子串正则;hint.download 的 sizeInfo 条件插值
+同理(375 MiB → hint.download 子串);codex-plugin-errors 无文案断言,不受影响。
+
+**验证**:typecheck 0 错误;check:i18n 5 locale 一致(4652 keys);oxlint 0 错误;
+format:check 绿;depcruise 0 违规;插件市场测试 7/7 + dedicated-tools 51/51。
+
+**T22 剩余批次**:AccountContext(9)/App.tsx(6)/HelpPage(27)/其余小文件。
