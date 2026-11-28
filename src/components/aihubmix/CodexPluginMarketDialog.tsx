@@ -6,6 +6,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { settingsApi } from "@/lib/api/settings";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ export function CodexPluginMarketDialog({
 }
 
 function PluginMarketContent() {
+  const { t } = useTranslation();
   const searchInput = useRef<HTMLInputElement>(null);
   const [catalog, setCatalog] = useState<CodexPluginCatalog | null>(null);
   const [query, setQuery] = useState("");
@@ -80,9 +82,7 @@ function PluginMarketContent() {
       if (mounted.current) setCatalog(data);
     } catch (cause) {
       if (mounted.current)
-        setError(
-          codexMarketError(cause, "无法加载插件列表，请检查网络后重试。"),
-        );
+        setError(codexMarketError(cause, t("pluginMarket.error.loadFailed")));
     } finally {
       if (mounted.current) setLoading(false);
     }
@@ -121,21 +121,16 @@ function PluginMarketContent() {
         if (saved)
           setNotice(
             setup?.officialReady === false
-              ? "社区目录已启用。官方插件同步未完成，可点「同步官方插件」重试。"
+              ? t("pluginMarket.notice.officialSyncIncomplete")
               : prepareLocal
-                ? "本机插件库已就绪。重新打开 Codex 后即可在社区插件页安装。"
-                : "插件目录已启用。可在这里按需安装，或从 AIHub 启动桌面端后直接安装。",
+                ? t("pluginMarket.notice.localReady")
+                : t("pluginMarket.notice.enabled"),
           );
-        else setError("插件目录已设置，但偏好保存失败；请重新检查设置。");
+        else setError(t("pluginMarket.error.prefSaveFailed"));
       }
     } catch (cause) {
       if (mounted.current)
-        setError(
-          codexMarketError(
-            cause,
-            "无法启用插件目录，请检查网络和 Codex 安装后重试。",
-          ),
-        );
+        setError(codexMarketError(cause, t("pluginMarket.error.enableFailed")));
     } finally {
       gate.current = false;
       if (mounted.current) setBusy(null);
@@ -169,16 +164,14 @@ function PluginMarketContent() {
       );
       setNotice(
         !plugin.installed && plugin.requiresAuth
-          ? "已安装。请在桌面端连接自己的服务账号，再新建会话使用。"
+          ? t("pluginMarket.notice.installedConnectAuth")
           : plugin.installed
-            ? "已卸载。请新建会话或重启 Codex 以更新插件。"
-            : "已安装。请新建会话或重启 Codex 以加载插件。",
+            ? t("pluginMarket.notice.uninstalled")
+            : t("pluginMarket.notice.installed"),
       );
     } catch (cause) {
       if (mounted.current)
-        setError(
-          codexMarketError(cause, "操作未能确认，请刷新列表检查状态后再试。"),
-        );
+        setError(codexMarketError(cause, t("pluginMarket.error.unconfirmed")));
     } finally {
       gate.current = false;
       if (mounted.current) setBusy(null);
@@ -198,26 +191,22 @@ function PluginMarketContent() {
     >
       <DialogHeader>
         <div className="flex items-center justify-between gap-3">
-          <DialogTitle>Codex 插件</DialogTitle>
+          <DialogTitle>{t("pluginMarket.title")}</DialogTitle>
           <DialogClose asChild>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              aria-label="关闭插件管理"
-              title="关闭插件管理"
+              aria-label={t("pluginMarket.aria.close")}
+              title={t("pluginMarket.aria.close")}
               disabled={!!busy}
             >
               <X aria-hidden="true" className="h-4 w-4" />
             </Button>
           </DialogClose>
         </div>
-        <DialogDescription>
-          安装后新建会话或重启 Codex；部分插件需要单独登录。
-        </DialogDescription>
-        <p className="text-caption text-fg-3">
-          社区插件可能读取本机文件或运行代码，安装前请确认来源。
-        </p>
+        <DialogDescription>{t("pluginMarket.description")}</DialogDescription>
+        <p className="text-caption text-fg-3">{t("pluginMarket.warning")}</p>
       </DialogHeader>
       <div className="min-h-0 space-y-3 overflow-y-auto px-6 pb-6">
         <label className="relative block">
@@ -227,8 +216,8 @@ function PluginMarketContent() {
           />
           <Input
             ref={searchInput}
-            aria-label="搜索插件"
-            placeholder="搜索插件名称或用途"
+            aria-label={t("pluginMarket.aria.search")}
+            placeholder={t("pluginMarket.placeholder.search")}
             className="pl-9"
             value={query}
             onChange={(event) => {
@@ -239,7 +228,7 @@ function PluginMarketContent() {
         </label>
         {loading && (
           <p role="status" className="text-body text-fg-3">
-            正在加载插件列表…
+            {t("pluginMarket.status.loading")}
           </p>
         )}
         {busy === "enable" && <CodexMarketProgress progress={marketProgress} />}
@@ -255,7 +244,7 @@ function PluginMarketContent() {
               onClick={() => void reload()}
               disabled={!!busy}
             >
-              刷新列表
+              {t("pluginMarket.action.refresh")}
             </Button>
           </div>
         )}
@@ -267,17 +256,19 @@ function PluginMarketContent() {
         {!loading && catalog && (
           <>
             <p className="text-caption text-fg-3">
-              找到 {matches.length} 个插件
+              {t("pluginMarket.status.found", { count: matches.length })}
               {matches.length > visibleCount
-                ? `，已显示 ${visibleCount} 个`
+                ? t("pluginMarket.status.shownMore", { count: visibleCount })
                 : ""}
             </p>
             <div className="flex flex-wrap items-center justify-between gap-2 text-caption text-fg-2">
               <span>
-                从 AIHub 启动桌面端即可按需安装。也可提前下载完整插件库
-                {catalog.downloadBytes > 0 &&
-                  `（约 ${Math.ceil(catalog.downloadBytes / 1048576)} MiB）`}
-                。
+                {t("pluginMarket.hint.download", {
+                  sizeInfo:
+                    catalog.downloadBytes > 0
+                      ? `（约 ${Math.ceil(catalog.downloadBytes / 1048576)} MiB）`
+                      : "",
+                })}
               </span>
               <Button
                 variant="outline"
@@ -285,7 +276,7 @@ function PluginMarketContent() {
                 disabled={!!busy}
                 onClick={() => void enableMarket()}
               >
-                同步官方插件
+                {t("pluginMarket.action.syncOfficial")}
               </Button>
               <Button
                 variant="outline"
@@ -293,25 +284,27 @@ function PluginMarketContent() {
                 disabled={!!busy}
                 onClick={() => void enableMarket(true)}
               >
-                准备 Codex 插件库
+                {t("pluginMarket.action.prepareLibrary")}
               </Button>
             </div>
             {catalog.plugins.some((plugin) => plugin.installed === null) && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-control bg-subtle px-3 py-2 text-caption text-fg-2">
-                <span>插件状态暂不可用；启用目录后可查看和管理。</span>
+                <span>{t("pluginMarket.label.statusUnavailable")}</span>
                 <Button
                   variant="outline"
                   size="compact"
                   onClick={() => void enableMarket()}
                   disabled={!!busy}
                 >
-                  {busy === "enable" ? "正在启用…" : "启用插件目录"}
+                  {busy === "enable"
+                    ? t("pluginMarket.status.enabling")
+                    : t("pluginMarket.action.enableCatalog")}
                 </Button>
               </div>
             )}
             {!matches.length && (
               <p className="py-6 text-center text-body text-fg-3">
-                没有找到匹配的插件。
+                {t("pluginMarket.empty.noMatches")}
               </p>
             )}
             <ul className="divide-y divide-border rounded-panel border border-border">
@@ -332,10 +325,10 @@ function PluginMarketContent() {
                     <p className="mt-1 text-caption text-fg-3">
                       {plugin.author ? `${plugin.author} · ` : ""}
                       {plugin.inApiCatalog === false
-                        ? "官方入口需登录 ChatGPT"
+                        ? t("pluginMarket.auth.loginRequired")
                         : plugin.requiresAuth
-                          ? "可能需要授权"
-                          : "授权要求以插件说明为准"}
+                          ? t("pluginMarket.auth.mayRequire")
+                          : t("pluginMarket.auth.seeDescription")}
                     </p>
                   </div>
                   {plugin.officialUrl &&
@@ -348,13 +341,15 @@ function PluginMarketContent() {
                           void settingsApi
                             .openExternal(plugin.officialUrl!)
                             .catch(() =>
-                              setError("无法打开 ChatGPT 插件目录。"),
+                              setError(
+                                t("pluginMarket.error.openCatalogFailed"),
+                              ),
                             )
                         }
                       >
                         {plugin.inApiCatalog === false
-                          ? "前往 ChatGPT 连接"
-                          : "官方入口"}
+                          ? t("pluginMarket.action.gotoChatgpt")
+                          : t("pluginMarket.action.officialEntry")}
                       </Button>
                     )}
                   {(plugin.inApiCatalog !== false || plugin.installed) && (
@@ -365,12 +360,12 @@ function PluginMarketContent() {
                       onClick={() => void change(plugin)}
                     >
                       {busy === plugin.id
-                        ? "处理中…"
+                        ? t("pluginMarket.status.working")
                         : plugin.installed === null
-                          ? "启用后查看"
+                          ? t("pluginMarket.action.viewAfterEnable")
                           : plugin.installed
-                            ? "卸载"
-                            : "安装"}
+                            ? t("pluginMarket.action.uninstall")
+                            : t("pluginMarket.action.install")}
                     </Button>
                   )}
                 </li>
@@ -382,7 +377,7 @@ function PluginMarketContent() {
                 className="w-full"
                 onClick={() => setVisibleCount((count) => count + 80)}
               >
-                加载更多插件
+                {t("pluginMarket.action.loadMore")}
               </Button>
             )}
           </>

@@ -5392,5 +5392,65 @@
       "reconnectPlatform": "重新连接平台",
       "logoutOldAccount": "退出本机旧账号"
     }
+  },
+  "pluginMarket": {
+    "title": "Codex 插件",
+    "description": "安装后新建会话或重启 Codex；部分插件需要单独登录。",
+    "warning": "社区插件可能读取本机文件或运行代码，安装前请确认来源。",
+    "aria": {
+      "close": "关闭插件管理",
+      "search": "搜索插件"
+    },
+    "placeholder": {
+      "search": "搜索插件名称或用途"
+    },
+    "status": {
+      "loading": "正在加载插件列表…",
+      "found": "找到 {{count}} 个插件",
+      "shownMore": "，已显示 {{count}} 个",
+      "enabling": "正在启用…",
+      "working": "处理中…"
+    },
+    "empty": {
+      "noMatches": "没有找到匹配的插件。"
+    },
+    "error": {
+      "loadFailed": "无法加载插件列表，请检查网络后重试。",
+      "unconfirmed": "操作未能确认，请刷新列表检查状态后再试。",
+      "enableFailed": "无法启用插件目录，请检查网络和 Codex 安装后重试。",
+      "prefSaveFailed": "插件目录已设置，但偏好保存失败；请重新检查设置。",
+      "openCatalogFailed": "无法打开 ChatGPT 插件目录。"
+    },
+    "notice": {
+      "officialSyncIncomplete": "社区目录已启用。官方插件同步未完成，可点「同步官方插件」重试。",
+      "localReady": "本机插件库已就绪。重新打开 Codex 后即可在社区插件页安装。",
+      "enabled": "插件目录已启用。可在这里按需安装，或从 AIHub 启动桌面端后直接安装。",
+      "installedConnectAuth": "已安装。请在桌面端连接自己的服务账号，再新建会话使用。",
+      "uninstalled": "已卸载。请新建会话或重启 Codex 以更新插件。",
+      "installed": "已安装。请新建会话或重启 Codex 以加载插件。"
+    },
+    "hint": {
+      "download": "从 AIHub 启动桌面端即可按需安装。也可提前下载完整插件库{{sizeInfo}}。"
+    },
+    "action": {
+      "refresh": "刷新列表",
+      "syncOfficial": "同步官方插件",
+      "prepareLibrary": "准备 Codex 插件库",
+      "enableCatalog": "启用插件目录",
+      "gotoChatgpt": "前往 ChatGPT 连接",
+      "officialEntry": "官方入口",
+      "viewAfterEnable": "启用后查看",
+      "uninstall": "卸载",
+      "install": "安装",
+      "loadMore": "加载更多插件"
+    },
+    "label": {
+      "statusUnavailable": "插件状态暂不可用；启用目录后可查看和管理。"
+    },
+    "auth": {
+      "loginRequired": "官方入口需登录 ChatGPT",
+      "mayRequire": "可能需要授权",
+      "seeDescription": "授权要求以插件说明为准"
+    }
   }
 }

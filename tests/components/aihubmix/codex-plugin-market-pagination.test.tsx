@@ -53,9 +53,13 @@ function openMarket() {
 describe("Codex plugin catalog pagination", () => {
   it("closes from the header or Escape and returns focus to the opener", async () => {
     const trigger = openMarket();
-    const search = screen.getByRole("textbox", { name: "搜索插件" });
+    const search = screen.getByRole("textbox", {
+      name: "pluginMarket.aria.search",
+    });
     expect(search).toHaveFocus();
-    const close = screen.getByRole("button", { name: "关闭插件管理" });
+    const close = screen.getByRole("button", {
+      name: "pluginMarket.aria.close",
+    });
     expect(search.closest(".overflow-y-auto")).not.toContainElement(close);
     fireEvent.click(close);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -93,7 +97,9 @@ describe("Codex plugin catalog pagination", () => {
     });
     openMarket();
     fireEvent.click(
-      await screen.findByRole("button", { name: "前往 ChatGPT 连接" }),
+      await screen.findByRole("button", {
+        name: "pluginMarket.action.gotoChatgpt",
+      }),
     );
     expect(open).toHaveBeenCalledWith("https://chatgpt.com/plugins");
     expect(codexPluginMarket.install).not.toHaveBeenCalled();
@@ -102,33 +108,41 @@ describe("Codex plugin catalog pagination", () => {
 
   it("prepares the full library only on request", async () => {
     openMarket();
-    await screen.findByText(/375 MiB/);
+    await screen.findByText(/pluginMarket.hint.download/);
     expect(codexPluginMarket.enable).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "准备 Codex 插件库" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "pluginMarket.action.prepareLibrary",
+      }),
+    );
     expect(codexPluginMarket.enable).toHaveBeenCalledWith(
       expect.any(Function),
       true,
     );
-    await screen.findByText(/本机插件库已就绪/);
+    await screen.findByText("pluginMarket.notice.localReady");
   });
   it("lets users browse past the first 80 and searches the entire catalog", async () => {
     openMarket();
     expect(
-      await screen.findByText("找到 165 个插件，已显示 80 个"),
+      await screen.findByText(/pluginMarket.status.found/),
     ).toBeInTheDocument();
     expect(screen.queryByText("Plugin 160")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "加载更多插件" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "pluginMarket.action.loadMore" }),
+    );
     expect(screen.getByText("Plugin 159")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "加载更多插件" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "pluginMarket.action.loadMore" }),
+    );
     expect(screen.getByText("Plugin 164")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "加载更多插件" }),
+      screen.queryByRole("button", { name: "pluginMarket.action.loadMore" }),
     ).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("搜索插件"), {
+    fireEvent.change(screen.getByLabelText("pluginMarket.aria.search"), {
       target: { value: "plugin-164" },
     });
     expect(screen.getByText("Plugin 164")).toBeInTheDocument();
-    expect(screen.getByText("找到 1 个插件")).toBeInTheDocument();
+    expect(screen.getByText(/pluginMarket.status.found/)).toBeInTheDocument();
   });
 
   it("keeps an in-flight market change open until the preference is saved", async () => {
@@ -141,9 +155,13 @@ describe("Codex plugin catalog pagination", () => {
     );
     const trigger = openMarket();
     fireEvent.click(
-      await screen.findByRole("button", { name: "同步官方插件" }),
+      await screen.findByRole("button", {
+        name: "pluginMarket.action.syncOfficial",
+      }),
     );
-    const close = screen.getByRole("button", { name: "关闭插件管理" });
+    const close = screen.getByRole("button", {
+      name: "pluginMarket.aria.close",
+    });
     expect(close).toBeDisabled();
     fireEvent.click(close);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
