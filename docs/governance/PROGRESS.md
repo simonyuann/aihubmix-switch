@@ -411,3 +411,30 @@ PluginMarketContent 组件接入 useTranslation。
 format:check 绿;depcruise 0 违规;插件市场测试 7/7 + dedicated-tools 51/51。
 
 **T22 剩余批次**:AccountContext(9)/App.tsx(6)/HelpPage(27)/其余小文件。
+
+
+## Round 21 — T22 收尾子批:AccountContext/App/BalanceDisplay + 全部测试对齐(2026-11-28)
+
+**提交**:`4e63be2`。
+
+**内容**:三个最小体量组件迁移 + 六个测试文件断言对齐:
+- `AccountContext.tsx` 8 处 → `accountContext.*`(walletUnavailable/sessionExpired/
+  keychainLockedDetail/connectionUnavailable/reloginRequired/offlineUsingSaved/
+  pleaseLogin);后端消息模式检查三处按既有模式保留
+- `App.tsx` 2 处 → `app.status.*`;LoadingScreen 与 AccountBoundary 各自接
+  useTranslation(非复用 App 的 hook——各组件独立消费)
+- `BalanceDisplay.tsx` 7 处 → `balanceDisplay.*` 6 keys + 共享
+  `accountContext.error.walletUnavailable`(与 AccountContext 同语义同 key)
+- 测试断言 ×6 文件全部迁移(AccountContextOffline/AccountCacheIsolation/
+  TrayPanel/account/home-wallet/App);App.test 的 AddProviderDialog/
+  ApplyApiDialog 同名按钮确认为其他组件文案,不改
+
+**验证**:typecheck 0 错误;check:i18n 5 locale 一致(4669 keys);oxlint 0 错误;
+depcruise 0 违规;format:check 绿;**全量 vitest 288/3540 全绿**。
+
+**i18n 键总量**:4384 → **4669 keys** × 5 locale 全对齐(aihubmix 子应用 + 关联
+组件的硬编码中文全部入键;en/ja/tr/zh-TW 为 zh 原文回退,待母语校订)。
+
+**T22 状态**:aihubmix 子应用主体迁移完成。剩余 = 若干 <5 处的小文件散点
+(HomeImageModelSelect/HomeGroupRow/DiagnosticReport 等)——体量极小,可在
+后续维护中随手迁移,不再作为独立治理批次。
