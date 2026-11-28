@@ -88,7 +88,7 @@ pub fn get_opencode_db_path() -> PathBuf {
     get_opencode_data_dir().join("opencode.db")
 }
 
-fn get_opencode_data_dir() -> PathBuf {
+pub(crate) fn get_opencode_data_dir() -> PathBuf {
     // 尊重 XDG_DATA_HOME（按 XDG 规范，空字符串视为未设置）
     if let Ok(xdg_data) = std::env::var("XDG_DATA_HOME") {
         if !xdg_data.is_empty() {
