@@ -424,7 +424,7 @@ export function useProviderActions(
         const primary = `${provider.id}/${selectedModel.id}`;
         const existingDefault = await openclawApi.getDefaultModel();
         const model: OpenClawDefaultModel = {
-          ...(existingDefault ?? {}),
+          ...existingDefault,
           primary,
         };
         if (existingDefault?.fallbacks) {

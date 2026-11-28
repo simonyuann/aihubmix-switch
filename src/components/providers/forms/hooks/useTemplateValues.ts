@@ -228,7 +228,7 @@ export function useTemplateValues({
         const prevEntry = prev[key];
         const nextEntry: TemplateValueConfig = {
           ...config,
-          ...(prevEntry ?? {}),
+          ...prevEntry,
           editorValue: value,
         };
         const nextValues: TemplateValueMap = {

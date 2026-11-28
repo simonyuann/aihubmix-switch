@@ -277,8 +277,8 @@ export function mergeCustomModelsIntoStore(
     const sourceKey = (custom.sourceKey || targetKey).trim();
     const sourceEntry = store[sourceKey] ?? store[targetKey];
     const nextEntry = {
-      ...(updated[targetKey] || {}),
-      ...(sourceEntry || {}),
+      ...updated[targetKey],
+      ...sourceEntry,
     };
 
     if (custom.model.trim()) {
@@ -526,7 +526,7 @@ export function OmoFormFields({
   ) => {
     if (model.trim()) {
       const nextEntry: Record<string, unknown> = {
-        ...(store[key] || {}),
+        ...store[key],
         model,
       };
       const currentVariant =

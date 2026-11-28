@@ -11,7 +11,11 @@ import { settingsApi } from "@/lib/api/settings";
 import type { UpdateInfo } from "../lib/updater";
 import { checkForUpdate } from "../lib/updater";
 import { extractErrorMessage } from "../utils/errorUtils";
-import { readPreference, removePreference, writePreference } from "@/lib/userPreferences";
+import {
+  readPreference,
+  removePreference,
+  writePreference,
+} from "@/lib/userPreferences";
 
 type UpdateProgress = {
   downloaded: number;

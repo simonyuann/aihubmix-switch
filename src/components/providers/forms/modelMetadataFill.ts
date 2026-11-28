@@ -104,7 +104,7 @@ export function fillOpenCodeModel(
   metadata: KnownModelMetadata,
 ): OpenCodeModel {
   const next = { ...model };
-  const limit = { ...(model.limit ?? {}) };
+  const limit = { ...model.limit };
   if (isBlank(limit.context) && metadata.contextWindow) {
     limit.context = metadata.contextWindow;
   }

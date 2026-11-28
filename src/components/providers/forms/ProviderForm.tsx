@@ -1747,7 +1747,7 @@ function ProviderFormFull({
           }
         }
         settingsConfig = JSON.stringify(configObj);
-      } catch (err) {
+      } catch {
         settingsConfig = values.settingsConfig.trim();
       }
     } else if (usesGeminiStyleForm(appId)) {
@@ -1759,7 +1759,7 @@ function ProviderFormFull({
           config: configObj,
         };
         settingsConfig = JSON.stringify(combined);
-      } catch (err) {
+      } catch {
         settingsConfig = values.settingsConfig.trim();
       }
     } else if (
@@ -1880,14 +1880,14 @@ function ProviderFormFull({
 
       if (activePreset?.isPartner) {
         mergedMeta = {
-          ...(mergedMeta ?? {}),
+          ...mergedMeta,
           isPartner: true,
         };
       }
 
       if (activePreset?.partnerPromotionKey) {
         mergedMeta = {
-          ...(mergedMeta ?? {}),
+          ...mergedMeta,
           partnerPromotionKey: activePreset.partnerPromotionKey,
         };
       }
@@ -1923,7 +1923,7 @@ function ProviderFormFull({
         : undefined;
 
     const nextMeta: ProviderMeta = {
-      ...(baseMeta ?? {}),
+      ...baseMeta,
       opencodeConfigFormat: isNativeOpencode ? "v2" : undefined,
       // Claude Code、Codex、Gemini CLI 的通用配置片段已冻结：沿用行里原有的标记，新增时
       // 由后端写 true（兼容旧版）。

@@ -78,7 +78,7 @@ const ToolsPanel: React.FC = () => {
 
   const handleSave = async () => {
     try {
-      const { profile, allow, deny, ...other } = config;
+      const { profile, ...other } = config;
       const newConfig: OpenClawToolsConfig = {
         ...other,
         profile,

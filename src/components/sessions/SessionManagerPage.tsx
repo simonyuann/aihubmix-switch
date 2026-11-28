@@ -83,9 +83,7 @@ const readGroupMode = (): GroupMode => {
 
 const readExpanded = (): Set<string> => {
   try {
-    const parsed = JSON.parse(
-      readPreference(EXPANDED_STORAGE_KEY) ?? "[]",
-    );
+    const parsed = JSON.parse(readPreference(EXPANDED_STORAGE_KEY) ?? "[]");
     return new Set(
       Array.isArray(parsed)
         ? parsed.filter((v): v is string => typeof v === "string")

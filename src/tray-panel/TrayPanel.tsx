@@ -67,9 +67,7 @@ const FOCUS_RING =
 
 function readTab(): Tab {
   try {
-    return readPreference(TAB_KEY) === "usage"
-      ? "usage"
-      : "config";
+    return readPreference(TAB_KEY) === "usage" ? "usage" : "config";
   } catch {
     return "config";
   }

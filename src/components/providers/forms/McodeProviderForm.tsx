@@ -289,7 +289,7 @@ export function McodeProviderForm({
             onExtraOptionsChange={(draft) => {
               setExtraOptions(draft);
               const options: OpenCodeProviderOptions = {
-                ...(config.options ?? {}),
+                ...config.options,
               };
               mergeOpencodeExtraOptionRows(options, draft);
               update({ ...config, options });

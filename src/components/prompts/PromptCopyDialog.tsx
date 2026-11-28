@@ -123,7 +123,7 @@ export function PromptCopyDialog({
                       onChange={(event) => {
                         const checked = event.target.checked;
                         setPicks((current) => ({
-                          ...(current ?? {}),
+                          ...current,
                           [app]: checked,
                         }));
                       }}

@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error"
+  },
+  "plugins": [
+    "import",
+    "node",
+    "promise",
+    "unicorn"
+  ],
+  "ignorePatterns": [
+    "node_modules/**",
+    "dist/**",
+    "src-tauri/target/**"
+  ],
+  "rules": {
+    "no-restricted-globals": [
+      "error",
+      {
+        "name": "localStorage",
+        "message": "localStorage 直接访问已收敛到 lib/userPreferences.ts(T21);请改用 readPreference/writePreference/removePreference,或在 .oxlintrc.json 的 overrides 中显式豁免。"
+      },
+      {
+        "name": "window.localStorage",
+        "message": "同上:localStorage 直访已收敛到 lib/userPreferences.ts。"
+      }
+    ],
+    "no-control-regex": "off"
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/lib/localCache.ts",
+        "src/lib/userPreferences.ts"
+      ],
+      "rules": {
+        "no-restricted-globals": "off"
+      }
+    }
+  ]
+}

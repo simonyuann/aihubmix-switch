@@ -690,7 +690,7 @@ export function ClaudeDesktopProviderForm({
       // 与启动 seed 的 OFFICIAL_SEEDS 占位语义一致。
       const settingsConfig = clonePlainRecord(initialData?.settingsConfig);
       settingsConfig.env = {};
-      const meta: ProviderMeta = { ...(initialData?.meta ?? {}) };
+      const meta: ProviderMeta = { ...initialData?.meta };
       delete meta.claudeDesktopMode;
       delete meta.claudeDesktopModelRoutes;
       delete meta.apiFormat;
@@ -888,7 +888,7 @@ export function ClaudeDesktopProviderForm({
         ? "anthropic"
         : apiFormat;
     const meta: ProviderMeta = {
-      ...(initialData?.meta ?? {}),
+      ...initialData?.meta,
       claudeDesktopMode: effectiveMode,
       apiFormat:
         activeProviderType === "xai_oauth"

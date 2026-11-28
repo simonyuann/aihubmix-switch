@@ -79,10 +79,7 @@ export function setClaudeDesktopPreferences(
   updates: Partial<ClaudeDesktopPreferences>,
 ) {
   try {
-    writePreference(
-      KEY,
-      JSON.stringify({ ...decode(snapshot()), ...updates }),
-    );
+    writePreference(KEY, JSON.stringify({ ...decode(snapshot()), ...updates }));
     window.dispatchEvent(new Event(EVENT));
     return true;
   } catch {

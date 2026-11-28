@@ -929,7 +929,7 @@ export function CodexFormFields({
             );
             onCatalogModelsChange(
               usableModels.map((model) => ({
-                ...(existing.get(model.id) ?? {}),
+                ...existing.get(model.id),
                 model: model.id,
                 displayName: model.name || model.id,
                 contextWindow: resolveCopilotReportedPromptLimit(

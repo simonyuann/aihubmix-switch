@@ -81,7 +81,7 @@ export const getApiKeyFromConfig = (
           ? apiKey
           : "";
     return value;
-  } catch (err) {
+  } catch {
     return "";
   }
 };
@@ -162,7 +162,7 @@ export const hasApiKeyField = (
       Object.prototype.hasOwnProperty.call(env, "ANTHROPIC_AUTH_TOKEN") ||
       Object.prototype.hasOwnProperty.call(env, "ANTHROPIC_API_KEY")
     );
-  } catch (err) {
+  } catch {
     return false;
   }
 };
@@ -240,7 +240,7 @@ export const setApiKeyInConfig = (
       return jsonString;
     }
     return JSON.stringify(config, null, 2);
-  } catch (err) {
+  } catch {
     return jsonString;
   }
 };

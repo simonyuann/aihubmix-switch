@@ -195,7 +195,7 @@ export function injectCodingPlanUsageScript<
   return {
     ...provider,
     meta: {
-      ...(provider.meta ?? {}),
+      ...provider.meta,
       usage_script: createUsageScript({
         enabled: codingPlanEnabledByDefault(codingPlanProvider),
         templateType: TEMPLATE_TYPES.TOKEN_PLAN,

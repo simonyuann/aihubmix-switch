@@ -405,7 +405,7 @@ export function GrokBuildProviderForm({
       ]),
     );
     const parsedMaxOutputTokens = Number.parseInt(maxOutputTokens, 10);
-    const initialMeta = { ...(initialData?.meta ?? {}) };
+    const initialMeta = { ...initialData?.meta };
     delete initialMeta.custom_endpoints;
     const meta: ProviderMeta = {
       ...initialMeta,

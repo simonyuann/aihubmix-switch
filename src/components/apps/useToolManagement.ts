@@ -506,7 +506,7 @@ export function useToolManagement() {
   const handleToolShellChange = async (toolName: ToolName, value: string) => {
     const wslShell = value === "auto" ? null : value;
     const nextPref: WslShellPreference = {
-      ...(wslShellByTool[toolName] ?? {}),
+      ...wslShellByTool[toolName],
       wslShell,
     };
     setWslShellByTool((prev) => ({ ...prev, [toolName]: nextPref }));
@@ -519,7 +519,7 @@ export function useToolManagement() {
   ) => {
     const wslShellFlag = value === "auto" ? null : value;
     const nextPref: WslShellPreference = {
-      ...(wslShellByTool[toolName] ?? {}),
+      ...wslShellByTool[toolName],
       wslShellFlag,
     };
     setWslShellByTool((prev) => ({ ...prev, [toolName]: nextPref }));
@@ -590,7 +590,7 @@ export function useToolManagement() {
       // 不用等手动「检查更新」
       updateToolManagementState({
         installReports: {
-          ...(toolManagementState.installReports ?? {}),
+          ...toolManagementState.installReports,
           [toolName]: report,
         },
       });

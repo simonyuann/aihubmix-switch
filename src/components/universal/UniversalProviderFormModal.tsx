@@ -118,7 +118,7 @@ export function UniversalProviderFormModal({
       setModels((prev) => ({
         ...prev,
         [app]: {
-          ...(prev[app] || {}),
+          ...prev[app],
           [field]: value,
         },
       }));

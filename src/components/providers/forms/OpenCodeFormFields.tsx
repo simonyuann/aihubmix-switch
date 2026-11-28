@@ -404,7 +404,7 @@ export function OpenCodeFormFields({
     value: string,
   ) => {
     const model = models[modelKey];
-    const nextLimit = { ...(model.limit || {}) };
+    const nextLimit = { ...model.limit };
     const trimmedValue = value.trim();
 
     if (trimmedValue === "") {

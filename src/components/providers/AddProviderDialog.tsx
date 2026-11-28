@@ -438,7 +438,7 @@ export function AddProviderDialog({
           });
 
           providerData.meta = {
-            ...(providerData.meta ?? {}),
+            ...providerData.meta,
             custom_endpoints: customEndpoints,
           };
         }
