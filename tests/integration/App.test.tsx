@@ -226,8 +226,12 @@ describe("dedicated client account boundary", () => {
     loggedIn = true;
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "充值" }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent("账户充值");
-    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "rechargeDialog.title",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "rechargeDialog.action.close" }),
+    );
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );

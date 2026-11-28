@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { friendlyError } from "./friendlyError";
+import { useTranslation } from "react-i18next";
 import QRCode from "qrcode";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { settingsApi } from "@/lib/api/settings";
@@ -26,18 +27,18 @@ import {
 const pending = (order: RechargeOrder) =>
   ["PENDING", "PAID", "RECHARGING"].includes(order.status);
 const orderStatus: Record<string, string> = {
-  PENDING: "待付款",
-  PAID: "已付款",
-  RECHARGING: "充值中",
-  COMPLETED: "已完成",
-  CANCELLED: "已取消",
-  EXPIRED: "已过期",
-  FAILED: "失败",
+  PENDING: "rechargeDialog.status.pending",
+  PAID: "rechargeDialog.status.paid",
+  RECHARGING: "rechargeDialog.status.recharging",
+  COMPLETED: "rechargeDialog.status.completed",
+  CANCELLED: "rechargeDialog.status.cancelled",
+  EXPIRED: "rechargeDialog.status.expired",
+  FAILED: "rechargeDialog.status.failed",
 };
-function orderDate(value: string) {
+function orderDate(value: string, fallbackTitle: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
-    ? "充值订单"
+    ? fallbackTitle
     : new Intl.DateTimeFormat("zh-CN", {
         dateStyle: "short",
         timeStyle: "short",
@@ -66,6 +67,7 @@ export function RechargeDialog({
   onPaid: () => void;
   paymentLinks?: PaymentLinks;
 }) {
+  const { t } = useTranslation();
   const [overview, setOverview] = useState<RechargeOverview | null>(null),
     [amount, setAmount] = useState("20"),
     [method, setMethod] = useState(""),
@@ -126,7 +128,7 @@ export function RechargeDialog({
       setError("");
     } catch (e) {
       if (mounted.current) {
-        setError(friendlyError(e, "加载充值信息失败，请重试。"));
+        setError(friendlyError(e, t("rechargeDialog.error.loadOverview")));
         setOverviewFailed(true);
         setOverview((current) =>
           current ? { ...current, balance: null } : null,
@@ -180,7 +182,7 @@ export function RechargeDialog({
           apply(next);
       } catch (e) {
         if (!stopped && mounted.current)
-          setError(friendlyError(e, "刷新充值状态失败，请重试。"));
+          setError(friendlyError(e, t("rechargeDialog.error.refreshStatus")));
       } finally {
         polling = false;
       }
@@ -208,7 +210,7 @@ export function RechargeDialog({
           if (active) setQr(value);
         })
         .catch(() => {
-          if (active) setError("付款码生成失败，请打开支付页面。");
+          if (active) setError(t("rechargeDialog.error.qrFailed"));
         });
     return () => {
       active = false;
@@ -232,7 +234,7 @@ export function RechargeDialog({
       }
     } catch (e) {
       if (mounted.current) {
-        setError(friendlyError(e, "充值操作未能确认，请刷新充值记录。"));
+        setError(friendlyError(e, t("rechargeDialog.error.uncertainSubmit")));
         if (creation) setUncertain(true);
       }
     } finally {
@@ -254,23 +256,28 @@ export function RechargeDialog({
   const outstanding =
     overview?.orders.find(pending) ?? (order && pending(order) ? order : null);
   const blockReason = loading
-    ? "正在刷新充值信息，请稍候。"
+    ? t("rechargeDialog.status.refreshingOverview")
     : overviewFailed || !overview
-      ? "充值信息暂不可用，请刷新后重试。"
+      ? t("rechargeDialog.error.overviewUnavailable")
       : !overview.enabled
-        ? "当前充值服务不可用，请稍后重试。"
+        ? t("rechargeDialog.error.serviceUnavailable")
         : uncertain
-          ? "请先刷新充值记录，确认上次提交结果。"
+          ? t("rechargeDialog.error.confirmPreviousFirst")
           : outstanding
             ? outstanding.status === "PENDING"
-              ? "已有待付款订单，请先继续支付或取消。"
-              : "已有充值正在处理，请查看订单状态。"
+              ? t("rechargeDialog.error.pendingOrderExists")
+              : t("rechargeDialog.error.orderProcessing")
             : !selected
-              ? "暂无可用支付方式，请稍后重试。"
+              ? t("rechargeDialog.error.noPaymentMethod")
               : !validAmount(amount, minimum, maximum)
-                ? `请输入 ${minimum}–${Number.isFinite(maximum) ? maximum : "不限"} 范围内的金额，最多保留两位小数。`
+                ? t("rechargeDialog.error.amountRange", {
+                    minimum,
+                    maximum: Number.isFinite(maximum)
+                      ? maximum
+                      : t("rechargeDialog.label.unlimited"),
+                  })
                 : busy
-                  ? "正在处理，请稍候。"
+                  ? t("rechargeDialog.status.processing")
                   : "";
   const remaining = order
     ? Math.max(0, Math.ceil((Date.parse(order.expiresAt) - now) / 1000))
@@ -284,9 +291,9 @@ export function RechargeDialog({
     >
       <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] overflow-hidden">
         <DialogHeader>
-          <DialogTitle>账户充值</DialogTitle>
+          <DialogTitle>{t("rechargeDialog.title")}</DialogTitle>
           <DialogDescription>
-            钱包余额与 Key 配额分别计算。创建订单后扫码付款。
+            {t("rechargeDialog.description")}
           </DialogDescription>
         </DialogHeader>
         <div
@@ -297,14 +304,15 @@ export function RechargeDialog({
             <p className="min-w-0 break-all text-fg-3">{overview?.email}</p>
             <div className="flex shrink-0 items-center gap-1">
               <p className="tabular-nums">
-                钱包余额：{overview?.currency ?? ""}{" "}
+                {t("rechargeDialog.label.walletBalance")}
+                {overview?.currency ?? ""}{" "}
                 {overview?.balance?.toFixed(2) ?? "—"}
               </p>
               <Button
                 variant="ghost"
                 size="icon-compact"
-                aria-label="刷新余额与充值记录"
-                title="刷新余额与充值记录"
+                aria-label={t("rechargeDialog.action.refresh")}
+                title={t("rechargeDialog.action.refresh")}
                 disabled={busy || loading}
                 onClick={() => void refresh()}
               >
@@ -321,14 +329,12 @@ export function RechargeDialog({
             </p>
           )}
           {uncertain && (
-            <p role="alert">
-              提交结果不确定。请成功刷新订单记录后再创建，避免重复付款。
-            </p>
+            <p role="alert">{t("rechargeDialog.error.uncertainResult")}</p>
           )}
           {!order && (
             <div className="space-y-3 rounded-panel border border-border p-4">
               <label>
-                充值金额
+                {t("rechargeDialog.label.amount")}
                 <Input
                   value={amount}
                   inputMode="decimal"
@@ -336,7 +342,10 @@ export function RechargeDialog({
                   disabled={busy}
                 />
               </label>
-              <div className="flex flex-wrap gap-2" aria-label="快捷充值金额">
+              <div
+                className="flex flex-wrap gap-2"
+                aria-label={t("rechargeDialog.label.quickAmounts")}
+              >
                 {[20, 50, 100].map((value) => (
                   <Button
                     key={value}
@@ -346,16 +355,21 @@ export function RechargeDialog({
                     disabled={busy || value < minimum || value > maximum}
                     onClick={() => setAmount(String(value))}
                   >
-                    {value} 元
+                    {t("rechargeDialog.label.yuan", { value })}
                   </Button>
                 ))}
               </div>
               <p className="text-fg-3">
-                范围：{minimum}–{Number.isFinite(maximum) ? maximum : "不限"}
-                ；手续费：{selected?.feeRate ?? 0}
+                {t("rechargeDialog.label.rangeAndFee", {
+                  minimum,
+                  maximum: Number.isFinite(maximum)
+                    ? maximum
+                    : t("rechargeDialog.label.unlimited"),
+                  fee: selected?.feeRate ?? 0,
+                })}
               </p>
               <label>
-                支付方式
+                {t("rechargeDialog.label.paymentMethod")}
                 <select
                   className="w-full rounded-control border border-border bg-surface p-2"
                   value={method}
@@ -375,7 +389,7 @@ export function RechargeDialog({
                   void operate("payment-create", { amount, method }, true)
                 }
               >
-                创建充值订单
+                {t("rechargeDialog.action.createOrder")}
               </Button>
               {blockReason && (
                 <p role="status" className="text-caption text-fg-2">
@@ -390,7 +404,7 @@ export function RechargeDialog({
                     void operate("payment-order", { id: outstanding.id })
                   }
                 >
-                  查看未完成的充值
+                  {t("rechargeDialog.action.viewPending")}
                 </Button>
               )}
             </div>
@@ -398,23 +412,30 @@ export function RechargeDialog({
           {order && (
             <section className="space-y-3 rounded-panel border border-border p-3">
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                <p className="font-semibold">充值订单</p>
+                <p className="font-semibold">
+                  {t("rechargeDialog.label.orderHistory")}
+                </p>
                 <p className="text-fg-3">
                   {orderStatus[order.status] ?? order.status}
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                 <p className="tabular-nums">
-                  支付金额：{order.currency} {order.payAmount ?? "—"}
+                  {t("rechargeDialog.label.payAmount")}
+                  {order.currency} {order.payAmount ?? "—"}
                 </p>
                 {order.status === "PENDING" && (
-                  <p className="text-fg-3 tabular-nums">剩余 {remaining} 秒</p>
+                  <p className="text-fg-3 tabular-nums">
+                    {t("rechargeDialog.label.remainingSeconds", {
+                      seconds: remaining,
+                    })}
+                  </p>
                 )}
               </div>
               {qr && order.status === "PENDING" && remaining > 0 && (
                 <img
                   src={qr}
-                  alt="订单付款二维码"
+                  alt={t("rechargeDialog.label.orderQrCode")}
                   width={260}
                   height={260}
                   className="mx-auto aspect-square h-auto w-[clamp(9rem,32dvh,14rem)] max-w-full rounded-control bg-white object-contain"
@@ -425,7 +446,7 @@ export function RechargeDialog({
                 !qr &&
                 !order.payUrl && (
                   <p className="text-fg-3">
-                    付款信息暂不可用，可取消此订单后重新创建。
+                    {t("rechargeDialog.label.payInfoUnavailable")}
                   </p>
                 )}
               <div className="flex flex-wrap justify-center gap-2">
@@ -442,13 +463,13 @@ export function RechargeDialog({
                             setError(
                               friendlyError(
                                 e,
-                                "操作失败，请刷新充值记录后重试。",
+                                t("rechargeDialog.error.operationFailed"),
                               ),
                             ),
                           )
                       }
                     >
-                      打开支付页面
+                      {t("rechargeDialog.action.openPayPage")}
                     </Button>
                   )}
                 {order.status === "PENDING" && (
@@ -459,7 +480,7 @@ export function RechargeDialog({
                       void operate("payment-verify", { id: order.id })
                     }
                   >
-                    我已付款，核验
+                    {t("rechargeDialog.action.markPaid")}
                   </Button>
                 )}
                 {(order.status === "PAID" || order.status === "RECHARGING") && (
@@ -470,7 +491,7 @@ export function RechargeDialog({
                       void operate("payment-order", { id: order.id })
                     }
                   >
-                    刷新充值状态
+                    {t("rechargeDialog.action.refreshStatus")}
                   </Button>
                 )}
                 {order.status === "PENDING" && (
@@ -482,12 +503,12 @@ export function RechargeDialog({
                       void operate("payment-cancel", { id: order.id })
                     }
                   >
-                    取消订单
+                    {t("rechargeDialog.action.cancelOrder")}
                   </Button>
                 )}
                 {!pending(order) && (
                   <Button disabled={busy} onClick={() => setOrder(null)}>
-                    返回充值
+                    {t("rechargeDialog.action.backToRecharge")}
                   </Button>
                 )}
               </div>
@@ -497,7 +518,7 @@ export function RechargeDialog({
             <CollapsibleTrigger asChild>
               <button className="flex w-full items-center justify-between gap-2 rounded-control py-2 text-start text-fg-2 hover:text-fg-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
                 <span>
-                  充值记录
+                  {t("rechargeDialog.label.orderHistory")}
                   {overview && (
                     <span className="ms-2 text-fg-3">
                       {overview.orders.length}
@@ -519,26 +540,32 @@ export function RechargeDialog({
                   disabled={busy}
                 >
                   <span>
-                    {orderDate(o.createdAt)} ·{" "}
+                    {orderDate(
+                      o.createdAt,
+                      t("rechargeDialog.fallback.orderTitle"),
+                    )}{" "}
+                    ·{" "}
                     {o.method === "wxpay"
-                      ? "微信"
+                      ? t("rechargeDialog.method.wechat")
                       : o.method === "alipay"
-                        ? "支付宝"
-                        : "充值"}{" "}
+                        ? t("rechargeDialog.method.alipay")
+                        : t("rechargeDialog.method.recharge")}{" "}
                     · {o.currency} {o.amount ?? "—"}
                   </span>
                   <span>{orderStatus[o.status] ?? o.status}</span>
                 </button>
               ))}
               {overview && !overview.orders.length && (
-                <p className="text-fg-3">暂无充值记录</p>
+                <p className="text-fg-3">
+                  {t("rechargeDialog.empty.noOrders")}
+                </p>
               )}
             </CollapsibleContent>
           </Collapsible>
         </div>
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={onClose}>
-            关闭
+            {t("rechargeDialog.action.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

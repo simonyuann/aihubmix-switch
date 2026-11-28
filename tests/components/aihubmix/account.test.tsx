@@ -70,25 +70,29 @@ describe("AIHubMix account integration", () => {
     const view = render(
       <RechargeDialog open onClose={() => {}} onPaid={() => {}} />,
     );
-    const create = await screen.findByRole("button", { name: "创建充值订单" });
+    const create = await screen.findByRole("button", {
+      name: "rechargeDialog.action.createOrder",
+    });
     await waitFor(() => expect(create).toBeEnabled());
     expect(mocks.dispatch).not.toHaveBeenCalledWith(
       "payment-create",
       expect.anything(),
     );
     fireEvent.click(create);
-    await screen.findByText(/提交结果不确定/);
+    await screen.findByText("rechargeDialog.error.uncertainResult");
     expect(create).toBeDisabled();
     mocks.dispatch.mockRejectedValue(new Error("refresh failed"));
-    fireEvent.click(screen.getByRole("button", { name: "刷新余额与充值记录" }));
-    await screen.findByText("加载充值信息失败，请重试。");
+    fireEvent.click(
+      screen.getByRole("button", { name: "rechargeDialog.action.refresh" }),
+    );
+    await screen.findByText("rechargeDialog.error.loadOverview");
     expect(screen.queryByText(/refresh failed/)).not.toBeInTheDocument();
     expect(create).toBeDisabled();
     view.rerender(
       <RechargeDialog open={false} onClose={() => {}} onPaid={() => {}} />,
     );
     view.rerender(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
-    await screen.findByText(/提交结果不确定/);
+    await screen.findByText("rechargeDialog.error.uncertainResult");
   });
   it("restores a pending checkout after viewing another order", async () => {
     const pending = {
@@ -118,28 +122,38 @@ describe("AIHubMix account integration", () => {
       },
     );
     render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
-    const create = await screen.findByRole("button", { name: "创建充值订单" });
+    const create = await screen.findByRole("button", {
+      name: "rechargeDialog.action.createOrder",
+    });
     await waitFor(() => expect(create).toBeEnabled());
     fireEvent.click(create);
-    await screen.findByAltText("订单付款二维码");
+    await screen.findByAltText("rechargeDialog.label.orderQrCode");
     expect(
-      screen.queryByRole("button", { name: "创建充值订单" }),
+      screen.queryByRole("button", {
+        name: "rechargeDialog.action.createOrder",
+      }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /CNY 20/ }),
     ).not.toBeInTheDocument();
-    const history = screen.getByRole("button", { name: /^充值记录/ });
+    const history = screen.getByRole("button", {
+      name: /^rechargeDialog.label.orderHistory/,
+    });
     expect(history).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(history);
     expect(screen.queryByText(/#\d+/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /CNY 20/ }));
     await waitFor(() =>
-      expect(screen.queryByAltText("订单付款二维码")).not.toBeInTheDocument(),
+      expect(
+        screen.queryByAltText("rechargeDialog.label.orderQrCode"),
+      ).not.toBeInTheDocument(),
     );
     fireEvent.click(screen.getByRole("button", { name: /CNY 50/ }));
-    expect(await screen.findByAltText("订单付款二维码")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "打开支付页面" }),
+      await screen.findByAltText("rechargeDialog.label.orderQrCode"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "rechargeDialog.action.openPayPage" }),
     ).toBeInTheDocument();
   });
   it("returns to recharge after a cancelled payment without creating another order", async () => {
@@ -159,14 +173,26 @@ describe("AIHubMix account integration", () => {
       return Promise.resolve(pending);
     });
     render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
-    const create = await screen.findByRole("button", { name: "创建充值订单" });
+    const create = await screen.findByRole("button", {
+      name: "rechargeDialog.action.createOrder",
+    });
     await waitFor(() => expect(create).toBeEnabled());
     fireEvent.click(create);
-    await screen.findByAltText("订单付款二维码");
-    fireEvent.click(screen.getByRole("button", { name: "取消订单" }));
-    fireEvent.click(await screen.findByRole("button", { name: "返回充值" }));
-    expect(screen.getByRole("button", { name: "创建充值订单" })).toBeEnabled();
-    expect(screen.queryByAltText("订单付款二维码")).not.toBeInTheDocument();
+    await screen.findByAltText("rechargeDialog.label.orderQrCode");
+    fireEvent.click(
+      screen.getByRole("button", { name: "rechargeDialog.action.cancelOrder" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "rechargeDialog.action.backToRecharge",
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "rechargeDialog.action.createOrder" }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByAltText("rechargeDialog.label.orderQrCode"),
+    ).not.toBeInTheDocument();
     expect(
       mocks.dispatch.mock.calls.filter(
         ([command]) => command === "payment-create",
@@ -180,7 +206,9 @@ describe("AIHubMix account integration", () => {
       balance: 12.34,
     });
     render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
-    expect(await screen.findByText(/钱包余额：USD 12.34/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/rechargeDialog.label.walletBalances*USD 12.34/),
+    ).toBeInTheDocument();
   });
   it("restores a pending payment code on reopen only for the original account", async () => {
     const pending = {
@@ -220,25 +248,37 @@ describe("AIHubMix account integration", () => {
     }
     const view = render(wallet(7));
     fireEvent.click(screen.getByText("测试打开"));
-    const create = await screen.findByRole("button", { name: "创建充值订单" });
+    const create = await screen.findByRole("button", {
+      name: "rechargeDialog.action.createOrder",
+    });
     await waitFor(() => expect(create).toBeEnabled());
     fireEvent.click(create);
-    await screen.findByAltText("订单付款二维码");
-    fireEvent.click(screen.getByRole("button", { name: /^关闭$/ }));
+    await screen.findByAltText("rechargeDialog.label.orderQrCode");
+    fireEvent.click(
+      screen.getByRole("button", { name: "rechargeDialog.action.close" }),
+    );
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );
     fireEvent.click(screen.getByText("测试打开"));
     fireEvent.click(
-      await screen.findByRole("button", { name: "查看未完成的充值" }),
+      await screen.findByRole("button", {
+        name: "rechargeDialog.action.viewPending",
+      }),
     );
-    expect(await screen.findByAltText("订单付款二维码")).toBeVisible();
+    expect(
+      await screen.findByAltText("rechargeDialog.label.orderQrCode"),
+    ).toBeVisible();
     view.rerender(wallet(8));
     fireEvent.click(
-      await screen.findByRole("button", { name: "查看未完成的充值" }),
+      await screen.findByRole("button", {
+        name: "rechargeDialog.action.viewPending",
+      }),
     );
-    await screen.findByText(/付款信息暂不可用/);
-    expect(screen.queryByAltText("订单付款二维码")).not.toBeInTheDocument();
+    await screen.findByText("rechargeDialog.label.payInfoUnavailable");
+    expect(
+      screen.queryByAltText("rechargeDialog.label.orderQrCode"),
+    ).not.toBeInTheDocument();
     expect(
       mocks.dispatch.mock.calls.filter(([c]) => c === "payment-create"),
     ).toHaveLength(1);
@@ -263,25 +303,41 @@ describe("AIHubMix account integration", () => {
       return Promise.resolve(pendingOrder);
     });
     render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
-    const button = await screen.findByRole("button", { name: "创建充值订单" });
-    await screen.findByText(/已有待付款订单/);
+    const button = await screen.findByRole("button", {
+      name: "rechargeDialog.action.createOrder",
+    });
+    await screen.findByText("rechargeDialog.error.pendingOrderExists");
     expect(button).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "查看未完成的充值" }));
-    await screen.findByText(/付款信息暂不可用/);
+    fireEvent.click(
+      screen.getByRole("button", { name: "rechargeDialog.action.viewPending" }),
+    );
+    await screen.findByText("rechargeDialog.label.payInfoUnavailable");
     expect(screen.queryByText(/#38/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "取消订单" }));
-    fireEvent.click(await screen.findByRole("button", { name: "返回充值" }));
-    expect(screen.getByRole("button", { name: "创建充值订单" })).toBeEnabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "rechargeDialog.action.cancelOrder" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "rechargeDialog.action.backToRecharge",
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: "rechargeDialog.action.createOrder" }),
+    ).toBeEnabled();
   });
   it("reports unavailable checkout and never enables stale information after a failed refresh", async () => {
     mocks.dispatch
       .mockImplementationOnce(() => Promise.resolve(overview))
       .mockRejectedValue(new Error("offline"));
     render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
-    const button = await screen.findByRole("button", { name: "创建充值订单" });
+    const button = await screen.findByRole("button", {
+      name: "rechargeDialog.action.createOrder",
+    });
     await waitFor(() => expect(button).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "刷新余额与充值记录" }));
-    await screen.findByText("充值信息暂不可用，请刷新后重试。");
+    fireEvent.click(
+      screen.getByRole("button", { name: "rechargeDialog.action.refresh" }),
+    );
+    await screen.findByText("rechargeDialog.error.overviewUnavailable");
     expect(button).toBeDisabled();
   });
   it("shows a refresh action for an order already being credited", async () => {
@@ -304,16 +360,22 @@ describe("AIHubMix account integration", () => {
       ),
     );
     render(<RechargeDialog open onClose={() => {}} onPaid={() => {}} />);
-    await screen.findByText(/已有充值正在处理/);
-    fireEvent.click(screen.getByRole("button", { name: "查看未完成的充值" }));
+    await screen.findByText("rechargeDialog.error.orderProcessing");
+    fireEvent.click(
+      screen.getByRole("button", { name: "rechargeDialog.action.viewPending" }),
+    );
     expect(
-      await screen.findByRole("button", { name: "刷新充值状态" }),
+      await screen.findByRole("button", {
+        name: "rechargeDialog.action.refreshStatus",
+      }),
     ).toBeEnabled();
     expect(
-      screen.queryByRole("button", { name: "取消订单" }),
+      screen.queryByRole("button", {
+        name: "rechargeDialog.action.cancelOrder",
+      }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "我已付款，核验" }),
+      screen.queryByRole("button", { name: "rechargeDialog.action.markPaid" }),
     ).not.toBeInTheDocument();
   });
   it("makes balance refresh failures visible without exposing details", () => {

@@ -5271,5 +5271,71 @@
       "loadKeys": "加载 API 列表失败，请重试。",
       "waitStateConfirm": "请等待配置状态确认"
     }
+  },
+  "rechargeDialog": {
+    "status": {
+      "pending": "待付款",
+      "paid": "已付款",
+      "recharging": "充值中",
+      "completed": "已完成",
+      "cancelled": "已取消",
+      "expired": "已过期",
+      "failed": "失败",
+      "refreshingOverview": "正在刷新充值信息，请稍候。",
+      "processing": "正在处理，请稍候。"
+    },
+    "fallback": {
+      "orderTitle": "充值订单"
+    },
+    "title": "账户充值",
+    "description": "钱包余额与 Key 配额分别计算。创建订单后扫码付款。",
+    "label": {
+      "walletBalance": "钱包余额：",
+      "amount": "充值金额",
+      "quickAmounts": "快捷充值金额",
+      "yuan": "{{value}} 元",
+      "rangeAndFee": "范围：{{minimum}}–{{maximum}}；手续费：{{fee}}",
+      "unlimited": "不限",
+      "paymentMethod": "支付方式",
+      "payAmount": "支付金额：",
+      "remainingSeconds": "剩余 {{seconds}} 秒",
+      "orderQrCode": "订单付款二维码",
+      "payInfoUnavailable": "付款信息暂不可用，可取消此订单后重新创建。",
+      "orderHistory": "充值订单"
+    },
+    "action": {
+      "refresh": "刷新余额与充值记录",
+      "createOrder": "创建充值订单",
+      "viewPending": "查看未完成的充值",
+      "markPaid": "我已付款，核验",
+      "refreshStatus": "刷新充值状态",
+      "cancelOrder": "取消订单",
+      "backToRecharge": "返回充值",
+      "openPayPage": "打开支付页面",
+      "close": "关闭"
+    },
+    "method": {
+      "wechat": "微信",
+      "alipay": "支付宝",
+      "recharge": "充值"
+    },
+    "empty": {
+      "noOrders": "暂无充值记录"
+    },
+    "error": {
+      "loadOverview": "加载充值信息失败，请重试。",
+      "refreshStatus": "刷新充值状态失败，请重试。",
+      "qrFailed": "付款码生成失败，请打开支付页面。",
+      "uncertainSubmit": "充值操作未能确认，请刷新充值记录。",
+      "operationFailed": "操作失败，请刷新充值记录后重试。",
+      "uncertainResult": "提交结果不确定。请成功刷新订单记录后再创建，避免重复付款。",
+      "overviewUnavailable": "充值信息暂不可用，请刷新后重试。",
+      "serviceUnavailable": "当前充值服务不可用，请稍后重试。",
+      "confirmPreviousFirst": "请先刷新充值记录，确认上次提交结果。",
+      "pendingOrderExists": "已有待付款订单，请先继续支付或取消。",
+      "orderProcessing": "已有充值正在处理，请查看订单状态。",
+      "noPaymentMethod": "暂无可用支付方式，请稍后重试。",
+      "amountRange": "请输入 {{minimum}}–{{maximum}} 范围内的金额，最多保留两位小数。"
+    }
   }
 }
