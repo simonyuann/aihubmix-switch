@@ -408,7 +408,7 @@ fn parse_json5_value(path: &Path, label: &str, bytes: Vec<u8>) -> Result<Value, 
             path.display()
         ))
     })?;
-    json5::from_str(&source).map_err(|error| {
+    json_five::from_str(&source).map_err(|error| {
         AppError::Config(format!(
             "{label} file is not valid JSON/JSONC ({}): {error}",
             path.display()

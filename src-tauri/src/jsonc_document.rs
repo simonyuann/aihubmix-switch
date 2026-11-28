@@ -19,7 +19,7 @@ pub(crate) struct JsoncDocument {
 
 impl JsoncDocument {
     pub(crate) fn parse(source: &str) -> Result<Self, AppError> {
-        let semantic: Value = json5::from_str(source)
+        let semantic: Value = json_five::from_str(source)
             .map_err(|e| AppError::Config(format!("Failed to parse JSONC config: {e}")))?;
         if !semantic.is_object() {
             return Err(AppError::Config(
@@ -90,7 +90,7 @@ impl JsoncDocument {
                 "Refusing to write invalid JSONC config after round-trip serialization: {e}"
             ))
         })?;
-        let reparsed: Value = json5::from_str(&source).map_err(|e| {
+        let reparsed: Value = json_five::from_str(&source).map_err(|e| {
             AppError::Config(format!(
                 "Refusing to write invalid JSONC config after round-trip serialization: {e}"
             ))
@@ -150,7 +150,7 @@ fn parse_round_trip(source: &str) -> Result<RtJSONText, AppError> {
 fn json5_key_name(key: &RtJSONValue) -> Result<String, AppError> {
     // RT strings/identifiers contain source escapes, not decoded key names.
     // Let json5 decode all three key spellings, including Unicode escapes.
-    let object: serde_json::Map<String, Value> = json5::from_str(&format!("{{{key}:null}}"))
+    let object: serde_json::Map<String, Value> = json_five::from_str(&format!("{{{key}:null}}"))
         .map_err(|e| AppError::Config(format!("Failed to decode JSONC key: {e}")))?;
     object
         .into_iter()
@@ -646,7 +646,7 @@ mod tests {
             assert!(doc.apply(&desired).unwrap());
             let output = doc.validated_source().unwrap();
             assert_eq!(output.as_bytes(), source.replace("old", "new").as_bytes());
-            assert_eq!(json5::from_str::<Value>(&output).unwrap(), desired);
+            assert_eq!(json_five::from_str::<Value>(&output).unwrap(), desired);
         }
     }
 
@@ -661,7 +661,7 @@ mod tests {
                 doc.apply(&desired).unwrap();
                 let output = doc.validated_source().unwrap();
                 assert_eq!(output, source.replace(":0", ":1"));
-                assert_eq!(json5::from_str::<Value>(&output).unwrap(), desired);
+                assert_eq!(json_five::from_str::<Value>(&output).unwrap(), desired);
             }
         }
     }
@@ -683,7 +683,7 @@ mod tests {
         let output = doc.validated_source().unwrap();
         assert!(output.contains(r#""prov\u0069der""#));
         assert!(output.contains("unquoted:3"));
-        assert_eq!(json5::from_str::<Value>(&output).unwrap(), desired);
+        assert_eq!(json_five::from_str::<Value>(&output).unwrap(), desired);
     }
 
     #[test]
@@ -702,7 +702,7 @@ mod tests {
                 doc.apply(&desired).unwrap();
                 let output = doc.validated_source().unwrap();
                 assert!(output.contains("/* keep */"));
-                assert_eq!(json5::from_str::<Value>(&output).unwrap(), desired);
+                assert_eq!(json_five::from_str::<Value>(&output).unwrap(), desired);
             }
         }
     }

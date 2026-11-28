@@ -348,7 +348,8 @@ fn opencode_jsonc_omo_registration_removal_and_failure_rollback() {
         opencode_config::read_opencode_config().unwrap()["plugin"],
         json!(["unrelated"])
     );
-    let omo: serde_json::Value = json5::from_str(&fs::read_to_string(&unified).unwrap()).unwrap();
+    let omo: serde_json::Value =
+        json_five::from_str(&fs::read_to_string(&unified).unwrap()).unwrap();
     assert!(omo.get("[opencode]").is_none());
     assert_eq!(omo["_migrations"], json!(["keep"]));
 

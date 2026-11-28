@@ -250,7 +250,7 @@ impl OmoService {
 
     fn read_jsonc_object(path: &Path) -> Result<Map<String, Value>, AppError> {
         let content = std::fs::read_to_string(path).map_err(|e| AppError::io(path, e))?;
-        let parsed: Value = json5::from_str(&content)
+        let parsed: Value = json_five::from_str(&content)
             .map_err(|e| AppError::Config(format!("Failed to parse OMO config: {e}")))?;
         parsed
             .as_object()
@@ -832,7 +832,7 @@ mod tests {
         document.set_opencode_section(&config).unwrap();
         let _written_contents = document.save().unwrap();
         let source = std::fs::read_to_string(&path).unwrap();
-        let document: Value = json5::from_str(&source).unwrap();
+        let document: Value = json_five::from_str(&source).unwrap();
 
         assert_eq!(
             document["_migrations"],
@@ -861,7 +861,7 @@ mod tests {
   },
 }"#;
         std::fs::write(&path, original).unwrap();
-        let root: Value = json5::from_str(original).unwrap();
+        let root: Value = json_five::from_str(original).unwrap();
         let desired = root[OPENCODE_SECTION_KEY].clone();
 
         let mut document = UnifiedConfigDocument::load(&path).unwrap();
