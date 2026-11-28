@@ -2,10 +2,10 @@ use indexmap::IndexMap;
 use tauri::{Emitter, Manager, State};
 
 use crate::app_config::AppType;
-use crate::commands::copilot::CopilotAuthState;
-use crate::commands::xai_oauth::XaiOAuthState;
 use crate::error::AppError;
 use crate::provider::{ClaudeDesktopMode, Provider, ProviderMeta};
+use crate::proxy::providers::copilot_auth::CopilotAuthState;
+use crate::proxy::providers::xai_oauth_auth::XaiOAuthState;
 use crate::services::provider::{EditorSave, EditorView};
 use crate::services::{
     EndpointLatency, ProviderService, ProviderSortUpdate, SpeedtestService, SwitchResult,

@@ -26,12 +26,14 @@ use super::{
     types::{CopilotOptimizerConfig, OptimizerConfig, ProxyStatus, RectifierConfig},
     ProxyError,
 };
-use crate::commands::{CodexOAuthState, CopilotAuthState, XaiOAuthState};
+use crate::proxy::providers::codex_oauth_auth::CodexOAuthState;
+use crate::proxy::providers::copilot_auth::CopilotAuthState;
 use crate::proxy::providers::copilot_auth::{CopilotAuthError, CopilotAuthManager};
 use crate::proxy::providers::copilot_model_map::{
     CopilotProtocol, CopilotTransport, ResolvedCopilotModel,
 };
 use crate::proxy::providers::xai_oauth_auth::XaiOAuthManager;
+use crate::proxy::providers::xai_oauth_auth::XaiOAuthState;
 use crate::{
     app_config::AppType,
     provider::{CodexCopilotApiFormat, LocalProxyRequestOverrides, Provider},

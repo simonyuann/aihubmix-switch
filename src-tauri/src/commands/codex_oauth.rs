@@ -5,18 +5,12 @@
 //! 大部分认证命令通过通用 `auth_*` 命令（参见 `commands::auth`）暴露给前端，
 //! 此处定义 State wrapper 以及 Codex OAuth 专属的订阅额度和模型列表查询命令。
 
-use crate::proxy::providers::codex_oauth_auth::{CodexOAuthError, CodexOAuthManager};
+use crate::proxy::providers::codex_oauth_auth::{
+    CodexOAuthError, CodexOAuthManager, CodexOAuthState,
+};
 use crate::services::model_fetch::FetchedModel;
 use crate::services::subscription::{query_codex_quota, CredentialStatus, SubscriptionQuota};
-use std::sync::Arc;
 use tauri::State;
-
-/// Codex OAuth 认证状态
-///
-/// `CodexOAuthManager` 内部已使用细粒度锁且所有方法均为 `&self`，因此这里
-/// 直接持有 `Arc`，不再包一层 `RwLock`——避免任一命令持有粗粒度锁跨网络刷新
-/// 时阻塞其他命令（切换 / 认证中心操作 / token 读取）。
-pub struct CodexOAuthState(pub Arc<CodexOAuthManager>);
 
 /// 查询 Codex OAuth (ChatGPT Plus/Pro) 订阅额度
 ///

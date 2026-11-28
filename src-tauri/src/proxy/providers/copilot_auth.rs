@@ -2546,3 +2546,5 @@ mod tests {
         assert_eq!(account.id, "company.ghe.com:99999");
     }
 }
+/// Copilot 认证状态
+pub struct CopilotAuthState(pub Arc<RwLock<CopilotAuthManager>>);

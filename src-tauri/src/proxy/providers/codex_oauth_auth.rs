@@ -3559,3 +3559,9 @@ mod tests {
         ));
     }
 }
+/// Codex OAuth 认证状态
+///
+/// `CodexOAuthManager` 内部已使用细粒度锁且所有方法均为 `&self`，因此这里
+/// 直接持有 `Arc`，不再包一层 `RwLock`——避免任一命令持有粗粒度锁跨网络刷新
+/// 时阻塞其他命令（切换 / 认证中心操作 / token 读取）。
+pub struct CodexOAuthState(pub Arc<CodexOAuthManager>);

@@ -4,8 +4,8 @@
 //! 熔断器（熔断器由真实转发流量驱动）。详见 `services::stream_check`。
 
 use crate::app_config::AppType;
-use crate::commands::copilot::CopilotAuthState;
 use crate::error::AppError;
+use crate::proxy::providers::copilot_auth::CopilotAuthState;
 use crate::services::stream_check::{StreamCheckConfig, StreamCheckResult, StreamCheckService};
 use crate::store::AppState;
 use tauri::State;

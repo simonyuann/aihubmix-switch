@@ -1353,3 +1353,4 @@ mod tests {
         assert!(!data_dir.path().join("xai_oauth_auth.json").exists());
     }
 }
+pub struct XaiOAuthState(pub Arc<RwLock<XaiOAuthManager>>);

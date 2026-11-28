@@ -3268,7 +3268,7 @@ pub fn schedule_tray_refresh(app: &tauri::AppHandle) {
 /// `TRAY_APPS.len()` 个用量查询；按供应商用量开关查询，Codex 托管账号
 /// 未保存开关时与卡片一致默认启用。
 pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
-    use crate::commands::CopilotAuthState;
+    use crate::proxy::providers::copilot_auth::CopilotAuthState;
     use futures::future::join_all;
     if crate::product_policy::restricted() {
         return;
@@ -3333,13 +3333,13 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
             let app_clone = app.clone();
             let state = app.state::<AppState>();
             let copilot_state = app.state::<CopilotAuthState>();
-            let xai_state = app.state::<crate::commands::XaiOAuthState>();
+            let xai_state = app.state::<crate::proxy::providers::xai_oauth_auth::XaiOAuthState>();
             let provider_id = current_id.clone();
             let app_str = app_type_str.to_string();
             usage_futures.push(async move {
                 let result = match source {
                     TrayUsageSource::ManagedCodex(account_id) => {
-                        let codex_state = app.state::<crate::commands::CodexOAuthState>();
+                        let codex_state = app.state::<crate::proxy::providers::codex_oauth_auth::CodexOAuthState>();
                         crate::commands::get_codex_oauth_quota(
                             app_clone,
                             state,
@@ -3387,7 +3387,7 @@ pub(crate) async fn refresh_panel_provider_usage(app: &tauri::AppHandle) {
     if crate::product_policy::restricted() {
         return;
     }
-    use crate::commands::CopilotAuthState;
+    use crate::proxy::providers::copilot_auth::CopilotAuthState;
     use futures::future::join_all;
 
     let Some(app_state) = app.try_state::<AppState>() else {
@@ -3446,7 +3446,7 @@ pub(crate) async fn refresh_panel_provider_usage(app: &tauri::AppHandle) {
                 app.clone(),
                 app.state::<AppState>(),
                 app.state::<CopilotAuthState>(),
-                app.state::<crate::commands::XaiOAuthState>(),
+                app.state::<crate::proxy::providers::xai_oauth_auth::XaiOAuthState>(),
                 provider_id.clone(),
                 app_type.as_str().to_string(),
             )

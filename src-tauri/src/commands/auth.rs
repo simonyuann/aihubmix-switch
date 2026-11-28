@@ -3,13 +3,13 @@ use tauri::State;
 use crate::app_config::AppType;
 use crate::commands::agy_account::AgyAccountState;
 use crate::commands::claude_account::ClaudeAccountState;
-use crate::commands::codex_oauth::CodexOAuthState;
-use crate::commands::copilot::CopilotAuthState;
-use crate::commands::xai_oauth::XaiOAuthState;
 use crate::proxy::providers::codex_oauth_auth::CodexOAuthError;
+use crate::proxy::providers::codex_oauth_auth::CodexOAuthState;
+use crate::proxy::providers::copilot_auth::CopilotAuthState;
 use crate::proxy::providers::copilot_auth::{
     CopilotAuthError, GitHubAccount, GitHubDeviceCodeResponse,
 };
+use crate::proxy::providers::xai_oauth_auth::XaiOAuthState;
 use crate::proxy::providers::xai_oauth_auth::{XaiOAuthAccount, XaiOAuthError};
 use crate::services::agy_account::AgyAccount;
 use crate::services::claude_account::ClaudeAccount;

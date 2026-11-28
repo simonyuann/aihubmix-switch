@@ -1322,7 +1322,7 @@ pub fn run() {
             // 初始化 CopilotAuthManager
             {
                 use crate::proxy::providers::copilot_auth::CopilotAuthManager;
-                use commands::CopilotAuthState;
+                use crate::proxy::providers::copilot_auth::CopilotAuthState;
                 use tokio::sync::RwLock;
 
                 let app_config_dir = crate::config::get_app_config_dir();
@@ -1333,7 +1333,7 @@ pub fn run() {
 
             // 初始化 CodexOAuthManager (ChatGPT Plus/Pro 反代)
             {
-                use commands::CodexOAuthState;
+                use crate::proxy::providers::codex_oauth_auth::CodexOAuthState;
 
                 let codex_oauth_manager =
                     app.state::<AppState>().codex_oauth_manager.clone();
@@ -1344,7 +1344,7 @@ pub fn run() {
             // 初始化 xAI OAuthManager (Grok API 反代)
             {
                 use crate::proxy::providers::xai_oauth_auth::XaiOAuthManager;
-                use commands::XaiOAuthState;
+                use crate::proxy::providers::xai_oauth_auth::XaiOAuthState;
                 use tokio::sync::RwLock;
 
                 let app_config_dir = crate::config::get_app_config_dir();
