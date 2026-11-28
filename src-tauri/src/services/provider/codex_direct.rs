@@ -1369,7 +1369,7 @@ pub(crate) fn run_with_edits(
     // A setup problem must not prevent normal provider switching.
     drop(write);
     if report.is_ok() {
-        let _ = crate::commands::initialize_codex_imagegen(db);
+        let _ = crate::services::codex_imagegen::initialize(db);
     }
     report
 }

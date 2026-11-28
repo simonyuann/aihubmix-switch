@@ -45,7 +45,7 @@ pub async fn aihubmix_dispatch(
         ));
     }
     if command == "auth-reset-proxy" {
-        crate::commands::set_global_proxy_url(app_state, String::new())?;
+        crate::services::global_proxy::set_global_proxy_url(&app_state.db, String::new())?;
         return Ok(Value::Null);
     }
     let mut guard = state.backend.lock().await;

@@ -53,7 +53,6 @@ pub use agy_account::*;
 pub use auth::*;
 pub use balance::*;
 pub use claude_account::*;
-pub(crate) use codex_imagegen::initialize as initialize_codex_imagegen;
 pub use codex_imagegen::*;
 pub use codex_oauth::*;
 pub use coding_plan::*;

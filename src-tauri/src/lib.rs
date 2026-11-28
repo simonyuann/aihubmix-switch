@@ -761,7 +761,7 @@ pub fn run() {
 
             // A pre-existing Codex installation gets the secret-free image
             // CLI integration without requiring the user to reselect a card.
-            let _ = commands::initialize_codex_imagegen(&app_state.db);
+            let _ = crate::services::codex_imagegen::initialize(&app_state.db);
 
             // ============================================================
             // 按表独立判断的导入逻辑（各类数据独立检查，互不影响）
