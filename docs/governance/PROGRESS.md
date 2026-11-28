@@ -59,3 +59,13 @@
 **验证**:tsc 绿;prettier 绿;相关测试 74+90 通过;depcruise 0 违规;cargo check(GNU)在 build.rs 修改后通过。
 
 **发现**:`cargo test` 在 GNU 目标硬性受阻(`webview2_com_sys` E0463,COM 栈 MSVC 导入库导向),clean 后复现 → 行为级 Rust 验证以 CI 为准;本地用 `cargo check --all-targets` 做类型级验证。安装 MSVC Build Tools 可解锁(待用户决定)。
+
+## Round 4 — 行为基线抓回归 + T17 静默基线 + R1 预研(2026-11-28)
+
+**T17 数据**:静默全量 vitest = **7 失败/3533 通过**(负载下 13↔18)——证实漂移是负载型 flaky;真实稳定失败在 `PiProviderForm`(6)与此前集合对比,`SessionMarkdown`×1 为**治理引入的回归,已修复**(见下)。
+
+**回归案例(治理循环价值的实证)**:`c058dbc` 把 SessionMarkdown 的 openSessionLink 迁到 settingsApi.openExternal 后,静默基线立刻暴露 1 个新失败——`settingsApi.openExternal` 的前端校验只放行 http/https,而后端 `validate_external_url`(SSOT)放行 http/https/**mailto**。修复:前端白名单对齐后端契约(`fix` 提交),SessionMarkdown/AppsPage/help 共 105 测试复绿。**教训:api 方法迁移=契约审查,不只是路径搬迁。**
+
+**T18 判定**:维持"不机械合并"(各 mock 有独立语义)。
+
+**R1 预研**(进行中):misc.rs 进程原语(CommandDeadline/terminate_child_tree/isolate_child_process_group/wait_child_output/apply_extra_env/decode_command_output±win/merge_path_segments±win/CREATE_NO_WINDOW)抽离为 `child_process.rs`;mcp_connectivity 的 3 个 symbols(detected 工具执行外的全部)随之迁移;验证手段 = cargo check --all-targets(GNU)+ 新增 linux target 交叉检查 `cfg(not(windows))` 代码。

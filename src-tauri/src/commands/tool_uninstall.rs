@@ -2,6 +2,9 @@
 //! Never fall back to a different package manager or delete an arbitrary directory.
 
 use super::*;
+#[cfg(target_os = "windows")]
+use crate::child_process::CREATE_NO_WINDOW;
+use crate::child_process::{decode_command_output, wait_child_output, CommandDeadline};
 
 /// Every detected installation with its own plan. The user picks one; the others stay.
 pub(super) fn candidates(

@@ -4,6 +4,7 @@
 //! 提前标出来、不给升级按钮，执行升级前再查一次。认不出、查不到时一律放行。
 
 use super::*;
+use crate::child_process::{decode_command_output, CommandDeadline};
 
 /// 新版本要求的 Node 和升级会用到的 Node 对不上。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]

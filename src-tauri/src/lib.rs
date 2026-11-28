@@ -5,6 +5,7 @@ mod aihubmix;
 mod app_config;
 mod app_store;
 mod auto_launch;
+mod child_process;
 mod claude_desktop_config;
 mod claude_desktop_launch;
 mod claude_mcp;

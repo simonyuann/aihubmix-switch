@@ -125,8 +125,8 @@ pub async fn get_opencode_models() -> Result<Vec<OpenCodeModelRef>, String> {
             &config_dir,
         )?;
         if !output.status.success() {
-            let stderr = super::misc::decode_command_output(&output.stderr);
-            let stdout = super::misc::decode_command_output(&output.stdout);
+            let stderr = crate::child_process::decode_command_output(&output.stderr);
+            let stdout = crate::child_process::decode_command_output(&output.stdout);
             let detail = if stderr.trim().is_empty() {
                 stdout.trim()
             } else {
@@ -139,9 +139,9 @@ pub async fn get_opencode_models() -> Result<Vec<OpenCodeModelRef>, String> {
             });
         }
 
-        Ok(parse_opencode_models(&super::misc::decode_command_output(
-            &output.stdout,
-        )))
+        Ok(parse_opencode_models(
+            &crate::child_process::decode_command_output(&output.stdout),
+        ))
     })
     .await
     .map_err(|e| format!("OpenCode model discovery task failed: {e}"))?

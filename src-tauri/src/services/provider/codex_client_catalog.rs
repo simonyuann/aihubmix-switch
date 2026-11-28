@@ -616,9 +616,9 @@ pub(crate) fn restart_daemon() -> Result<RestartOutcome, String> {
         return Ok(RestartOutcome::NotRunning);
     }
     let output = (env.restart)(restart_timeout())?;
-    let stdout = crate::commands::decode_command_output(&output.stdout);
+    let stdout = crate::child_process::decode_command_output(&output.stdout);
     if !output.status.success() {
-        let stderr = crate::commands::decode_command_output(&output.stderr);
+        let stderr = crate::child_process::decode_command_output(&output.stderr);
         let detail = if stderr.trim().is_empty() {
             stdout.trim()
         } else {
