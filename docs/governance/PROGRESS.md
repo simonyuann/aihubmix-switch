@@ -23,8 +23,8 @@
 
 ### 基线补充(第一轮实测)
 
-- `pnpm test:unit`(main 状态,完整日志):**Test Files 5 failed | 286 passed (291);Tests 13 failed | 3541 passed (3554)** —— 存在 13 个**预存失败**,是后续所有重构的行为基线对照物(重构批次不得扩大该集合;完整失败清单见 `vitest-baseline-full.log` 归档,精确归因在 T-测试任务中补)。
-- `cargo check`(MSVC 路径)❌:rustc 找到的 `link.exe` 是 Git Bash 的 coreutils link(`link: extra operand ...`),本机无 MSVC Build Tools。**处置**:改用 GNU 目标工具链(`1.95.0-x86_64-pc-windows-gnu`,自带 MinGW 链接器)后台重试中——若成功则 Rust 验证能力解锁。
+- `pnpm test:unit`(main 状态,两次完整运行):**失败集中在同样 5 个文件**(`AppsPage`×4、`PiProviderForm`×10、`SwitchModePanel`×2、`ClaudeDesktopProviderForm`×1、`IconPicker`×1),但失败测试数在两次运行间从 13 漂移到 18(总测试 3554)——**负载敏感的 flaky 测试**(单测耗时 5-8s 触发超时,两次运行分别与 cargo 工具链安装并发)。基线判定:这 5 个文件在 Windows 本地环境不稳定;重构批次的行为基线以"失败文件集合"为对照物(不得扩大),精确失败数需静默复跑归因(见 T17)。
+- `cargo check`(MSVC 路径)❌:rustc 找到的 `link.exe` 是 Git Bash 的 coreutils link(`link: extra operand ...`),本机无 MSVC Build Tools。**处置**:改用 GNU 目标工具链 `RUSTUP_TOOLCHAIN=1.95.0-x86_64-pc-windows-gnu` —— **✅ `cargo check` 通过(7m49s),Rust 验证能力解锁**;`cargo test` 首跑进行中。
 - 工具链勘察报告落地,重大发现:仓库为 `farion1231/cc-switch` 的 fork(Cargo 包名仍是 cc-switch);三份死配置(已删,见 Round 1);版本 SSOT 已有 CI 闸门(T2 关闭);新增 T2b/T11-T15 任务。
 
 ## Round 1 — T1 死配置归一(2026-11-28)

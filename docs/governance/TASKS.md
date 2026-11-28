@@ -66,7 +66,12 @@
 
 ## P1.5 — 工具链勘察新增(2026-11-28 报告)
 
-### T11 prettier 配置与覆盖范围 `open`
+### T17 flaky 测试归因与稳定化(Windows 本地) `open`
+- 证据:两次全量运行失败均集中于同样 5 个测试文件(`AppsPage.test.tsx` 124s、`PiProviderForm.test.tsx` 169s、`SwitchModePanel.test.tsx`、`ClaudeDesktopProviderForm.test.tsx`、`IconPicker.test.tsx`),失败测试数 13↔18 随负载漂移,单测 5-8s 超时。CI(Linux)状态待比对。
+- 方向:静默复跑归因(真超时?Windows 路径?mock 时序?);逐文件稳定化(fake timer/放宽超时/隔离重试);目标:vitest 在本机可作可靠回归信号。
+- 验证:连续 3 次全量运行零失败。
+
+### T11 prettier 配置与覆盖范围 `done(91c805f)`
 - 证据:有 prettier 依赖与 format scripts,**但零配置文件**(无 .prettierrc),glob 仅 `src/**`——tests/、scripts/、根配置均不在格式化范围。
 - 方向:补 `.prettierrc`(与仓库现状风格一致,避免全量 reformat 噪音)+ 扩 glob 或显式声明排除;`format:check` 进 CI。
 - 验证:format:check 通过且不产生大面积 diff。

@@ -26,9 +26,14 @@
 | 验证手段 | 覆盖范围 | 状态 |
 | --- | --- | --- |
 | `pnpm typecheck`(tsc --noEmit) | 前端 TS 全量 | ✅ 基线绿 |
-| `pnpm test:unit`(vitest) | 前端组件/集成/node 测试 | 见 PROGRESS |
-| `cargo check` / `cargo test` | Rust 全量 | 本机无 MSVC 链接器,首跑待验证;失败则记录约束 |
-| `cargo fmt --check` / `cargo clippy` | Rust 语法/静态检查 | rustfmt ✅ 已装,clippy 随 toolchain |
+| `pnpm test:unit`(vitest) | 前端组件/集成/node 测试 | 基线:3541 通过 / **13 预存失败**(详见 PROGRESS Round 0) |
+| `cargo check` | Rust 全量类型检查 | ✅ 本机用 GNU 目标工具链通过(见下) |
+| `cargo test` | Rust 全量测试 | 待首跑结果 |
+| `cargo fmt --check` / `cargo clippy` | Rust 语法/静态检查 | rustfmt ✅ 基线绿;clippy 随 toolchain |
+
+**本机 Rust 验证方法**:本机无 MSVC Build Tools,且 Git Bash 的 coreutils `link.exe` 会遮蔽 rustc 的链接器。使用 GNU 目标工具链规避:
+`RUSTUP_TOOLCHAIN=1.95.0-x86_64-pc-windows-gnu cargo check/test`
+(工具链已装,`rust-toolchain.toml` 锚定 1.95.0 版本不变,仅 target 换为 gnu。CI 的 MSVC 结果仍以 CI 为准,gnu 目标在 `target_os` 层面语义一致,`target_env` 敏感的代码极少。)
 
 约束:无 MSVC Build Tools 时,涉及 proc-macro/链接的 cargo 任务可能失败;Rust 侧重构验证以实际可运行为准,不可验证的批次要降级为"结构只读分析 + 待验证标记"。
 

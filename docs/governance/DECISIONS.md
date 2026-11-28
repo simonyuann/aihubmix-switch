@@ -36,3 +36,8 @@
 ### P-ADR-003 `commands/misc.rs` 拆分的目录形态(2026-11-28,待确认)
 - 选项:(a) 平铺多个 commands/*.rs;(b) commands/tool_lifecycle/ 子目录按工具分文件;(c) 生命周期逻辑下沉 services/,commands 只留薄编排。
 - 倾向:(c)+(a) 组合,符合 Deep Modules 与依赖方向(T6)。等 T4 勘察细化。
+
+### P-ADR-004 上游遗留文档处置(2026-11-28,待确认)
+- 背景:仓库为 `farion1231/cc-switch` 的 fork。`README_ZH/DE/JA.md`(上游叙事,与 README.md 矛盾)、`CHANGELOG.md`(842KB 上游遗留,不在发布链路,真实 SSOT 为 docs/releases/)、`CONTRIBUTING.md` 内部英中双份重复。处置涉及品牌/对外呈现。
+- 选项:(a) 上游文档移入 `docs/upstream-legacy/` 归档并加 README 声明;(b) 直接删除;(c) 保留并显式标注"上游文档,非本项目现状"。
+- 影响:对外仓库观感;链接失效风险(外部可能引用 CHANGELOG/README_ZH)。由仓库主人定夺。
