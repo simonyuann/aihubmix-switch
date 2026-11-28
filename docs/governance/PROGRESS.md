@@ -247,3 +247,27 @@ aihubmix 内联×3)。
 剩余 = env 前缀更名(P-ADR-005,破坏性,待确认)——T14 按可安全范围收敛。
 
 **验证**:cargo check --all-targets(GNU)0 错误;cargo fmt --check 绿。
+
+
+## Round 13 — T21:localStorage 访问收敛(2026-11-28)
+
+**提交**:`cfaec83`。
+
+**内容**:新增 `lib/userPreferences.ts`(readPreference/writePreference/
+removePreference,try/catch 硬化);迁移 19 文件 53 处裸 localStorage 引用;
+localCache 内部改走 userPreferences(localStorage 触点单一化)。
+
+**设计决策**(与初报"收敛到 localCache"不同,经逐处语义核实修正):
+- localCache=JSON 缓存(cc-switch-cache: 前缀,可丢),裸站点=用户偏好
+  (物理键,可感知回退)——二者语义不同,新建偏好深模块而非并入缓存;
+- **物理键保持历史原样**——迁入前缀键会丢用户已存偏好,违反数据兼容;
+- 跨窗口共享键(cc-switch-theme)物理键不变,共享语义保持;
+- 附带修复:部分裸 setItem 在隐私模式会抛异常打断 UI,硬化后静默降级。
+
+**验证**:typecheck 0 错误;全量 vitest 3 failed/3537 passed——唯一失败文件
+PiProviderForm 属已知 flaky 基线(T17,静默基线 7↔负载 18 家族),其余 4 个
+flaky 文件本次全过,行为未破坏。
+
+**迁移过程教训**:机械注入 import 的"最后一个 import 行"启发式会把注入行插进
+多行 import 中间(SessionManagerPage/SessionReader/CcWorkspace 三处断链)——
+逐一修复;后续同类批量迁移应解析完整 import 块而非按行匹配。
