@@ -4274,7 +4274,12 @@
       "stack": "聚合"
     },
     "needsAttention": "需要处理",
-    "back": "返回"
+    "back": "返回",
+    "home": "首页",
+    "announcements": "公告",
+    "help": "帮助与答疑",
+    "generalSettings": "通用设置",
+    "aboutUpdates": "关于与更新"
   },
   "appsPage": {
     "showInSidebar": "在侧栏显示 {{name}}",

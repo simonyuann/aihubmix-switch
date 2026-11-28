@@ -4274,7 +4274,12 @@
       "stack": "Aggregation"
     },
     "needsAttention": "Needs attention",
-    "back": "Back"
+    "back": "Back",
+    "home": "Home",
+    "announcements": "Announcements",
+    "help": "Help & FAQ",
+    "generalSettings": "General",
+    "aboutUpdates": "About & updates"
   },
   "appsPage": {
     "showInSidebar": "Show {{name}} in the sidebar",

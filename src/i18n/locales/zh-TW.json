@@ -4274,7 +4274,12 @@
       "stack": "聚合"
     },
     "needsAttention": "需要處理",
-    "back": "返回"
+    "back": "返回",
+    "home": "首頁",
+    "announcements": "公告",
+    "help": "幫助與答疑",
+    "generalSettings": "一般設定",
+    "aboutUpdates": "關於與更新"
   },
   "appsPage": {
     "showInSidebar": "在側欄顯示 {{name}}",

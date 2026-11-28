@@ -4274,7 +4274,12 @@
       "stack": "集約"
     },
     "needsAttention": "対応が必要",
-    "back": "戻る"
+    "back": "戻る",
+    "home": "ホーム",
+    "announcements": "お知らせ",
+    "help": "ヘルプとFAQ",
+    "generalSettings": "一般設定",
+    "aboutUpdates": "アプリについて"
   },
   "appsPage": {
     "showInSidebar": "{{name}} をサイドバーに表示",

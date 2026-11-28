@@ -4274,7 +4274,12 @@
       "stack": "Birleştirme"
     },
     "needsAttention": "Dikkat edilmesi gerekiyor",
-    "back": "Geri"
+    "back": "Geri",
+    "home": "Ana sayfa",
+    "announcements": "Duyurular",
+    "help": "Yardım ve SSS",
+    "generalSettings": "Genel",
+    "aboutUpdates": "Hakkında"
   },
   "appsPage": {
     "showInSidebar": "Kenar çubuğunda {{name}}'yi göster",

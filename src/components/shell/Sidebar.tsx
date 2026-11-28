@@ -125,6 +125,7 @@ function SimpleDirectory({
   settingsSection,
   onSelectSettingsSection,
 }: DirectoryProps) {
+  const { t } = useTranslation();
   const { hasUpdate } = useUpdate();
   const wallet = useWalletActions();
   return (
@@ -133,14 +134,14 @@ function SimpleDirectory({
         collapsed={collapsed}
         selected={view === "providers"}
         icon={Home}
-        label="首页"
+        label={t("nav.home")}
         onClick={() => onSelectApp(activeApp)}
       />
       <NavItem
         collapsed={collapsed}
         selected={view === "announcements"}
         icon={Megaphone}
-        label="公告"
+        label={t("nav.announcements")}
         onClick={() => onSelectPage("announcements")}
       />
       <div className="min-h-4 flex-1" />
@@ -149,14 +150,14 @@ function SimpleDirectory({
         collapsed={collapsed}
         selected={view === "help"}
         icon={CircleHelp}
-        label="帮助与答疑"
+        label={t("nav.help")}
         onClick={() => onSelectPage("help")}
       />
       <NavItem
         collapsed={collapsed}
         selected={view === "settings"}
         icon={Settings}
-        label="设置"
+        label={t("nav.settings")}
         dot={hasUpdate}
         onClick={() => onSelectPage("settings")}
       />
@@ -166,14 +167,14 @@ function SimpleDirectory({
             collapsed={collapsed}
             selected={settingsSection === "general"}
             icon={SlidersHorizontal}
-            label="通用设置"
+            label={t("nav.generalSettings")}
             onClick={() => onSelectSettingsSection("general")}
           />
           <NavItem
             collapsed={collapsed}
             selected={settingsSection === "about"}
             icon={Info}
-            label="关于与更新"
+            label={t("nav.aboutUpdates")}
             dot={hasUpdate}
             onClick={() => onSelectSettingsSection("about")}
           />
@@ -379,7 +380,7 @@ function MainDirectory({
       trailing: todayTrailing,
       trailingLabel: todayText,
     },
-    { page: "announcements", label: "公告", icon: Megaphone },
+    { page: "announcements", label: t("nav.announcements"), icon: Megaphone },
   ];
 
   const isGlobalSelected = (page: GlobalPage) =>

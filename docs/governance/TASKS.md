@@ -32,7 +32,7 @@
 - 方向:按领域拆为 `commands/tool_lifecycle.rs`、`commands/tool_versions.rs`、`commands/app_updates.rs`、`commands/clipboard.rs` 等;`#[cfg]` 平台变体收敛为平台模块(参照 codex_desktop_platform.rs 模式)。
 - 验证:cargo check + cargo test(受本机 MSVC 缺失约束,见 README 验证矩阵)。**依赖 T0 工具链结论**。
 
-### T5 `*_config.rs` 家族收敛为深度模块 `open(验证受限)`
+### T5 `*_config.rs` 家族收敛为深度模块 `in-progress(边界已定=ADR-005:引擎能力域封闭枚举四项,工具特有语义留本地;每工具独立批次+勘察前置)`
 - 证据:14 个文件 ~25K 行(`codex_config.rs` 6644 行/187 fn、`claude_desktop_config.rs` 2885 行/114 fn、`dsh_config.rs` 3544 行…),全部平行暴露 `get_*_dir()` / `get_*_config_path()` / `get_*_env_path()` 形状的函数;`jsonc_document.rs` 已存在但家族内部使用程度待勘察。
 - 方向:抽"tool-config 引擎"深模块(定位家目录、路径约定、受管块读写、迁移检测),每工具退化为薄声明(路径模板 + 工具特有语义,如 codex 的 `experimental_bearer_token`、gemini 的 `.env` 管理块)。分工具分批迁移,每批迁移后删除旧实现。
 - 验证:cargo check + cargo test;每工具迁移都有对应 Rust 测试覆盖行为(读/写/迁移)。
@@ -87,7 +87,7 @@
 - 方向:抽取可复用 composite action(或 workflow 内 YAML anchor 等价物);flatpak 标记为手工旁路并在文档注明。
 - 验证:workflow 语法检查(actionlint 或 dry-run);下次 tag 实证。
 
-### T14 环境变量读取归一 `done(可安全范围:批次1 目录解析归一 + 批次2 EnvVarGuard 统一×6;前缀更名=P-ADR-005 待确认)`
+### T14 环境变量读取归一 `done(批次1 目录解析归一 + 批次2 EnvVarGuard 统一×6;前缀政策=ADR-007:不更名,CC_SWITCH_ 唯一规范前缀,AIHUB_/CCS_ legacy 只读)`
 - 证据:三种前缀并存(`CC_SWITCH_`/`CCS_`/`AIHUB_`);`DSH_HOME` 4 个模块各自读取;`XDG_DATA_HOME` 4 文件重复解析;`KIMI_CODE_HOME` 3 处读取;`CC_SWITCH_TEST_HOME` 保存/恢复样板复制粘贴 4+ 份(devDep 已有 serial_test 未用于此)。
 - 方向:建 `env_resolver` 深模块(单一读取点+类型化访问器);测试 env 样板统一到 serial_test 辅助宏;前缀规范写入 DECISIONS。
 - 验证:cargo test;grep 断言单点读取。

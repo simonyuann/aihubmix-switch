@@ -200,11 +200,11 @@ describe("dedicated client account boundary", () => {
     const wallet = within(nav).getByRole("region", {
       name: "balanceDisplay.label.balance",
     });
-    const help = within(nav).getByRole("button", { name: "帮助与答疑" });
+    const help = within(nav).getByRole("button", { name: "nav.help" });
     expect(wallet).toContainElement(balance);
     for (const item of [
       help,
-      within(nav).getByRole("button", { name: "设置" }),
+      within(nav).getByRole("button", { name: "nav.settings" }),
     ]) {
       expect(
         wallet.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -260,7 +260,7 @@ describe("dedicated client account boundary", () => {
     );
     fireEvent.click(
       within(screen.getByRole("navigation")).getByRole("button", {
-        name: "设置",
+        name: "nav.settings",
       }),
     );
     fireEvent.click(
@@ -321,7 +321,7 @@ describe("dedicated client account boundary", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(
       within(screen.getByRole("navigation")).getByRole("button", {
-        name: "公告",
+        name: "nav.announcements",
       }),
     );
     expect(
@@ -353,7 +353,7 @@ describe("dedicated client account boundary", () => {
     mount();
     fireEvent.click(
       within(await screen.findByRole("navigation")).getByRole("button", {
-        name: "设置",
+        name: "nav.settings",
       }),
     );
     fireEvent.click(
