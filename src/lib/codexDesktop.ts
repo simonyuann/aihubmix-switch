@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 export type CodexDesktopLanguage = "zh-CN" | "en-US" | "system";
 
@@ -42,7 +43,7 @@ const DEFAULT = '{"language":"zh-CN","plugins":false}';
 
 function snapshot(): string {
   try {
-    return localStorage.getItem(KEY) ?? DEFAULT;
+    return readPreference(KEY) ?? DEFAULT;
   } catch {
     return DEFAULT;
   }
@@ -88,7 +89,7 @@ export function setCodexDesktopPreferences(
 ): boolean {
   try {
     const next = { ...decode(snapshot()), ...updates };
-    localStorage.setItem(KEY, JSON.stringify(next));
+    writePreference(KEY, JSON.stringify(next));
     window.dispatchEvent(new Event(CHANGE));
     return true;
   } catch {

@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 export type ClaudeLaunchPhase =
   | "preparing"
@@ -45,7 +46,7 @@ const EVENT = "aihub:claude-desktop-preferences-changed";
 const DEFAULT = '{"language":"zh-CN","executablePath":""}';
 function snapshot() {
   try {
-    return localStorage.getItem(KEY) ?? DEFAULT;
+    return readPreference(KEY) ?? DEFAULT;
   } catch {
     return DEFAULT;
   }
@@ -78,7 +79,7 @@ export function setClaudeDesktopPreferences(
   updates: Partial<ClaudeDesktopPreferences>,
 ) {
   try {
-    localStorage.setItem(
+    writePreference(
       KEY,
       JSON.stringify({ ...decode(snapshot()), ...updates }),
     );

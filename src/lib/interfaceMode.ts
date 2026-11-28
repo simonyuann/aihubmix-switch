@@ -1,18 +1,19 @@
 import { useSyncExternalStore } from "react";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 const KEY = "aihubmix:advanced-interface";
 const EVENT = "aihubmix:interface-changed";
 
 export function getAdvancedInterface(): boolean {
   try {
-    return localStorage.getItem(KEY) === "true";
+    return readPreference(KEY) === "true";
   } catch {
     return false;
   }
 }
 
 export function setAdvancedInterface(enabled: boolean): void {
-  localStorage.setItem(KEY, String(enabled));
+  writePreference(KEY, String(enabled));
   window.dispatchEvent(new Event(EVENT));
 }
 

@@ -11,6 +11,7 @@ import { settingsApi } from "@/lib/api/settings";
 import type { UpdateInfo } from "../lib/updater";
 import { checkForUpdate } from "../lib/updater";
 import { extractErrorMessage } from "../utils/errorUtils";
+import { readPreference, removePreference, writePreference } from "@/lib/userPreferences";
 
 type UpdateProgress = {
   downloaded: number;
@@ -76,12 +77,12 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     if (!current) return;
 
     // 读取新键；若不存在，尝试迁移旧键
-    let dismissedVersion = localStorage.getItem(DISMISSED_VERSION_KEY);
+    let dismissedVersion = readPreference(DISMISSED_VERSION_KEY);
     if (!dismissedVersion) {
-      const legacy = localStorage.getItem(LEGACY_DISMISSED_KEY);
+      const legacy = readPreference(LEGACY_DISMISSED_KEY);
       if (legacy) {
-        localStorage.setItem(DISMISSED_VERSION_KEY, legacy);
-        localStorage.removeItem(LEGACY_DISMISSED_KEY);
+        writePreference(DISMISSED_VERSION_KEY, legacy);
+        removePreference(LEGACY_DISMISSED_KEY);
         dismissedVersion = legacy;
       }
     }
@@ -105,12 +106,12 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
         setUpdateInfo(result.info);
 
         // 检查是否已经关闭过这个版本的提醒
-        let dismissedVersion = localStorage.getItem(DISMISSED_VERSION_KEY);
+        let dismissedVersion = readPreference(DISMISSED_VERSION_KEY);
         if (!dismissedVersion) {
-          const legacy = localStorage.getItem(LEGACY_DISMISSED_KEY);
+          const legacy = readPreference(LEGACY_DISMISSED_KEY);
           if (legacy) {
-            localStorage.setItem(DISMISSED_VERSION_KEY, legacy);
-            localStorage.removeItem(LEGACY_DISMISSED_KEY);
+            writePreference(DISMISSED_VERSION_KEY, legacy);
+            removePreference(LEGACY_DISMISSED_KEY);
             dismissedVersion = legacy;
           }
         }
@@ -135,16 +136,16 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const dismissUpdate = useCallback(() => {
     setIsDismissed(true);
     if (updateInfo?.availableVersion) {
-      localStorage.setItem(DISMISSED_VERSION_KEY, updateInfo.availableVersion);
+      writePreference(DISMISSED_VERSION_KEY, updateInfo.availableVersion);
       // 清理旧键
-      localStorage.removeItem(LEGACY_DISMISSED_KEY);
+      removePreference(LEGACY_DISMISSED_KEY);
     }
   }, [updateInfo?.availableVersion]);
 
   const resetDismiss = useCallback(() => {
     setIsDismissed(false);
-    localStorage.removeItem(DISMISSED_VERSION_KEY);
-    localStorage.removeItem(LEGACY_DISMISSED_KEY);
+    removePreference(DISMISSED_VERSION_KEY);
+    removePreference(LEGACY_DISMISSED_KEY);
   }, []);
 
   // 启动和运行期间检查，网络异常不打断使用。

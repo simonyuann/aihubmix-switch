@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react";
 import { isMac } from "@/lib/platform";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 /** 窗口窄于这个宽度时侧栏自动收成图标轨（用户手动选过就按手动的来）。 */
 export const SIDEBAR_AUTO_COLLAPSE_WIDTH = 960;
@@ -105,7 +106,7 @@ export const sidebarWidth = (collapsed: boolean) =>
 
 function readManualPreference(): boolean | null {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = readPreference(STORAGE_KEY);
     if (saved === "true") return true;
     if (saved === "false") return false;
   } catch {
@@ -152,7 +153,7 @@ export function useSidebarCollapsed(navRef: RefObject<HTMLElement | null>) {
     animateFrom.current = sidebarWidth(collapsed);
     setManual(next);
     try {
-      localStorage.setItem(STORAGE_KEY, String(next));
+      writePreference(STORAGE_KEY, String(next));
     } catch {
       // 记不住也不影响这次切换
     }

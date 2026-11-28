@@ -150,6 +150,7 @@ import { AccountPage } from "@/components/aihubmix/AccountPage";
 import { AnnouncementPage } from "@/components/aihubmix/Announcements";
 import { ToolPage } from "@/components/aihubmix/ToolPage";
 import { HelpPage } from "@/components/aihubmix/HelpPage";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 import {
   getAdvancedInterface,
   useAdvancedInterface,
@@ -164,7 +165,7 @@ interface SyncStatusUpdatedPayload {
 type OpenClawConfigTab = "env" | "tools" | "agents";
 
 const getInitialApp = (): AppId => {
-  const saved = localStorage.getItem(APP_STORAGE_KEY) as AppId | null;
+  const saved = readPreference(APP_STORAGE_KEY) as AppId | null;
   if (saved && APP_IDS.includes(saved)) {
     return saved;
   }
@@ -173,7 +174,7 @@ const getInitialApp = (): AppId => {
 
 const SIMPLE_APP_STORAGE_KEY = "aihubmix:active-tool";
 const getInitialSimpleApp = (): AppId => {
-  const saved = localStorage.getItem(SIMPLE_APP_STORAGE_KEY) as AppId | null;
+  const saved = readPreference(SIMPLE_APP_STORAGE_KEY) as AppId | null;
   return saved && APP_IDS.includes(saved) ? saved : "codex";
 };
 
@@ -915,7 +916,7 @@ function CcWorkspace() {
     if (confirmLeave(() => selectApp(app))) return;
     closeProviderPanels();
     setActiveApp(app);
-    localStorage.setItem(
+    writePreference(
       advancedInterface ? APP_STORAGE_KEY : SIMPLE_APP_STORAGE_KEY,
       app,
     );

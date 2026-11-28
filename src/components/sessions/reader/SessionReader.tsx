@@ -55,13 +55,14 @@ import {
   type SearchMatch,
   type SessionTurn,
 } from "./turns";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 /** 「展开全部过程」偏好（与会话列表的分组方式一样存在 localStorage） */
 const EXPAND_ALL_STORAGE_KEY = "cc-switch.sessionReader.expandTimelines";
 
 const readExpandAll = () => {
   try {
-    return window.localStorage.getItem(EXPAND_ALL_STORAGE_KEY) === "1";
+    return readPreference(EXPAND_ALL_STORAGE_KEY) === "1";
   } catch {
     return false;
   }
@@ -190,7 +191,7 @@ export function SessionReader({
   // 右侧对话目录：默认打开，开关记在本地
   const [outlineOpen, setOutlineOpen] = useState(() => {
     try {
-      return window.localStorage.getItem(OUTLINE_STORAGE_KEY) !== "false";
+      return readPreference(OUTLINE_STORAGE_KEY) !== "false";
     } catch {
       return true;
     }
@@ -198,7 +199,7 @@ export function SessionReader({
   const toggleOutline = useCallback(() => {
     setOutlineOpen((open) => {
       try {
-        window.localStorage.setItem(OUTLINE_STORAGE_KEY, String(!open));
+        writePreference(OUTLINE_STORAGE_KEY, String(!open));
       } catch {
         // 存不了就只在本次生效
       }
@@ -385,7 +386,7 @@ export function SessionReader({
     // 切换「展开全部」时清掉逐轮的手动开合，免得部分轮不跟随
     setTurnOverrides(EMPTY_OVERRIDES);
     try {
-      window.localStorage.setItem(EXPAND_ALL_STORAGE_KEY, value ? "1" : "0");
+      writePreference(EXPAND_ALL_STORAGE_KEY, value ? "1" : "0");
     } catch {
       // 隐私模式等写不了 localStorage：只在本次生效
     }

@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import { windowApi } from "@/lib/api/window";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 type Theme = "light" | "dark" | "system";
 
@@ -58,7 +59,7 @@ export function ThemeProvider({
       return defaultTheme;
     }
 
-    const stored = window.localStorage.getItem(storageKey) as Theme | null;
+    const stored = readPreference(storageKey) as Theme | null;
     if (stored === "light" || stored === "dark" || stored === "system") {
       return stored;
     }
@@ -73,7 +74,7 @@ export function ThemeProvider({
       return;
     }
 
-    window.localStorage.setItem(storageKey, theme);
+    writePreference(storageKey, theme);
   }, [theme, storageKey]);
 
   useEffect(() => {

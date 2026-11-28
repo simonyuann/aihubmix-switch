@@ -61,6 +61,7 @@ import {
   type SessionAppId,
   type SessionTimeBucket,
 } from "./utils";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 const GROUP_MODE_STORAGE_KEY = "cc-switch.sessionManager.groupMode";
 // 按项目分组时默认全部收起，只记住用户手动展开过的项目。
@@ -73,7 +74,7 @@ type DeleteSource = "row" | "reader" | "bar";
 
 const readGroupMode = (): GroupMode => {
   try {
-    const stored = window.localStorage.getItem(GROUP_MODE_STORAGE_KEY);
+    const stored = readPreference(GROUP_MODE_STORAGE_KEY);
     return stored === "time" ? "time" : "project";
   } catch {
     return "project";
@@ -83,7 +84,7 @@ const readGroupMode = (): GroupMode => {
 const readExpanded = (): Set<string> => {
   try {
     const parsed = JSON.parse(
-      window.localStorage.getItem(EXPANDED_STORAGE_KEY) ?? "[]",
+      readPreference(EXPANDED_STORAGE_KEY) ?? "[]",
     );
     return new Set(
       Array.isArray(parsed)
@@ -169,7 +170,7 @@ export function SessionManagerPage({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(GROUP_MODE_STORAGE_KEY, groupMode);
+      writePreference(GROUP_MODE_STORAGE_KEY, groupMode);
     } catch {
       // 存不了就算了，下次用默认值
     }
@@ -177,7 +178,7 @@ export function SessionManagerPage({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(
+      writePreference(
         EXPANDED_STORAGE_KEY,
         JSON.stringify(Array.from(expanded).sort()),
       );

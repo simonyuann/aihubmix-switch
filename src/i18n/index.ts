@@ -6,6 +6,7 @@ import ja from "./locales/ja.json";
 import tr from "./locales/tr.json";
 import zh from "./locales/zh.json";
 import zhTW from "./locales/zh-TW.json";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 type Language = "zh" | "zh-TW" | "en" | "ja" | "tr";
 
@@ -21,7 +22,7 @@ const isLanguage = (value: unknown): value is Language =>
 const getInitialLanguage = (): Language => {
   if (typeof window !== "undefined") {
     try {
-      const stored = window.localStorage.getItem("language");
+      const stored = readPreference("language");
       if (isLanguage(stored)) {
         return stored;
       }
@@ -113,8 +114,8 @@ export const syncLanguageFromSettings = (language?: string | null): void => {
   }
 
   try {
-    if (window.localStorage.getItem("language") !== language) {
-      window.localStorage.setItem("language", language);
+    if (readPreference("language") !== language) {
+      writePreference("language", language);
     }
   } catch (error) {
     console.warn("[i18n] Failed to persist language preference", error);

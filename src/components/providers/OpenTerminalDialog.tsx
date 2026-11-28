@@ -20,13 +20,14 @@ import type { Provider } from "@/types";
 import { toast } from "@/lib/toast";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { cn } from "@/lib/utils";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 const STORAGE_KEY = "cc-switch:terminal:recent-dirs";
 const MAX_RECENT = 5;
 
 function readRecent(): string[] {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "[]");
+    const parsed = JSON.parse(readPreference(STORAGE_KEY) ?? "[]");
     return Array.isArray(parsed)
       ? parsed.filter((dir): dir is string => typeof dir === "string")
       : [];
@@ -37,7 +38,7 @@ function readRecent(): string[] {
 
 function writeRecent(dirs: string[]) {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(dirs));
+    writePreference(STORAGE_KEY, JSON.stringify(dirs));
   } catch {
     // 只是记住用过的目录，存不了不影响打开终端
   }

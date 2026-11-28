@@ -1,4 +1,5 @@
 import type { AppId } from "@/lib/api";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 /**
  * 主窗口的导航模型（v7）：侧栏选一个应用或一个全局页；设置单独占一屏。
@@ -109,7 +110,7 @@ export function appPageBelongsTo(page: AppPage, app: AppId): boolean {
 
 export function readStoredView(): View {
   try {
-    return parseView(localStorage.getItem(VIEW_STORAGE_KEY)) ?? "providers";
+    return parseView(readPreference(VIEW_STORAGE_KEY)) ?? "providers";
   } catch {
     return "providers";
   }
@@ -117,7 +118,7 @@ export function readStoredView(): View {
 
 export function storeView(view: View) {
   try {
-    localStorage.setItem(VIEW_STORAGE_KEY, view);
+    writePreference(VIEW_STORAGE_KEY, view);
   } catch {
     // 存不了就算了：下次启动回到供应商页
   }

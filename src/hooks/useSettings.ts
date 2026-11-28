@@ -17,6 +17,7 @@ import {
   type ResolvedDirectories,
 } from "./useDirectorySettings";
 import { useSettingsMetadata } from "./useSettingsMetadata";
+import { writePreference } from "@/lib/userPreferences";
 
 interface SaveResult {
   requiresRestart: boolean;
@@ -310,7 +311,7 @@ export function useSettings(): UseSettingsResult {
         // 持久化语言偏好
         try {
           if (typeof window !== "undefined" && updates.language) {
-            window.localStorage.setItem("language", updates.language);
+            writePreference("language", updates.language);
           }
         } catch (error) {
           console.warn(
@@ -458,7 +459,7 @@ export function useSettings(): UseSettingsResult {
 
         try {
           if (typeof window !== "undefined" && payload.language) {
-            window.localStorage.setItem("language", payload.language);
+            writePreference("language", payload.language);
           }
         } catch (error) {
           console.warn(

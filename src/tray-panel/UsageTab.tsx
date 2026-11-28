@@ -31,6 +31,7 @@ import {
 } from "@/components/usage/UsageTrendChart";
 import type { DailyStats, UsageSummary } from "@/types/usage";
 import { cn } from "@/lib/utils";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 const RANGES = ["today", "7d", "30d", "all"] as const;
 type Range = (typeof RANGES)[number];
@@ -49,7 +50,7 @@ function remembered<T extends string>(
   fallback: T,
 ): T {
   try {
-    const value = window.localStorage.getItem(key);
+    const value = readPreference(key);
     if (value && (options as readonly string[]).includes(value)) {
       return value as T;
     }
@@ -61,7 +62,7 @@ function remembered<T extends string>(
 
 function remember(key: string, value: string) {
   try {
-    window.localStorage.setItem(key, value);
+    writePreference(key, value);
   } catch {
     // 记不住也不影响使用
   }

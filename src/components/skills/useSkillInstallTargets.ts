@@ -2,13 +2,14 @@ import { useCallback, useState } from "react";
 import type { AppId } from "@/lib/api/types";
 import { SKILLS_APP_IDS } from "@/config/appConfig";
 import { useToggleSkillApp } from "@/hooks/useSkills";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 const STORAGE_KEY = "cc-switch:skills:install-to";
 const DEFAULT_TARGETS: AppId[] = ["claude", "codex"];
 
 function readStored(): AppId[] | null {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readPreference(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
@@ -23,7 +24,7 @@ function readStored(): AppId[] | null {
 
 function writeStored(apps: AppId[]) {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(apps));
+    writePreference(STORAGE_KEY, JSON.stringify(apps));
   } catch {
     // 只是记住上次的选择，存不了不影响安装
   }

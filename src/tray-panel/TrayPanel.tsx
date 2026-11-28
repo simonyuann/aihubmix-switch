@@ -42,6 +42,7 @@ import { aimingAt, type Point } from "./menuAim";
 import { usePanelTheme } from "./usePanelTheme";
 import { UsageTab } from "./UsageTab";
 import { TrayWalletBalance } from "./WalletBalance";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 type Tab = "config" | "usage";
 const TAB_KEY = "cc-switch-tray-tab";
@@ -66,7 +67,7 @@ const FOCUS_RING =
 
 function readTab(): Tab {
   try {
-    return window.localStorage.getItem(TAB_KEY) === "usage"
+    return readPreference(TAB_KEY) === "usage"
       ? "usage"
       : "config";
   } catch {
@@ -76,7 +77,7 @@ function readTab(): Tab {
 
 function syncLanguage() {
   try {
-    const language = window.localStorage.getItem(LANGUAGE_KEY);
+    const language = readPreference(LANGUAGE_KEY);
     if (language && language !== i18n.language) {
       void i18n.changeLanguage(language);
     }
@@ -863,7 +864,7 @@ export function TrayPanel() {
     setTab(next);
     setOpenApp(null);
     try {
-      window.localStorage.setItem(TAB_KEY, next);
+      writePreference(TAB_KEY, next);
     } catch {
       // 记不住也不影响使用
     }

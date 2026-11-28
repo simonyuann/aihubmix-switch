@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { readPreference } from "@/lib/userPreferences";
 
 /** 和主界面 ThemeProvider 的 storageKey 一致 */
 const THEME_STORAGE_KEY = "cc-switch-theme";
@@ -7,7 +8,7 @@ type ThemeChoice = "light" | "dark" | "system";
 
 function readChoice(): ThemeChoice {
   try {
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    const stored = readPreference(THEME_STORAGE_KEY);
     if (stored === "light" || stored === "dark") return stored;
   } catch {
     // 读不到按跟随系统

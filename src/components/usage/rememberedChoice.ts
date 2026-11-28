@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { readPreference, writePreference } from "@/lib/userPreferences";
 
 /**
  * 用量页「上次的选择」（页签、时间范围、趋势 / 热力图指标）记在本机 localStorage：
@@ -27,7 +28,7 @@ export function readRememberedChoice<T extends string>(
   fallback: T,
 ): T {
   try {
-    const stored = window.localStorage.getItem(key);
+    const stored = readPreference(key);
     return allowed.includes(stored as T) ? (stored as T) : fallback;
   } catch {
     return fallback;
@@ -36,7 +37,7 @@ export function readRememberedChoice<T extends string>(
 
 export function writeRememberedChoice(key: string, value: string) {
   try {
-    window.localStorage.setItem(key, value);
+    writePreference(key, value);
   } catch {
     // 写不了就只在本次生效
   }
