@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
@@ -24,6 +25,7 @@ export function HomeGroupRow({
   modelSettings?: ModelSettings;
   children: ReactNode;
 }) {
+  const { t } = useTranslation();
   const row = useRef<HTMLElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -99,7 +101,7 @@ export function HomeGroupRow({
               {modelSettings ? (
                 <button
                   type="button"
-                  aria-label={`${name} 的生图模型`}
+                  aria-label={t("homeGroupRow.aria.imageModel", { name })}
                   aria-expanded={expanded}
                   aria-controls={panelId}
                   className="aihub-group-disclosure"

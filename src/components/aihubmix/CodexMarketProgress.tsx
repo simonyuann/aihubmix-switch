@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { CodexMarketProgress as Progress } from "@/lib/codexPluginMarket";
 
 export function CodexMarketProgress({
@@ -12,18 +13,25 @@ export function CodexMarketProgress({
         Math.max(0, Math.floor((progress.downloaded / progress.total) * 100)),
       )
     : 0;
+  const { t } = useTranslation();
   const mib = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
   const label = !progress
-    ? "正在准备插件库…"
+    ? t("codexMarket.progress.preparing")
     : progress.phase === "checking"
-      ? "正在准备插件库…"
+      ? t("codexMarket.progress.preparing")
       : progress.phase === "downloading"
         ? !progress.total
-          ? `正在下载插件库，已下载 ${mib(progress.downloaded)} MiB`
-          : `正在下载插件库：${mib(progress.downloaded)} / ${mib(progress.total)} MiB（${percent}%）`
+          ? t("codexMarket.progress.downloadingNoTotal", {
+              downloaded: mib(progress.downloaded),
+            })
+          : t("codexMarket.progress.downloadingWithTotal", {
+              downloaded: mib(progress.downloaded),
+              total: mib(progress.total),
+              percent,
+            })
         : progress.phase === "verifying"
-          ? "正在安装插件库，请稍候…"
-          : "正在安装插件库，请稍候…";
+          ? t("codexMarket.progress.installing")
+          : t("codexMarket.progress.installing");
   return (
     <div
       role="status"
@@ -33,7 +41,7 @@ export function CodexMarketProgress({
       <p>{label}</p>
       {downloading && (
         <progress
-          aria-label="插件库下载进度"
+          aria-label={t("codexMarket.aria.downloadProgress")}
           value={progress.downloaded}
           max={progress.total}
           className="h-2 w-full accent-primary"

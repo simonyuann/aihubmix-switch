@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useId } from "react";
 import { Image as ImageIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -40,6 +41,7 @@ export function HomeImageModelSelect({
   onOpenChange: (value: boolean) => void;
   onChange: (model: string | null) => void;
 }) {
+  const { t } = useTranslation();
   const id = useId();
   const catalog = useQuery({
     queryKey: ["tool-image-models", providerId, keyId],
@@ -67,7 +69,7 @@ export function HomeImageModelSelect({
           className="inline-flex items-center gap-1.5 text-caption font-medium text-fg-2"
         >
           <ImageIcon aria-hidden="true" size={15} />
-          生图模型
+          {t("imageModelSelect.label")}
         </label>
         <Select
           open={open}
@@ -81,11 +83,15 @@ export function HomeImageModelSelect({
         >
           <SelectTrigger id={id} className="w-auto min-w-40 max-w-full gap-4">
             <SelectValue>
-              {model ? modelName(model, selected?.name) : "跟随网关（默认）"}
+              {model
+                ? modelName(model, selected?.name)
+                : t("imageModelSelect.gatewayDefault")}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={gateway}>跟随网关（默认）</SelectItem>
+            <SelectItem value={gateway}>
+              {t("imageModelSelect.gatewayDefault")}
+            </SelectItem>
             {catalogReady &&
               options.map((option) => (
                 <SelectItem key={option.id} value={option.id} title={option.id}>
@@ -95,23 +101,25 @@ export function HomeImageModelSelect({
           </SelectContent>
         </Select>
         {catalog.isFetching && (
-          <span className="text-caption text-fg-3">正在读取模型…</span>
+          <span className="text-caption text-fg-3">
+            {t("imageModelSelect.status.loadingModels")}
+          </span>
         )}
       </div>
       {catalog.isError ? (
         <div className="mt-1 flex items-center gap-2 text-caption text-fg-3">
-          <span role="alert">读取分组生图模型失败。</span>
+          <span role="alert">{t("imageModelSelect.error.loadFailed")}</span>
           <Button
             size="compact"
             variant="ghost"
             onClick={() => void catalog.refetch()}
           >
-            重试
+            {t("imageModelSelect.action.retry")}
           </Button>
         </div>
       ) : unavailable ? (
         <p role="alert" className="mt-1 text-caption text-destructive">
-          当前分组已不提供所选模型，请重新选择。
+          {t("imageModelSelect.error.modelUnavailable")}
         </p>
       ) : model ? (
         <p className="mt-1 text-caption text-fg-3">

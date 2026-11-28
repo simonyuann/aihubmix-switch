@@ -5591,5 +5591,51 @@
     "success": {
       "applied": "API 已申请成功。"
     }
+  },
+  "imageModelSelect": {
+    "label": "生图模型",
+    "gatewayDefault": "跟随网关（默认）",
+    "status": {
+      "loadingModels": "正在读取模型…"
+    },
+    "error": {
+      "loadFailed": "读取分组生图模型失败。",
+      "modelUnavailable": "当前分组已不提供所选模型，请重新选择。"
+    },
+    "action": {
+      "retry": "重试"
+    },
+    "hint": {
+      "modelInUse": "生图和改图使用此型号。请保持 AIHub 运行。",
+      "gatewayOnly": "当前分组仅提供网关默认选项。"
+    }
+  },
+  "codexMarket": {
+    "progress": {
+      "preparing": "正在准备插件库…",
+      "downloadingNoTotal": "正在下载插件库，已下载 {{downloaded}} MiB",
+      "downloadingWithTotal": "正在下载插件库：{{downloaded}} / {{total}} MiB（{{percent}}%）",
+      "installing": "正在安装插件库，请稍候…"
+    },
+    "aria": {
+      "downloadProgress": "插件库下载进度"
+    }
+  },
+  "diagnosticReport": {
+    "aria": {
+      "report": "网络诊断结果"
+    },
+    "toast": {
+      "copied": "已复制诊断结果",
+      "copyFailed": "请选中诊断结果并复制。"
+    },
+    "action": {
+      "copy": "复制诊断结果"
+    }
+  },
+  "homeGroupRow": {
+    "aria": {
+      "imageModel": "{{name}} 的生图模型"
+    }
   }
 }

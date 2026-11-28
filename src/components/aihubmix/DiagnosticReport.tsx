@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "react-i18next";
 import { copyText } from "@/lib/clipboard";
 
 export function DiagnosticReport({
@@ -8,10 +9,11 @@ export function DiagnosticReport({
   report: string;
   onNotice: (message: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div>
       <textarea
-        aria-label="网络诊断结果"
+        aria-label={t("diagnosticReport.aria.report")}
         readOnly
         rows={5}
         className="w-full select-text rounded border p-2 text-start text-sm"
@@ -22,12 +24,12 @@ export function DiagnosticReport({
         variant="ghost"
         onClick={() =>
           void copyText(report).then(
-            () => onNotice("已复制诊断结果"),
-            () => onNotice("请选中诊断结果并复制。"),
+            () => onNotice(t("diagnosticReport.toast.copied")),
+            () => onNotice(t("diagnosticReport.toast.copyFailed")),
           )
         }
       >
-        复制诊断结果
+        {t("diagnosticReport.action.copy")}
       </Button>
     </div>
   );

@@ -97,7 +97,7 @@ function wrap(node: React.ReactNode) {
 }
 async function hoverImageGroup() {
   const disclosure = await screen.findByRole("button", {
-    name: `${service.provider.name} 的生图模型`,
+    name: "homeGroupRow.aria.imageModel",
   });
   fireEvent.pointerEnter(disclosure.closest("article")!);
   return disclosure;
@@ -149,8 +149,10 @@ describe("dedicated service cards", () => {
     });
     wrap(<ToolPage app="codex" simple />);
     await hoverImageGroup();
-    const picker = await screen.findByRole("combobox", { name: "生图模型" });
-    expect(picker).toHaveTextContent("跟随网关");
+    const picker = await screen.findByRole("combobox", {
+      name: "imageModelSelect.label",
+    });
+    expect(picker).toHaveTextContent("imageModelSelect.gatewayDefault");
     fireEvent.keyDown(picker, { key: "ArrowDown" });
     fireEvent.click(
       await screen.findByRole("option", { name: "2.6 Sunburst" }),
@@ -161,8 +163,14 @@ describe("dedicated service cards", () => {
     ).toBeInTheDocument();
     await waitFor(() => expect(picker).toBeEnabled());
     fireEvent.keyDown(picker, { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("option", { name: /跟随网关/ }));
-    await waitFor(() => expect(picker).toHaveTextContent("跟随网关"));
+    fireEvent.click(
+      await screen.findByRole("option", {
+        name: /imageModelSelect.gatewayDefault/,
+      }),
+    );
+    await waitFor(() =>
+      expect(picker).toHaveTextContent("imageModelSelect.gatewayDefault"),
+    );
     expect(selected).toBeNull();
   });
   it("collapses the image row at rest and holds it open while choosing from the portalled menu", async () => {
@@ -177,7 +185,7 @@ describe("dedicated service cards", () => {
     });
     wrap(<ToolPage app="codex" simple />);
     const disclosure = await screen.findByRole("button", {
-      name: `${service.provider.name} 的生图模型`,
+      name: "homeGroupRow.aria.imageModel",
     });
     const row = disclosure.closest("article")!;
     const panel = document.getElementById(
@@ -185,12 +193,18 @@ describe("dedicated service cards", () => {
     )!;
     expect(disclosure).toHaveAttribute("aria-expanded", "false");
     expect(panel).toHaveAttribute("inert");
-    expect(screen.queryByRole("combobox", { name: "生图模型" })).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: "imageModelSelect.label" }),
+    ).toBeNull();
 
     fireEvent.pointerEnter(row);
-    const picker = screen.getByRole("combobox", { name: "生图模型" });
+    const picker = screen.getByRole("combobox", {
+      name: "imageModelSelect.label",
+    });
     fireEvent.keyDown(picker, { key: "ArrowDown" });
-    const option = await screen.findByRole("option", { name: /跟随网关/ });
+    const option = await screen.findByRole("option", {
+      name: /imageModelSelect.gatewayDefault/,
+    });
     expect(row.contains(option)).toBe(false);
     fireEvent.pointerLeave(row);
     expect(disclosure).toHaveAttribute("aria-expanded", "true");
@@ -242,7 +256,9 @@ describe("dedicated service cards", () => {
     });
     wrap(<ToolPage app="codex" simple />);
     await hoverImageGroup();
-    const picker = await screen.findByRole("combobox", { name: "生图模型" });
+    const picker = await screen.findByRole("combobox", {
+      name: "imageModelSelect.label",
+    });
     fireEvent.keyDown(picker, { key: "ArrowDown" });
     const initialOption = await screen.findByRole("option", {
       name: retired.name,
@@ -292,13 +308,17 @@ describe("dedicated service cards", () => {
     wrap(<ToolPage app="codex" simple />);
     await hoverImageGroup();
     expect(
-      await screen.findByText("当前分组已不提供所选模型，请重新选择。"),
+      await screen.findByText("imageModelSelect.error.modelUnavailable"),
     ).toBeVisible();
-    const picker = screen.getByRole("combobox", { name: "生图模型" });
+    const picker = screen.getByRole("combobox", {
+      name: "imageModelSelect.label",
+    });
     expect(picker).toHaveTextContent("2.5 Sunburst");
     fireEvent.keyDown(picker, { key: "ArrowDown" });
     expect(
-      await screen.findByRole("option", { name: /跟随网关/ }),
+      await screen.findByRole("option", {
+        name: /imageModelSelect.gatewayDefault/,
+      }),
     ).toBeVisible();
     expect(screen.queryByRole("option", { name: "2.5 Sunburst" })).toBeNull();
     expect(mocks.dispatch).not.toHaveBeenCalledWith(
@@ -881,13 +901,19 @@ describe("dedicated service cards", () => {
     );
     wrap(<ApplyApiDialog onClose={() => {}} />);
     await screen.findByRole("option", { name: "平台服务 · openai" });
-    fireEvent.click(screen.getByRole("button", { name: "确认申请" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "applyApiDialog.action.confirm" }),
+    );
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "API 已申请成功。本机凭据保存失败，请返回 API 列表查看。",
+      "applyApiDialog.success.appliedapplyApiDialog.error.credentialSaveFailed",
     );
     expect(screen.queryByText(/vault-v2/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "确认申请" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "返回查看 Key" })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "applyApiDialog.action.confirm" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "applyApiDialog.action.backToKeys" }),
+    ).toBeEnabled();
   });
 
   it("creates a platform Key only after explicit confirmation and stops duplicate or uncertain retries", async () => {
@@ -905,7 +931,9 @@ describe("dedicated service cards", () => {
     expect(
       mocks.dispatch.mock.calls.some(([command]) => command === "create-key"),
     ).toBe(false);
-    const submit = screen.getByRole("button", { name: "确认申请" });
+    const submit = screen.getByRole("button", {
+      name: "applyApiDialog.action.confirm",
+    });
     fireEvent.click(submit);
     fireEvent.click(submit);
     expect(
@@ -915,10 +943,12 @@ describe("dedicated service cards", () => {
       fail(new Error("timeout"));
     });
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "请先刷新 Key 列表确认结果",
+      "applyApiDialog.error.refreshKeysFirst",
     );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "确认申请" })).toBeDisabled(),
+      expect(
+        screen.getByRole("button", { name: "applyApiDialog.action.confirm" }),
+      ).toBeDisabled(),
     );
   });
 });
