@@ -475,3 +475,42 @@ label×4/placeholder/error×4/success/action×4/status);success.applied 复合
 
 **验证**:typecheck 0 错误;check:i18n 5 locale 一致(4719 keys);oxlint 0 错误;
 format:check 绿;depcruise 0 违规;api-management 3/3 + App.test 17/17。
+
+
+## Round 24 — T22 散点批次1(2026-11-28)
+
+**提交**:`d193ce3`。
+
+**迁移**:HomeImageModelSelect 9 处(imageModelSelect.*)、CodexMarketProgress
+7 处(codexMarket.progress.* + aria.downloadProgress)、DiagnosticReport 4 处
+(diagnosticReport.*)、HomeGroupRow 1 处(homeGroupRow.aria.imageModel)。
+测试断言同步:dedicated-tools(生图模型 combobox accessible name/option/
+modelUnavailable/applyApiDialog alert)与 codex-desktop-controls(进度 phase
+key 断言)。
+
+**验证**:typecheck 0;check:i18n 4737×5 一致;depcruise 0;format 绿;
+全量 vitest **288/3540 全绿**。
+
+## Round 25 — T22 收尾子批(2026-11-28)
+
+**提交**:`c1a891b`。
+
+**迁移**:Announcements 11 处(新 announcements.* 命名空间,三组件各接
+hook)、CodexDesktopControls 10 处(新 codexDesktop.*:launch×6/idle/action×3,
+startMessage 增加 t 参数)、AccountPage 余量 11 处(notice.keyDeleted/
+error.deleteUnconfirmedDetail 参数化/aria.copyKey/deleteKey 等)、
+HomeImageModelSelect 提示 2 处(hint.*)。
+
+**保留(非 i18n)**:CodexDesktopControls safeLaunchErrors 14 条为后端
+消息内容匹配;friendlyError.test/groupBrandIcon.test 为测试数据;
+groupBrandIcon.ts 品牌匹配正则为功能数据。
+
+**新发现范围**:src/components/shell/Sidebar.tsx 38 行 CJK(导航/钱包文案,
+shell 级)——T22 后续子批候选。
+
+**验证**:typecheck 0;check:i18n 4770×5 一致;depcruise 0;format 绿;
+全量 vitest 3539/3540(唯一失败 IconPicker flaky "Relay A" 断言,与本批
+无关、未触及该文件;受影响 6 个测试文件定向复跑全绿)。
+
+**T22 状态**:aihubmix 子应用组件层硬编码中文基本清零(仅剩品牌匹配
+功能数据与后端消息匹配);剩余 Sidebar(shell 级)与其余目录散点。
