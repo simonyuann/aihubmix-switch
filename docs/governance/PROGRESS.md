@@ -179,3 +179,27 @@ CC_SWITCH_TEST_HOME)。
 **T4 剩余评估**:misc 剩余 6614 行 ≈ 终端启动域(~1700 行,批次3 候选——
 claude/agy 会话的 unix/macos(iTerm2/Ghostty/Warp/otty)/linux 启动器,同质度高)
 + app-misc 小命令(~150 行,Deletion Test 不支持拆分,保留)+ 测试(~4500 行)。
+
+
+## Round 10 — T4 批次3:终端启动域 → services::terminal_launch(2026-11-28)
+
+**提交**:`11c1479`。
+
+**内容**:新增 `services/terminal_launch.rs`(1587 行)——终端启动域的权威实现:
+- ProviderLaunch 构造:claude 账号绑定(claude_official terminal_account 三分支)、
+  agy 绑定切换(switch_agy_to_bound_account)、env 从 provider 配置提取
+- 启动器:unix(shell 单引号/启动脚本/临时 env 文件)、macos(Terminal.app
+  AppleScript/iTerm2/Ghostty/Warp/otty/open -a)、linux(候选列表探测)、
+  windows(.bat 构造/start 命令/UNC 分发)
+- hermes dashboard 命令行;open_provider_terminal 服务函数接收 &AppState 与
+  &Arc<AgyAccountManager>(Manager 在 services 层,无 commands 类型依赖)
+
+**消费方迁移**:hermes.rs、session_manager.rs、session_manager/terminal/mod.rs
+改指 services::terminal_launch;misc 的 open_provider_terminal 变薄壳。
+misc.rs 6614→5074 行(**治理开始累计 10952→5074,-5878,过半**)。
+
+**验证**:cargo check --all-targets(GNU)0 错误;cargo fmt --check 绿。
+
+**T4 剩余评估**:misc 剩余 ~5074 行 ≈ app-misc 小命令(~150)+ get_tool_versions
+薄壳 + ToolInstallationReport 探测命令 + 测试(~4000)。生产代码已无 >500 行的
+同质块;剩余为命令薄壳与测试,按 Deletion Test 维持现状合理,继续拆分的边际价值低。

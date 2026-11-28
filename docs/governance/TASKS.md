@@ -27,7 +27,7 @@
 
 ## P1 — 高价值,依赖勘察报告细化
 
-### T4 `commands/misc.rs`(10952 行)拆分 `in-progress(10952→6614:+tool_versions/node_requirement 批次2;终端启动域 ~1700 行为批次3 候选)`
+### T4 `commands/misc.rs`(10952 行)拆分 `in-progress→基本收敛(10952→5074:child_process/tool_runtime/tool_lifecycle/tool_versions/terminal_launch 五域抽出;剩余=命令薄壳+app-misc 小命令+测试,Deletion Test 支持保留)`
 - 证据:剪贴板/外部 URL 校验/应用更新/便携模式/迁移结果/8 个工具的版本探测+生命周期(install/update/uninstall)/semver 解析/WSL+PowerShell 包装混在一个文件;存在 4 组 `#[cfg]` 平台重复函数(`tool_env_type_and_wsl_distro`×4、`mcode_installer_update_command`×2、`codex_installer_update_command`×2)。
 - 方向:按领域拆为 `commands/tool_lifecycle.rs`、`commands/tool_versions.rs`、`commands/app_updates.rs`、`commands/clipboard.rs` 等;`#[cfg]` 平台变体收敛为平台模块(参照 codex_desktop_platform.rs 模式)。
 - 验证:cargo check + cargo test(受本机 MSVC 缺失约束,见 README 验证矩阵)。**依赖 T0 工具链结论**。
