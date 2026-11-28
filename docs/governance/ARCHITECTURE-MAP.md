@@ -32,7 +32,9 @@ services/ (领域层, 82.9K) ──► database/ (SQLite) + store.rs (settings/s
    ├── *_config.rs 家族 (14 文件 ~25K,各工具配置文件读写)
    └── session_manager / tray / sync(s3/webdav)
 
-⚠ 已知反向引用(待治理,T6): services/→commands:: ×17, aihubmix/→commands:: ×1, proxy/→commands:: ×1
+✅ 反向引用已清零(T6 收敛,2026-11-28): services/aihubmix/proxy 生产代码对 commands 的依赖为 0;
+   commands 与 services 共同消费 tool_runtime(工具运行时)/ child_process(进程原语) /
+   services::codex_imagegen / services::global_proxy 等权威模块。
 ```
 
 ## 3. Rust 模块地图(顶层)
