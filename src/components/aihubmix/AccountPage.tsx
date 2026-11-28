@@ -179,8 +179,8 @@ export function AccountPage() {
             ))}
           </section>
           <p className="text-caption leading-6 text-fg-3">
-            在首页选择工具并添加模型分组，AIHub 会自动绑定可用的 API Key。模型可在
-            Agent 中通过 /model 切换。
+            在首页选择工具并添加模型分组，AIHub 会自动绑定可用的 API
+            Key。模型可在 Agent 中通过 /model 切换。
           </p>
         </div>
       </main>

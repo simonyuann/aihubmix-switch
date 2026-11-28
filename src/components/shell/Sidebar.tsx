@@ -30,7 +30,10 @@ import { orderAppIds } from "@/config/appConfig";
 import type { GlobalPage, SettingsSection, View } from "@/lib/navigation";
 import { isAppPage } from "@/lib/navigation";
 import { SkillsIcon } from "@/components/BrandIcons";
-import { useWalletActions, WalletPanel } from "@/components/aihubmix/WalletPanel";
+import {
+  useWalletActions,
+  WalletPanel,
+} from "@/components/aihubmix/WalletPanel";
 import { SidebarWalletCard } from "@/components/aihubmix/BalanceDisplay";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { sidebarWidth, useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
@@ -227,7 +230,9 @@ function SidebarTopBar({
             className="pointer-events-none h-5 w-5 shrink-0 rounded-md"
           />
           <span className="pointer-events-none me-auto min-w-0 leading-tight text-fg-1">
-            <span className="aihub-wordmark block text-body font-semibold">AIHub</span>
+            <span className="aihub-wordmark block text-body font-semibold">
+              AIHub
+            </span>
             <span className="block text-caption text-fg-3">Switch</span>
           </span>
           {toggleButton}
@@ -273,7 +278,9 @@ function SidebarTopBar({
             className="h-[22px] w-[22px] shrink-0 rounded-md"
           />
           <span className="min-w-0 leading-tight text-fg-1">
-            <span className="aihub-wordmark block text-body font-semibold">AIHub</span>
+            <span className="aihub-wordmark block text-body font-semibold">
+              AIHub
+            </span>
             <span className="block text-caption text-fg-3">Switch</span>
           </span>
         </span>

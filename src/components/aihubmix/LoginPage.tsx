@@ -216,7 +216,9 @@ export function LoginPage() {
       const result = await dispatch<LogoutResult>("logout");
       setError("");
       setNotice(
-        result?.logoutNotice || result?.revocationWarning || "已退出本机旧账号，请重新登录。",
+        result?.logoutNotice ||
+          result?.revocationWarning ||
+          "已退出本机旧账号，请重新登录。",
       );
     } catch (e) {
       setError(friendlyError(e, "退出账号失败，请重试。"));

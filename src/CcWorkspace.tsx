@@ -1234,7 +1234,11 @@ function CcWorkspace() {
         existingKeys,
       );
       duplicatedProvider.addToLive = false;
-    } else if (activeApp === "mcode" || activeApp === "dsh" || activeApp === "kimi") {
+    } else if (
+      activeApp === "mcode" ||
+      activeApp === "dsh" ||
+      activeApp === "kimi"
+    ) {
       // The MCode list already includes its live custom nodes; the backend
       // rejects a key that MCode itself owns.
       duplicatedProvider.providerKey = generateUniqueProviderCopyKey(

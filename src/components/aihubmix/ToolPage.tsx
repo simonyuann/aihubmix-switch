@@ -331,7 +331,10 @@ export function ToolPage({
           </p>
         )}
         {simple && (
-          <section className="aihub-tool-panel" aria-labelledby="current-tool-name">
+          <section
+            className="aihub-tool-panel"
+            aria-labelledby="current-tool-name"
+          >
             <div className="min-w-0">
               <p className="text-caption font-medium text-fg-3">当前工具</p>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -475,7 +478,8 @@ export function ToolPage({
                             keyId: card.selectedKeyId,
                             model: imageModel,
                             disabled: busy,
-                            onChange: (model) => void changeImageModel(card, model),
+                            onChange: (model) =>
+                              void changeImageModel(card, model),
                           }
                         : undefined
                     }

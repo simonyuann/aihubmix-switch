@@ -15,10 +15,10 @@
 - 证据(勘察更新):三处定义(package.json / tauri.conf.json / Cargo.toml)+ `build.yml:49-52` 在 tag 时断言一致,`prepare-desktop-release.yml`、两个 rebuild workflow 同样校验。结构性 SSOT 不成立,但有 CI 强制闸门兜底。
 - 处置:保留现状(改造成单点定义需要动 Tauri 构建,收益低);待确认项关闭。后续若版本字段漂移由 CI 抓住。
 
-### T2b 文档叙事与版本记录归一 `open(部分待确认)`
-- 证据(勘察):① README.md(fork 产品叙事,自述"重构版本 1.1.0"实为 1.2.1)与 README_ZH/DE/JA.md(上游 cc-switch 叙事,badge 指向上游仓库)并存且**内容矛盾**;② CHANGELOG.md 842KB 为上游遗留(顶部 4.0.20,无任何 1.2.x 条目),真实 release notes SSOT 是 `docs/releases/v*.md`(36 篇),CHANGELOG 不在任何发布链路;③ Node 版本三处漂移(`.node-version` 22.12.0 vs CI node 24 vs README "Node.js 20+");④ CONTRIBUTING.md 内部英文+中文双份重复;⑤ `CC_SWITCH_TEST_HOME` 文档散布 4 处。
-- 方向:上游遗留文档显式归档或移除(待确认 P-ADR-004);README 版本自述修正;Node 版本统一单一来源(.node-version 或 CI,README 引用之);CONTRIBUTING 单语化。
-- 验证:文档一致性检查脚本(可选);人工复核。
+### T2b 文档叙事与版本记录归一 `in-progress(其余待确认 P-ADR-004)`
+- 证据(勘察):① README.md 与 README_ZH/DE/JA.md(上游 cc-switch 叙事)并存且叙事矛盾;② CHANGELOG.md 842KB 为上游遗留(无任何 1.2.x 条目),真实 release notes SSOT 是 `docs/releases/v*.md`,CHANGELOG 不在任何发布链路;③ ~~Node 版本三处漂移~~ → **已归一(bad4dc7)**:`.node-version` 22.12.0→24(与 CI 一致),README 最低要求同步;④ CONTRIBUTING.md 内部英文+中文双份重复;⑤ `CC_SWITCH_TEST_HOME` 文档散布 4 处。
+- 修正:勘察初报"README 自述 1.1.0 为版本错误"不成立——`README.md:5` 的"重构版本为 1.1.0"是 fork 基线的历史陈述(源码基线 my-cc 42ef634),非当前版本声明,不改。
+- 待确认(见 DECISIONS P-ADR-004):上游遗留文档(README_ZH/DE/JA、CHANGELOG.md、CONTRIBUTING 双语重复)的处置属于产品/品牌决策。
 
 ### T3 前端 invoke 调用归一 `open`
 - 证据:待勘察(前端代理报告中量化 lib/api 封装外的散落 `invoke(` 调用)。
