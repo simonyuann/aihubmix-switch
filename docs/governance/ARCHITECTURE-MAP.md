@@ -9,6 +9,13 @@
 - **后端**:Rust / Tauri 2(约 33 万行,375 文件),本地 SQLite(database/)、内置代理(proxy/)、系统托盘(tray)。
 - **测试**:vitest(前端组件/集成)+ Rust 文件内 `mod tests` + 少量 node 脚本测试(.mjs)与 python 验证脚本。
 - **命令面**:`lib.rs` 单个 `generate_handler!` 注册 **378 个 invoke 命令**。
+- **血统**:本仓库为 `farion1231/cc-switch` 的专属客户端 fork(Cargo 包名仍为 `cc-switch`),README.md 是 fork 叙事,README_ZH/DE/JA.md 与 CHANGELOG.md 是上游遗留(处置待确认 P-ADR-004)。
+
+## 1.5 CI/自动化防回归现状
+
+- `build.yml`:python unittest×2 组 + pnpm typecheck + vitest + node .mjs 测试 + build:renderer + cargo fmt --check + clippy -D warnings + cargo test;tag 时校验版本三处一致;bundle 4 平台;release 资产校验。
+- `rebuild-desktop-release.yml`/`rebuild-intel-release.yml`/`prepare-desktop-release.yml`(手动补构建,与 build.yml 的 bundle 步骤复制粘贴级重复,T13)、`windows-qa.yml`、`refresh-openai-catalog.yml`(周更)。
+- **缺口**:无 JS lint、无架构/依赖方向检查、prettier 未进 CI、5 个测试文件在 Windows 本地 flaky(T17)。
 
 ## 2. 系统拓扑与依赖方向(现状骨架)
 
