@@ -241,10 +241,15 @@ export const settingsApi = {
   },
 
   async openExternal(url: string): Promise<void> {
+    // 白名单与后端 validate_external_url 一致:http/https(需 host)/mailto。
+    // 后端仍是权威校验方,这里仅前置拦截明显非法的调用。
     try {
       const u = new URL(url);
       const scheme = u.protocol.replace(":", "").toLowerCase();
-      if (scheme !== "http" && scheme !== "https") {
+      const allowed =
+        scheme === "mailto" ||
+        ((scheme === "http" || scheme === "https") && u.hostname !== "");
+      if (!allowed) {
         throw new Error("Unsupported URL scheme");
       }
     } catch {
