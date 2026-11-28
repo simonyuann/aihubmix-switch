@@ -313,3 +313,27 @@ charCode 构造字符串绕过。
 迁移后 en/ja/tr/zh-TW 的值只能先放 zh 原文(无现成翻译;硬编码本就只支持中文,
 无回退损失),工作量集中在 key 命名与 5 文件落键 + 组件 useTranslation 改造。
 建议拆 ToolPage(91 处,最大文件)为独立批次,其余 aihubmix 文件按密度分批。
+
+
+## Round 16 — T22 ToolPage 子批(2026-11-28)
+
+**提交**:`9d59364`。
+
+**内容**:ToolPage.tsx 91 处硬编码中文 → `toolPage.*` 89 keys × 5 locale
+(title/action×21/status×15/dialog×16/notice×15/error×8/empty×3/aria×8 等);
+zh=原文,en/ja/tr/zh-TW 以 zh 原文回退(硬编码本就只支持中文,无回退损失);
+插值模板(notice.switchedTo/defaultModelSet/pickModelInApp/aria.* 等)参数化;
+组件接入 useTranslation;scripts/extract-cjk.mjs(CJK 盘点工具)随批提交。
+
+**测试迁移**:dedicated-tools.test 断言改 key 形式。关键发现:仓库测试约定是
+"空资源下 t 返回 key 本身,断言 key 字符串"(DeepLink/GeneralSection/Kimi/
+McpFormModal 测试均如此);插值 aria 名在空资源下插值不生效(同名),以
+getAllBy 下标区分并注释。App.test 仅迁移 ToolPage 渲染路径的断言——
+AddProviderDialog/ApplyApiDialog 的同名按钮(平台分组/申请 API)属其他组件,
+误改已还原。
+
+**验证**:typecheck 0 错误;dedicated-tools 44/44;App.test 17/17;受影响
+测试 67/67;check:i18n 5 locale 一致(4473 keys);oxlint 0 错误;format:check 绿。
+
+**T22 剩余批次**:ClaudeDesktopControls(53)/RechargeDialog(48)/LoginPage(39)/
+CodexPluginMarketDialog(37)/其余 aihubmix 文件——同法分批,每文件一批。
