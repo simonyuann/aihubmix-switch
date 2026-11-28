@@ -81,3 +81,19 @@
 **边界记录**:linux 交叉检查被 glib/gdk 等 `-sys` 构建脚本阻塞(Windows 无 GTK dev);posix 分支为逐字搬运 + CI 最终门禁。`CommandDeadline::{remaining,timeout_error}` 因 misc 有调用者改为 pub(crate)。
 
 **T6 进度**:17+2 处反向引用 → 已闭 6 处;剩余 11 处 = R2(工具发现/执行族:detected_tool_command×3、run_detected_tool_command_with_timeout、local_tool_version)+ R3(oauth 编排×5、initialize_codex_imagegen)+ R4(proxy 类型)。
+
+## Round 6 — R2a/R2b:tool_runtime 深模块落地(2026-11-28)
+
+**提交**:`322053b`(R2a,执行族)+ `28f781f`(R2b,探测/搜索路径族)。
+
+**内容**:新增 `src-tauri/src/tool_runtime.rs`(1967 行)——工具运行时的唯一权威实现:
+- VALID_TOOLS 白名单、detected_tool_command / run_detected_tool_command_with_timeout / local_tool_version 三大执行入口
+- 工具定位(locate_default_tool / scan_cli_version / probe_path_default_version)、版本探测(try_get_version±wsl、ShellProbe)、搜索路径组装(push_unique_path/extend_from_*×8/pathext)
+- Windows PATH 注册表重组+ %VAR% 展开、cmd 批处理构造、WSL 分发执行
+- `commands/misc.rs` 10952→8742 行(-2210);**tool_runtime 对 commands 的依赖归零**(编译器驱动 9 轮迭代,scripts/extract-items.mjs 随批提交为治理工具)
+
+**T6 进度**:19 处反向引用 → **已闭 11 处**(R1×6 + R2×4+1);剩余 8 处 = R3(oauth 编排×5 + initialize_codex_imagegen)+ R4(aihubmix set_global_proxy_url×1 + proxy 类型×1)。
+
+**验证**:cargo fmt --check 绿;cargo check --all-targets(GNU)0 错误(仅存既有 agy dead_code 警告)。
+
+**方法记录**:千行级函数族迁移用"脚本提取+编译器驱动迭代"替代手工搬移——`scripts/extract-items.mjs` 按名称提取顶层项(含 cfg/doc 前缀、enum/const 边界),每轮编译错误揭示遗漏成员,直到闭包完整。教训:attr 链前向收集会误吞相邻项(本例 WslShellPreferenceInput——恰好是正确归属,核实后保留);fmt 后的 use 块格式变化会使命令行 patch 失配,须重读再改。
