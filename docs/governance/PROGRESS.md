@@ -20,3 +20,21 @@
 **验证**:见上;两个后台基线结果落地后更新本节。
 
 **结论**:治理循环可以开始;第一批可执行任务为 T1/T2/T8/T10(可验证、低风险)。
+
+### 基线补充(第一轮实测)
+
+- `pnpm test:unit`(main 状态,完整日志):**Test Files 5 failed | 286 passed (291);Tests 13 failed | 3541 passed (3554)** —— 存在 13 个**预存失败**,是后续所有重构的行为基线对照物(重构批次不得扩大该集合;完整失败清单见 `vitest-baseline-full.log` 归档,精确归因在 T-测试任务中补)。
+- `cargo check`(MSVC 路径)❌:rustc 找到的 `link.exe` 是 Git Bash 的 coreutils link(`link: extra operand ...`),本机无 MSVC Build Tools。**处置**:改用 GNU 目标工具链(`1.95.0-x86_64-pc-windows-gnu`,自带 MinGW 链接器)后台重试中——若成功则 Rust 验证能力解锁。
+- 工具链勘察报告落地,重大发现:仓库为 `farion1231/cc-switch` 的 fork(Cargo 包名仍是 cc-switch);三份死配置(已删,见 Round 1);版本 SSOT 已有 CI 闸门(T2 关闭);新增 T2b/T11-T15 任务。
+
+## Round 1 — T1 死配置归一(2026-11-28)
+
+**范围**:TASKS T1。
+
+**动作**:删除 `vite.config.mts` / `vitest.config.mts` / `tsconfig.web.json`(Tauri 模板残留,零引用,`.ts` 版本按解析顺序遮蔽);清除 `pnpm-workspace.yaml` 非法 `allowBuilds` 占位块。
+
+**验证**:`pnpm typecheck` ✅;`git show --stat` 确认 4 文件纯删除 59 行,无意外文件入提交。
+
+**提交**:`4cd65a4 build: 删除 Tauri 模板残留的死配置(vite/vitest .mts 与 tsconfig.web.json)及 pnpm-workspace 占位符`
+
+**防回归**:死配置删除后不可再生——由 `pnpm typecheck` 的 include 范围与 vite/vitest 解析顺序天然保证;不另设 lint(过度)。

@@ -6,15 +6,19 @@
 
 ## P0 — 立即可做、可验证
 
-### T1 双份构建配置归一 `open`
-- 证据:`vite.config.ts` 与 `vite.config.mts`、`vitest.config.ts` 与 `vitest.config.mts` 并存,`tsconfig.json/web/node` 三份,职责划分待勘察确认。
-- 方向:确定实际被消费的一份(查 package.json scripts / 引用),删除另一份;若两份各有用途,显式命名并写明理由。
-- 验证:tsc + vitest 全绿 + 构建脚本可用。
+### T1 双份构建配置归一 `done(4cd65a4)`
+- 证据(勘察确认):`vite.config.mts`(引用不存在的 `src/renderer`)、`vitest.config.mts`(引用不存在的 `@shared`)、`tsconfig.web.json`(include 不存在目录)均为 Tauri 模板残留;Vite/Vitest 配置解析顺序 `.ts` 先于 `.mts`,零引用。
+- 处置:三份死配置删除;`pnpm-workspace.yaml` 的 `allowBuilds`(模板占位文本,非合法字段)一并清除。
+- 验证:`pnpm typecheck` ✅;删除均为零引用纯惰性操作。
 
-### T2 版本号 Single Source of Truth `open`
-- 证据:版本出现在 `package.json`(1.2.1)、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` —— 是否手工三处同步待确认。
-- 方向:单一权威源 + 构建期校验/同步脚本(防回归约束)。
-- 验证:校验脚本对三处一致性断言;故意改错能被抓住。
+### T2 版本号 Single Source of Truth `done(已由既有 CI 覆盖,降级为监控)`
+- 证据(勘察更新):三处定义(package.json / tauri.conf.json / Cargo.toml)+ `build.yml:49-52` 在 tag 时断言一致,`prepare-desktop-release.yml`、两个 rebuild workflow 同样校验。结构性 SSOT 不成立,但有 CI 强制闸门兜底。
+- 处置:保留现状(改造成单点定义需要动 Tauri 构建,收益低);待确认项关闭。后续若版本字段漂移由 CI 抓住。
+
+### T2b 文档叙事与版本记录归一 `open(部分待确认)`
+- 证据(勘察):① README.md(fork 产品叙事,自述"重构版本 1.1.0"实为 1.2.1)与 README_ZH/DE/JA.md(上游 cc-switch 叙事,badge 指向上游仓库)并存且**内容矛盾**;② CHANGELOG.md 842KB 为上游遗留(顶部 4.0.20,无任何 1.2.x 条目),真实 release notes SSOT 是 `docs/releases/v*.md`(36 篇),CHANGELOG 不在任何发布链路;③ Node 版本三处漂移(`.node-version` 22.12.0 vs CI node 24 vs README "Node.js 20+");④ CONTRIBUTING.md 内部英文+中文双份重复;⑤ `CC_SWITCH_TEST_HOME` 文档散布 4 处。
+- 方向:上游遗留文档显式归档或移除(待确认 P-ADR-004);README 版本自述修正;Node 版本统一单一来源(.node-version 或 CI,README 引用之);CONTRIBUTING 单语化。
+- 验证:文档一致性检查脚本(可选);人工复核。
 
 ### T3 前端 invoke 调用归一 `open`
 - 证据:待勘察(前端代理报告中量化 lib/api 封装外的散落 `invoke(` 调用)。
@@ -60,10 +64,37 @@
 - 方向:脚本断言各语言 key 集合一致 + 代码引用的 key 存在。
 - 验证:脚本接入 CI。
 
+## P1.5 — 工具链勘察新增(2026-11-28 报告)
+
+### T11 prettier 配置与覆盖范围 `open`
+- 证据:有 prettier 依赖与 format scripts,**但零配置文件**(无 .prettierrc),glob 仅 `src/**`——tests/、scripts/、根配置均不在格式化范围。
+- 方向:补 `.prettierrc`(与仓库现状风格一致,避免全量 reformat 噪音)+ 扩 glob 或显式声明排除;`format:check` 进 CI。
+- 验证:format:check 通过且不产生大面积 diff。
+
+### T12 Rust 依赖归一(json5/json-five 二选一等) `open(验证受限)`
+- 证据:双 JSON5 解析器并存(`json5 0.4` 与 `json-five 0.3.1`,openclaw_config.rs 两者都碰);`serde_yaml 0.9` 上游停维护;`objc2` 双大版本并存(macOS 26 兼容 hack,Cargo.toml 有注释,需保留并说明)。
+- 方向:json-five 迁移到 json5(或反向,取特性匹配者),删另一个;objc2 双版本加注释声明为受控例外。
+- 验证:cargo check + 相关模块测试。
+
+### T13 构建工作流去重(build.yml vs rebuild-*.yml) `open`
+- 证据:两条发布路径的 bundle 步骤逐行复制粘贴(相同矩阵/脚本序列,rebuild 少 Linux);flatpak 手工路径未接任何 workflow。
+- 方向:抽取可复用 composite action(或 workflow 内 YAML anchor 等价物);flatpak 标记为手工旁路并在文档注明。
+- 验证:workflow 语法检查(actionlint 或 dry-run);下次 tag 实证。
+
+### T14 环境变量读取归一 `open(验证受限)`
+- 证据:三种前缀并存(`CC_SWITCH_`/`CCS_`/`AIHUB_`);`DSH_HOME` 4 个模块各自读取;`XDG_DATA_HOME` 4 文件重复解析;`KIMI_CODE_HOME` 3 处读取;`CC_SWITCH_TEST_HOME` 保存/恢复样板复制粘贴 4+ 份(devDep 已有 serial_test 未用于此)。
+- 方向:建 `env_resolver` 深模块(单一读取点+类型化访问器);测试 env 样板统一到 serial_test 辅助宏;前缀规范写入 DECISIONS。
+- 验证:cargo test;grep 断言单点读取。
+
+### T15 构建/发布脚本命名与注释规范化 `open`
+- 证据:scripts/ 11 个发布辅助脚本职责清晰但 generate-download-manifest.mjs 注释要求"与外部仓库 schema 手工同步"(漂移隐患);nextest.toml 声称 CI 用 cargo-nextest 但 CI 实际用 cargo test。
+- 方向:修正 nextest.toml 注释或接 nextest;schemas 同步检查脚本(低优先)。
+- 验证:人工复核 + CI 绿。
+
 ## 待勘察补充(占位)
 
 - 前端重复 UI 实现清单(设计系统一致性)— 勘察中
 - s3_sync / webdav_sync / sync_protocol 平行实现关系 — 勘察中
 - preset 数据文件(7215 行 openclaw / 4929 行 codex)与 Rust 侧 preset 的重复 — 勘察中
 - 巨型文件治理优先级列表(components 97K 行的分布)— 勘察中
-- 测试结构分片与重复 setup — 勘察中
+- 测试结构分片与重复 setup、13 个预存失败测试的归因 — 勘察中
