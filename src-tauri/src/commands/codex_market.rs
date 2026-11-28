@@ -384,7 +384,7 @@ async fn codex_cli(executable_path: Option<&str>, args: Vec<String>) -> Result<V
             command.args(&refs);
             command
         } else {
-            crate::commands::misc::detected_tool_command("codex", &refs, Duration::from_secs(8))
+            crate::tool_runtime::detected_tool_command("codex", &refs, Duration::from_secs(8))
                 .map_err(|_| "找不到可用的 Codex 命令行，请先安装或更新 Codex".to_string())?
         };
         command

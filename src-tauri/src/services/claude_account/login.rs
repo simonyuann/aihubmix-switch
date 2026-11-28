@@ -441,7 +441,7 @@ fn spawn_login(
     opener: Option<&Path>,
     opened_file: &Path,
 ) -> Result<Child, AppError> {
-    let mut cmd = crate::commands::detected_tool_command(
+    let mut cmd = crate::tool_runtime::detected_tool_command(
         "claude",
         &["auth", "login", "--claudeai"],
         LOCATE_TIMEOUT,

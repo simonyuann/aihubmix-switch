@@ -19,7 +19,7 @@ mod hermes;
 mod import_export;
 mod kimi_oauth;
 mod mcp;
-mod misc;
+pub(crate) mod misc;
 mod model_fetch;
 mod omo;
 mod omp;

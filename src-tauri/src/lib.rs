@@ -57,6 +57,7 @@ mod services;
 mod session_manager;
 mod settings;
 mod store;
+mod tool_runtime;
 
 mod tray;
 mod tray_panel;
