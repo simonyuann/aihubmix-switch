@@ -459,3 +459,19 @@ format:check 绿;depcruise 0 违规;全量 vitest **288/3540 全绿**。
 ClaudeDesktopControls 批次处理)、AccountPage(22)、ApplyApiDialog(14)、
 HomeImageModelSelect(9)、CodexMarketProgress(7)、DiagnosticReport(4)、
 friendlyError/groupBrandIcon 等小文件——体量递减,同法分批。
+
+
+## Round 23 — T22 AccountPage + ApplyApiDialog 子批(2026-11-28)
+
+**提交**:`ac2e08a`(AccountPage)+ `b2194c9`(ApplyApiDialog)。
+
+**AccountPage**:10 处 → `accountPage.*` 10 keys(title/error×4/notice/status/
+empty/dialog×2/action);apply 按钮迁入 `applyApiDialog.action.open`。
+
+**ApplyApiDialog**:14 处 → `applyApiDialog.*` 16 keys(title/description/
+label×4/placeholder/error×4/success/action×4/status);success.applied 复合
+消息参数化;API 管理→申请 API→取消 流程的测试断言 ×5 同步迁移
+(integration 测试环境确认为空资源,与组件测试一致)。
+
+**验证**:typecheck 0 错误;check:i18n 5 locale 一致(4719 keys);oxlint 0 错误;
+format:check 绿;depcruise 0 违规;api-management 3/3 + App.test 17/17。
