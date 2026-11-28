@@ -39,7 +39,7 @@ describe("API management", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "复制 开发工具" }),
     );
-    await screen.findByText("API Key 已复制");
+    await screen.findByText("accountPage.notice.keyCopied");
     expect(mocks.dispatch).toHaveBeenCalledWith("get-key", { id: 7 });
     expect(mocks.copy).toHaveBeenCalledWith("test-only-secret");
     expect(screen.queryByText("test-only-secret")).not.toBeInTheDocument();
@@ -60,10 +60,14 @@ describe("API management", () => {
     expect(mocks.dispatch.mock.calls.some(([c]) => c === "delete-key")).toBe(
       false,
     );
-    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "accountPage.action.cancel" }),
+    );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(remove);
-    const confirm = screen.getByRole("button", { name: "确认删除" });
+    const confirm = screen.getByRole("button", {
+      name: "accountPage.dialog.confirmDelete",
+    });
     fireEvent.click(confirm);
     fireEvent.click(confirm);
     expect(confirm).toBeDisabled();
@@ -90,7 +94,9 @@ describe("API management", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "删除 开发工具" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "accountPage.dialog.confirmDelete" }),
+    );
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "请刷新列表确认删除结果",
     );

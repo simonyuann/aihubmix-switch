@@ -4,10 +4,12 @@ import { AppPageHeader } from "@/components/shell/AppPageHeader";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/contexts/AccountContext";
 import { dispatch, type KeyInfo } from "@/lib/api/aihubmix";
+import { useTranslation } from "react-i18next";
 import { ApplyApiDialog } from "./ApplyApiDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { friendlyError } from "./friendlyError";
 export function AccountPage() {
+  const { t } = useTranslation();
   const { state } = useAccount();
   const [keys, setKeys] = useState<KeyInfo[]>([]);
   const [error, setError] = useState("");
@@ -27,7 +29,7 @@ export function AccountPage() {
         setKeys(value.filter((k) => k.id > 0 && !k.local));
     } catch (e) {
       if (rev === revision.current)
-        setError(friendlyError(e, "加载 API 列表失败，请重试。"));
+        setError(friendlyError(e, t("accountPage.error.loadKeys")));
     } finally {
       if (rev === revision.current) setBusy(false);
     }
@@ -49,10 +51,10 @@ export function AccountPage() {
       const value = await dispatch<string>("get-key", { id: key.id });
       if (rev !== revision.current) return;
       await navigator.clipboard.writeText(value);
-      setNotice("API Key 已复制");
+      setNotice(t("accountPage.notice.keyCopied"));
     } catch (e) {
       if (rev === revision.current)
-        setError(friendlyError(e, "复制失败，请重试。"));
+        setError(friendlyError(e, t("accountPage.error.copyFailed")));
     } finally {
       operation.current = false;
       if (rev === revision.current) setBusy(false);
@@ -75,7 +77,7 @@ export function AccountPage() {
       if (rev === revision.current) {
         setDeleting(null);
         setError(
-          `${friendlyError(e, "删除未能确认")}。请刷新列表确认删除结果后再重试。`,
+          `${friendlyError(e, t("accountPage.error.deleteUnconfirmed"))}。请刷新列表确认删除结果后再重试。`,
         );
       }
     } finally {
@@ -86,7 +88,7 @@ export function AccountPage() {
   return (
     <>
       <AppPageHeader
-        title="API 管理"
+        title={t("accountPage.title")}
         icon={<KeyRound className="h-5 w-5" />}
         actions={
           <Button disabled={busy} onClick={() => setApply(true)}>
@@ -132,7 +134,9 @@ export function AccountPage() {
             {!keys.length && (
               <div className="px-6 py-12 text-center">
                 <p className="text-body text-fg-3">
-                  {busy ? "正在加载…" : "还没有 API Key"}
+                  {busy
+                    ? t("accountPage.status.loading")
+                    : t("accountPage.empty.noKeys")}
                 </p>
                 {!busy && (
                   <Button className="mt-4" onClick={() => setApply(true)}>
@@ -186,10 +190,10 @@ export function AccountPage() {
       </main>
       <ConfirmDialog
         isOpen={deleting !== null}
-        title="删除 API Key"
+        title={t("accountPage.dialog.deleteTitle")}
         message={`确定删除「${deleting?.name ?? ""}」？删除后，使用此 Key 的工具将无法继续调用 API，此操作无法撤销。`}
-        confirmText="确认删除"
-        cancelText="取消"
+        confirmText={t("accountPage.dialog.confirmDelete")}
+        cancelText={t("accountPage.action.cancel")}
         pending={busy}
         onConfirm={() => void deleteKey()}
         onCancel={() => setDeleting(null)}

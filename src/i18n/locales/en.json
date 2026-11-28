@@ -5534,5 +5534,29 @@
         "a": "配置好分组后，在 Codex 中打开模型选择器；命令行版本也可以使用 /model。"
       }
     }
+  },
+  "accountPage": {
+    "title": "API 管理",
+    "error": {
+      "loadKeys": "加载 API 列表失败，请重试。",
+      "copyFailed": "复制失败，请重试。",
+      "deleteUnconfirmed": "删除未能确认"
+    },
+    "notice": {
+      "keyCopied": "API Key 已复制"
+    },
+    "status": {
+      "loading": "正在加载…"
+    },
+    "empty": {
+      "noKeys": "还没有 API Key"
+    },
+    "dialog": {
+      "deleteTitle": "删除 API Key",
+      "confirmDelete": "确认删除"
+    },
+    "action": {
+      "cancel": "取消"
+    }
   }
 }
