@@ -22,7 +22,7 @@
 
 ## 开发
 
-需要 Node.js 20+、pnpm 10.12.3、Rust 1.95、系统 Tauri 构建依赖。macOS 最低 12.0；Windows 使用 WebView2；Linux 需要 GTK 3、WebKitGTK 4.1、AppIndicator 与系统 Secret Service。
+需要 Node.js 24(与 CI 一致)、pnpm 10.12.3、Rust 1.95、系统 Tauri 构建依赖。macOS 最低 12.0；Windows 使用 WebView2；Linux 需要 GTK 3、WebKitGTK 4.1、AppIndicator 与系统 Secret Service。
 
 ```bash
 pnpm install --frozen-lockfile
