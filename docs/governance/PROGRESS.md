@@ -97,3 +97,25 @@
 **验证**:cargo fmt --check 绿;cargo check --all-targets(GNU)0 错误(仅存既有 agy dead_code 警告)。
 
 **方法记录**:千行级函数族迁移用"脚本提取+编译器驱动迭代"替代手工搬移——`scripts/extract-items.mjs` 按名称提取顶层项(含 cfg/doc 前缀、enum/const 边界),每轮编译错误揭示遗漏成员,直到闭包完整。教训:attr 链前向收集会误吞相邻项(本例 WslShellPreferenceInput——恰好是正确归属,核实后保留);fmt 后的 use 块格式变化会使命令行 patch 失配,须重读再改。
+
+## Round 7 — R3/R4:T6 收敛,生产反向依赖归零(2026-11-28)
+
+**提交**:`83ea7c1`(R3)+ `6a85e40`(R4)。
+
+**R3 内容**:
+1. `services/codex_imagegen.rs`(214 行):initialize/install/ImagegenPolicyPatch 及测试逐字下沉;`commands/codex_imagegen.rs` 变薄壳(命令 + DTO)。
+2. `services/global_proxy.rs`(47 行):set_global_proxy_url 编排(校验→持久化→应用)权威实现;Tauri 命令与 aihubmix auth-reset-proxy 都消费它。
+3. **勘察修正**:provider/mod.rs 的 oauth×5 调用全部位于 `mod tests`——集成测试直接调用命令层入口属合法模式,从 T6 生产反向引用清单**重分类移除**,不做无价值搬迁。教训:反向依赖清单必须区分生产/测试代码。
+
+**R4 内容**:CodexOAuthState/CopilotAuthState/XaiOAuthState 三个 newtype 从 commands 迁至各自 Manager 所在的 proxy/providers/*_auth.rs(类型与实现同址);消费方 ~10 文件改指 proxy::providers。
+
+**T6 最终状态**:**生产反向依赖 19 → 0**。
+- R1(child_process)×6 + R2(tool_runtime)×5 + R3(imagegen/global_proxy)×2 + R4(State 类型)×1 = 闭 14 处
+- oauth×5 重分类为测试代码(非熵点)
+- 依赖方向最终形态:`commands(编排) → services(领域) → {tool_runtime, child_process}(基础设施) → database/proxy`,`proxy → providers`(自包含),`aihubmix → services`。反向引用全部消除。
+
+**验证**:cargo check --all-targets(GNU)0 错误;cargo fmt --check 绿。
+
+**插曲**:R4 迁移时 extract-items.mjs 对单行分号结尾的元组结构体按列 0 `}` 找边界导致过采(把后续 Tauri 命令一起搬走)——通过 /tmp 提取块比对发现并恢复;脚本仍需对分号结尾 struct 加边界规则(TODO:脚本补丁,下批处理)。
+
+**下一步**:T4(misc 剩余 ~8700 行:生命周期/更新/剪贴板按域拆分)、T14(env 读取归一)、T5(config 家族,待 P-ADR-002)。

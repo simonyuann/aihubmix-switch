@@ -37,8 +37,9 @@
 - 方向:抽"tool-config 引擎"深模块(定位家目录、路径约定、受管块读写、迁移检测),每工具退化为薄声明(路径模板 + 工具特有语义,如 codex 的 `experimental_bearer_token`、gemini 的 `.env` 管理块)。分工具分批迁移,每批迁移后删除旧实现。
 - 验证:cargo check + cargo test;每工具迁移都有对应 Rust 测试覆盖行为(读/写/迁移)。
 
-### T6 跨层引用治理 `open(验证受限)`
-- 证据:`services/ → crate::commands::` 17 处;`aihubmix/ → commands::` 1 处;`proxy/ → commands::` 1 处。依赖方向应为 commands(编排层)→ services(领域层)。
+### T6 跨层引用治理 `done(收敛,生产反向依赖 0)`
+- 证据:`services/ → crate::commands::` 17 处(其中 5 处为测试代码,重分类);`aihubmix/ → commands::` 1 处;`proxy/ → commands::` 1 处(类型)。
+- 结果:R1 child_process(6)+ R2 tool_runtime(5)+ R3 codex_imagegen/global_proxy(2)+ R4 OAuth State 类型(1)共闭 14 处;**services/aihubmix/proxy 生产代码对 commands 的依赖全部归零**。
 - 方向:逐处反转依赖:把被调逻辑下沉 services,或抽出共享内核模块;消灭 services 对 commands 的依赖。
 - 验证:cargo check + 新增依赖方向静态检查(见 T9)。
 

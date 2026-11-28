@@ -42,6 +42,9 @@ for (let i = 0; i < lines.length; i++) {
         break;
       }
     }
+  } else if (lines[i].trimEnd().endsWith(";")) {
+    // 单行元组 struct/enum 以分号结尾
+    end = i;
   } else {
     for (let j = i + 1; j < lines.length; j++) {
       if (lines[j] === "}") {
