@@ -541,7 +541,7 @@ App.test 断言同步(设置/公告/帮助与答疑/通用设置/关于与更新
   `CCS_`(9)legacy 只读不得新增。T14 尾巴关闭。
 
 **验证**:typecheck 0;check:i18n 4775×5 一致;App.test 17/17;
-全量 vitest 见收尾门禁记录。
+全量 vitest **288/3540 全绿**(IconPicker flaky 未复现,与归因一致);depcruise 0 违规;format:check 绿。
 
 **P-ADR 剩余**:P-ADR-001(治理文档合并策略)、P-ADR-003(misc.rs 目录
 形态,倾向已记录)——均不阻塞任何任务,留待合并前定夺。
